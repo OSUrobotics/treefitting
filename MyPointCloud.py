@@ -275,7 +275,7 @@ def load(in_fname):
 if __name__ == '__main__':
     b_read = False
 
-    name_file = "point_clouds/bag_0/cloud_final.pcd"
+    name_file = "point_clouds/bag_3/cloud_final.pcd"
     #  name_file = "final_fused.pcd"
     fname_read = "data/MyPointCloud.pickle"
     if b_read:

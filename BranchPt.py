@@ -5,29 +5,31 @@ from scipy.optimize import fmin
 from test_pts import best_pts, bad_pts
 from list_read_write import ReadWrite
 from PtsForFit import PtsForFit
+from pandas import DataFrame
+from sklearn.cluster import KMeans
 
-
-class Cylinder(ReadWrite):
+class BranchPt(ReadWrite):
     def __init__(self):
-        super(Cylinder, self). __init__("CYLINDER")
+        super(BranchPt, self). __init__("BRANCHPT")
 
         self.data = PtsForFit()
-        self.axis_vec = np.array([0, 1, 0])
-        self.x_vec = np.array([1, 0, 0])
-        self.y_vec = np.array([0, 0, 1])
-        self.height = 1
-        self.radius = 0.1
+        self.branch_vecs = []
+        self.pts_in_branch = []
+        self.branch_radius = []
+
+        # For building branches - radius of sphere and where to clip
+        self.sphere_radius = 0.01
+        self.clip_radius = 0.015
 
         # From err_fit
         self.radius_err = 1e6
-        self.percentage_out_err = 1e6
         self.percentage_in_err = 1e6
-        self.height_distributon_err = 1e6
+        self.percentage_not_branch_err = 1e6
         self.err = 1e6
 
         # Set in various optimization routines
-        self.fit_radius_2d_err = 1e6
-        self.optimize_ang_err = 1e6
+        self.fit_branches_err = 1e6
+        self.optimize_angs_err = 1e6
 
     def pt_center(self):
         return self.data.pt_center
@@ -41,32 +43,6 @@ class Cylinder(ReadWrite):
     def set_fit_pts(self, in_pt_id, ids, all_pts):
         self.data.set_fit_pts(in_pt_id, ids, all_pts)
 
-    def fit_radius(self):
-        """
-        Project down into the plane and along the main vector, then fit a circle
-        Sets the center point, vectors, height, and radius
-        :return: error of the fit
-        """
-        height = []
-        xy = []
-        for p in self.data.pts:
-            d = p - self.data.pt_center
-            height.append(np.dot(d, self.axis_vec))
-            vec_xy = d - self.axis_vec * height[-1]
-            xy.append([np.dot(vec_xy, self.x_vec), np.dot(vec_xy, self.y_vec)])
-
-        # Fit circle to projected points
-        (pt_center_2d, radius_2d, self.fit_radius_2d_err) = self.data.fit_circle(xy, b_ret_err=True)
-        self.radius = radius_2d
-        self.height = max(height) - min(height)
-
-        # Move the center point to the middle height-wise and by the detected circle center
-        median_height = np.mean(height)
-        self.data.pt_center = self.data.pt_center + median_height * self.axis_vec
-        self.data.pt_center = self.data.pt_center + pt_center_2d[0] * self.x_vec + pt_center_2d[1] * self.y_vec
-
-        return self.fit_radius_2d_err
-
     def pca_ratio(self):
         return self.data.pca_ratio()
 
@@ -76,7 +52,7 @@ class Cylinder(ReadWrite):
     def score_pca(self, pca_ratio=7, pca_min=1.5, pca_max=35):
         return self.data.score_pca(pca_ratio, pca_min, pca_max)
 
-    def fit_pca(self):
+    def fit_pca(self, min_radius):
         """
         PCA fit to the points
         Sets axis/x y vecs
@@ -84,20 +60,90 @@ class Cylinder(ReadWrite):
         """
         self.data.fit_pca()
 
-        self.axis_vec = self.data.pca_vecs[2]
-        self.x_vec = self.data.pca_vecs[0]
-        self.y_vec = self.data.pca_vecs[1]
+        self.branch_vecs = []
+        self.branch_radius = []
+        self.pts_in_branch = []
 
-        #  if abs(self.axis_vec[1]) > 0.1:
-        #      for i in range(0, 3):
-        #          print("{0:.6f} {1:.6f} {2:.6f}".format(np.median(shift_data[:, i]), np.min(shift_data[:, i]), np.max(shift_data[:, i])))
-        # Decent guess for the radius
-        self.radius = np.sqrt(self.data.pca_vals[1])
-
-        # ...same for height
-        self.height = np.sqrt(self.data.pca_vals[2])
+        radii = []
+        for p in self.data.pts:
+            radii.append(np.linalg.norm(p - self.data.pt_center))
+        self.sphere_radius = max(radii)
+        self.clip_radius = max(min_radius, np.mean(radii) - np.std(radii))
 
         return self.data.pca_err
+
+    def fit_branch(self, axis_vec, ids_covered, max_radius):
+        """
+        Project down into the plane and along the main vector, then fit a circle
+        Assumes points that are "inside" the branch are already marked as covered
+        Only adds points that are within max_radius of the axis
+
+        :param: axis_vec The vector to try
+        :param: ids_covered The ids that are already covered/too close
+        :param: max_radius - don't use points outside of this radius
+        :return: Returns the covered points, the radius of the fit, and the error of the fit
+        """
+        xy = []
+        ids_in_branch = [False for i in range(0, len(self.data.pts))]
+        for i, p in enumerate(self.data.pts):
+            if ids_covered[i] is True:
+                continue
+
+            (t, d) = self.data.proj_line_seg(p, axis_vec)
+
+            if d < max_radius:
+                ids_in_branch[i] = True
+                h = np.dot(d, axis_vec)
+                vec_xy = d - self.axis_vec * t
+                xy.append([np.dot(vec_xy, self.x_vec), np.dot(vec_xy, self.y_vec)])
+
+        # Fit circle to projected points
+        (_, radius_2d, fit_radius_2d_err) = self.data.fit_circle(xy, b_ret_err=True)
+
+        return ids_in_branch, radius_2d, fit_radius_2d_err
+
+    def fit_branches(self, min_radius, max_radius):
+        ids_covered = []
+
+        sphere = []
+        for p in self.data.pts:
+            vec = p - self.data.pt_center
+            d = np.linalg.norm(vec)
+            if d < self.clip_radius:
+                ids_covered.append(True)
+            else:
+                ids_covered.append(False)
+                vec = vec / d
+                sphere.append(vec)
+
+        sphere = np.array(sphere)
+        sphere_centers = KMeans(n_clusters=4, random_state=0).fit(sphere)
+
+        self.branch_vecs = []
+        self.pts_in_branch = []
+        self.branch_radius = []
+        while np.count_nonzero(ids_covered) < len(self.data.pts):
+            axis_vec = sphere_centers.clusters[0]
+            axis_vec /= np.linalg.norm(axis_vec)
+
+            ids_in_branch, radius_2d, fit_radius_2d_err = self.fit_branch(axis_vec, ids_covered, max_radius)
+            if np.count_nonzero(ids_in_branch) < 10:
+                continue
+            if radius_2d < min_radius or radius_2d > max_radius:
+                continue
+
+            for i, v in enumerate(ids_in_branch):
+                if v == True:
+                    ids_covered[i] = True
+            self.branch_vecs.append(axis_vec)
+            self.pts_in_branch.append(ids_covered)
+            self.branch_radius.append(radius_2d)
+
+        if len(self.branch_vecs) < 3:
+            return 1e6
+
+        self.fit_branches_err = self.branch_pt_fit_err(min_radius, max_radius)
+        return self.fit_branches_err
 
     @staticmethod
     def cyl_err(xs, cylinder, ref_vecs, radius_min, radius_max):
@@ -131,17 +177,22 @@ class Cylinder(ReadWrite):
         print("{0:0.4f} {1:0.4f} r in {2} r out {2}".format(err_proj, err_h, r_in, r_out))
         return err_proj + err_h + r_in / len(cylinder.data.pts) + r_out / len(cylinder.data.pts)
 
-    def err_fit(self, in_rad_min, in_rad_max):
+    def branch_pt_fit_err(self, in_rad_min, in_rad_max):
         self.radius_err = 0
 
-        n_bins_height = [0, 0, 0, 0]
-        height_div = self.height / len(n_bins_height)
-        height_mid = self.height / 2.0
-        count_inside = 0
-        count_outside = 0
+        count_not_in_branch = 0
         radius_span = in_rad_max - in_rad_min
         for p in self.data.pts:
-            (h, r) = self.data.proj_line_seg(p, self.axis_vec)
+
+            radii = []
+            height = []
+            for bi, b in enumerate(self.branch_vecs):
+                (h, r) = self.data.proj_line_seg(p, self.axis_vec)
+                radii.append(r)
+                height.append(h)
+
+
+
             bin_height = int(min(max(0, np.floor((h + height_mid) / height_div)), 3))
             n_bins_height[bin_height] += 1
 
