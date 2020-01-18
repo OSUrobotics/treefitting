@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from numpy import ndarray, array, zeros
 
 class ReadWrite:
     def __init__(self, name):
@@ -62,7 +63,6 @@ class ReadWrite:
         method_name = vals[0].strip('[,]\n')
         ret_list = []
         n_read = 0
-        type_check = None
 
         try:
             check_type = vals[1].split()
@@ -70,7 +70,13 @@ class ReadWrite:
             type_check = check_type[0]
             if type_check == "dict":
                 ret_list = {}
-            elif type_check != "list":
+            elif type_check == "ndarray":
+                dim_two = int(check_type[2])
+                if dim_two is 0:
+                    ret_list = array([0 for _ in range(0, n_read)])
+                else:
+                    ret_list = zeros([n_read, dim_two])
+            elif not type_check == "list":
                 raise ValueError
         except (ValueError, IndexError):
             try:
@@ -79,6 +85,35 @@ class ReadWrite:
                 ret_list = []
 
         return method_name, n_read, ret_list
+
+    def write_class_member(self, fid, member_name, member_value):
+        """
+        :type fid: file
+        :param fid: file name
+        :param member_name: Name of class member
+        :param member_value: Value of class member
+        :return: None
+        """
+        # Dictionary
+        if isinstance(member_value, dict):
+            fid.write("{0} dict {1}\n".format(member_name, len(member_value)))
+            for k, v in member_value.items():
+                fid.write(" {0} {1}\n".format(k, v))
+        elif isinstance(member_value, list):
+            # list
+            fid.write("{0} list {1}\n".format(member_name, len(member_value)))
+            fid.write(" {0}\n".format(member_value))
+        elif isinstance(member_value, ndarray):
+            # ndarray
+            dims = member_value.shape
+            try:
+                fid.write("{0} ndarray {1} {2}\n".format(member_name, dims[0], dims[1]))
+            except IndexError:
+                fid.write("{0} ndarray {1} 0\n".format(member_name, dims[0]))
+            fid.write(" {0}\n".format(member_value))
+        else:
+            # Single element
+            fid.write("{0} {1}\n".format(member_name, member_value))
 
     def write_class_members(self, fid, dir_self, class_name, exclude_list=None):
         """
@@ -101,18 +136,7 @@ class ReadWrite:
                 continue
 
             atr = getattr(self, mem_name)
-            # Dictionary
-            if isinstance(atr, dict):
-                fid.write("{0} dict {1}\n".format(mem_name, len(atr)))
-                for k, v in atr.items():
-                    fid.write(" {0} {1}\n".format(k, v))
-            elif isinstance(atr, list):
-                # list
-                fid.write("{0} list {1}\n".format(mem_name, len(atr)))
-                fid.write(" {0}\n".format(atr))
-            else:
-                # Single element
-                fid.write("{0} {1}\n".format(mem_name, atr))
+            self.write_class_member(fid, mem_name, atr)
 
     def write_check(self, fid):
         self.write_header(fid)
@@ -138,6 +162,16 @@ class ReadWrite:
                     if n_read != len(getattr(self, method_name)):
                         raise ValueError("List size not what is written to file {0} {1}".foramt(n_read, len(vals)))
                     n_read = 0
+                elif isinstance(vals, ndarray):
+                    if len(vals.shape) == 1:
+                        vals_row = array(self.get_vals_only(l_str, n_read))
+                        vals = array(vals_row[0])
+                        setattr(self, method_name, vals)
+                        n_read = 0
+                    else:
+                        vals_row = array(self.get_vals_only(l_str, n_read))
+                        vals[vals.shape[1] - n_read] = vals_row[0]
+                        n_read = n_read - 1
                 elif isinstance(vals, dict):
                     key_value_str = l_str.split(maxsplit=1)
                     key_val = self.get_vals_only(key_value_str[0])
@@ -170,6 +204,8 @@ if __name__ == '__main__':
     rw.dict_val[0] = "hello"
     rw.dict_val[1] = 1
     rw.dict_val[2] = [1, 2, 3]
+    rw.ndarray_val = array([10, 11.2, 12])
+    rw.ndarray_mat_val = array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
     with open("data/RWCheck.txt", "w") as f:
         rw.write_check(f)
@@ -180,5 +216,21 @@ if __name__ == '__main__':
 
     for d in dir(rw):
         if not hasattr(ReadWrite, d):
-            if getattr(rw, d) != getattr(rw_check, d):
+            if isinstance(getattr(rw, d), ndarray):
+                v1 = getattr(rw, d)
+                v2 = getattr(rw_check, d)
+                if v1.shape != v2.shape:
+                    raise ValueError("Read Write check failed, attribute {0}".format(d))
+
+                try:
+                    for i in range(0, len(v1)):
+                        for j, v in enumerate(v1[i]):
+                            if v != v2[i, j]:
+                                raise ValueError("Read Write check failed, attribute {0}".format(d))
+                except TypeError:
+                    for i, v in enumerate(v1):
+                        if v != v2[i]:
+                            raise ValueError("Read Write check failed, attribute {0}".format(d))
+
+            elif getattr(rw, d) != getattr(rw_check, d):
                 raise ValueError("Read Write check failed, attribute {0}".format(d))
