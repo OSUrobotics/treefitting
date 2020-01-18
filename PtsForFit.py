@@ -3,7 +3,7 @@
 import numpy as np
 from list_read_write import ReadWrite
 from scipy.optimize import fmin
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
 from test_pts import radius_and_height
 
 
@@ -145,7 +145,7 @@ class PtsForFit(ReadWrite):
         :param order: Which axes to rotate around. Number of letters should match euler_angs
         :return:
         """
-        rot_matrix = R.from_euler(order, euler_angs, degrees=False)
+        rot_matrix = Rotation.from_euler(order, euler_angs, degrees=False)
 
         try:
             ref_vecs = rot_matrix.as_dcm() @ ref_vecs
@@ -221,40 +221,9 @@ class PtsForFit(ReadWrite):
         if b_check_header:
             self.check_header(fid)
 
-        b_in_pts = False
-        pt_index = 0
-        n_pts = 0
-        b_found_footer = False
-        for l in fid:
-            if self.check_footer(l, b_assert=False):
-                b_found_footer = True
-                break
+        self.read_class_members(fid)
 
-            if b_in_pts is False:
-                method_name, vals = self.get_class_member(l)
-                if method_name == "pts":
-                    n_pts = int(vals[0])
-                    self.pts = np.zeros([n_pts, 3])
-                    b_in_pts = True
-                elif len(vals) == 1:
-                    setattr(self, method_name, vals[0])
-                elif method_name == "pts_ids":
-                    setattr(self, method_name, vals)
-                elif len(vals) == 3:
-                    val_as_ndarray = np.array(vals)
-                    setattr(self, method_name, val_as_ndarray)
-                else:
-                    raise ValueError("Unknown Cylinder read {0} {1}".format(method_name, vals))
-            else:
-                vals = self.get_vals_only(l)
-                self.pts[pt_index] = vals
-                pt_index += 1
-                if pt_index == n_pts:
-                    b_in_pts = False
-
-        if b_found_footer is False:
-            raise ValueError("Bad Pts for Fit end read")
-
+        # read in the points if we don't have them
         if len(self.pts) == 0 and len(self.pts_ids) > 0:
             try:
                 self.pts = np.ndarray([len(self.pts_ids), 3])
@@ -265,11 +234,10 @@ class PtsForFit(ReadWrite):
 
     def write(self, fid, write_pts=False):
         self.write_header(fid)
-        self.write_class_members(fid, dir(self), PtsForFit, ["pts"])
-        if write_pts is True:
-            fid.write("pts {0}\n".format(len(self.pts_ids)))
-            for p in self.pts:
-                fid.write("{0}\n".format(p))
+        exclude_lst = []
+        if write_pts is False:
+            exclude_lst.append("pts")
+        self.write_class_members(fid, dir(self), PtsForFit, exclude_lst)
         self.write_footer(fid)
 
     # Debugging/self-check routines
@@ -331,7 +299,7 @@ class PtsForFit(ReadWrite):
                 if b_random_height:
                     z = zc + np.random.uniform(-h/2, h/2)
                 else:
-                    z = zc - h/2 + (n_rings/9.0) * (h) + np.random.uniform(low=-y_noise/2, high=y_noise/2)
+                    z = zc - h / 2 + (n_rings/9.0) * h + np.random.uniform(low=-y_noise / 2, high=y_noise / 2)
 
                 pts_ret.pts[i_count] = np.array([xc + p[0], yc + p[1], z])
                 i_count += 1
@@ -412,3 +380,45 @@ if __name__ == '__main__':
 
     PtsForFit.get_pca_ratio_cylinder(radii["radius_min"], radii["radius_max"], 4 * radii["radius_min"])
     PtsForFit.get_pca_ratio_cylinder(radii["radius_min"], radii["radius_max"], 4 * radii["radius_max"])
+
+    pts_rw = PtsForFit()
+    pts_3d = PtsForFit.make_circle(0.1)
+    pts_rw.set_fit_pts(0, range(0, len(pts_3d)), pts_3d)
+
+    # Check read/write with not writing points
+    fname_check = "data/pts_for_fit.txt"
+    with open(fname_check, "w") as fid:
+        pts_rw.write(fid, False)
+
+    pts_rw_check = PtsForFit()
+    with open(fname_check, "r") as fid:
+        pts_rw_check.read(fid, pts_3d, True)
+
+    for d in dir(pts_rw):
+        if not hasattr(PtsForFit, d):
+            if isinstance(getattr(pts_rw, d), np.ndarray):
+                v1 = getattr(pts_rw, d)
+                v2 = getattr(pts_rw_check, d)
+                if v1.shape != v2.shape:
+                    raise ValueError("PtsForFit Read Write check failed, attribute {0}".format(d))
+
+                try:
+                    for i in range(0, len(v1)):
+                        for j, v in enumerate(v1[i]):
+                            if v != v2[i, j]:
+                                raise ValueError("PtsForFit Read Write check failed, attribute {0}".format(d))
+                except TypeError:
+                    for i, v in enumerate(v1):
+                        if v != v2[i]:
+                            raise ValueError("PtsForFit Read Write check failed, attribute {0}".format(d))
+
+            elif getattr(pts_rw, d) != getattr(pts_rw_check, d):
+                raise ValueError("PtsForFit Read Write check failed, attribute {0}".format(d))
+
+    # Check read/write with  writing points
+    with open(fname_check, "w") as fid:
+        pts_rw.write(fid, True)
+
+    pts_rw_check = PtsForFit()
+    with open(fname_check, "r") as fid:
+        pts_rw_check.read(fid, None, True)
