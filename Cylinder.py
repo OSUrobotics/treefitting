@@ -197,7 +197,7 @@ class Cylinder(ReadWrite):
         return self.err
 
     def check(self):
-        return self.data.check_vectors()
+        return self.data.check_vectors(np.array([self.x_vec, self.y_vec, self.axis_vec]))
 
     def __str__(self):
         if hasattr(self, "id"):
@@ -225,33 +225,15 @@ class Cylinder(ReadWrite):
 
     def read(self, fid, all_pts=None):
         self.check_header(fid)
-
-        b_found_footer = False
-        for l in fid:
-            if self.check_footer(l, b_assert=False):
-                b_found_footer = True
-                break
-
-            method_name, vals = self.get_class_member(l)
-            if len(vals) == 0:
-                if not l.startswith(self.data.header_name):
-                    raise ValueError("Header incorrect on file read {0}".format(self.data.header_name))
-                self.data.read(fid, all_pts, b_check_header=False)
-            elif len(vals) == 1:
-                setattr(self, method_name, vals[0])
-            elif len(vals) == 3:
-                val_as_ndarray = np.array(vals)
-                setattr(self, method_name, val_as_ndarray)
-            else:
-                raise ValueError("Unknown Cylinder read {0} {1}".format(method_name, vals))
-
-        if b_found_footer is False:
-            raise ValueError("Bad Cylinder end read")
+        self.read_class_members(fid, [self.data.header_name])
+        self.data.read(fid, all_pts, b_check_header=False)
+        l_str = fid.readline()
+        self.check_footer(l_str, b_assert=True)
 
     def write(self, fid, write_pts=False):
         self.write_header(fid)
         self.write_class_members(fid, dir(self), Cylinder, ["data"])
-        self.data.write(write_pts)
+        self.data.write(fid, write_pts)
         self.write_footer(fid)
 
     @staticmethod
@@ -261,7 +243,7 @@ class Cylinder(ReadWrite):
         z_eps = eps
         x_eps = 20 * eps
         y_eps = eps
-        ang_eps = np.pi /6
+        ang_eps = np.pi / 6
         if b_random_height is True:
             z_eps = 0.015
             x_eps *= 5
@@ -318,7 +300,6 @@ class Cylinder(ReadWrite):
         yerr = pt_center_err[1]
         zerr = pt_center_err[2]
         rerr = cyl_fit.radius - in_cyl.radius
-        z_ang_err = np.arccos(abs(np.dot(cyl_fit.axis_vec, [0, 0, 1])))
         if abs(xerr) > x_eps or abs(yerr) > y_eps or abs(zerr) > z_eps or abs(rerr) > eps:
             print("Bad circle fit radius 2 {0:.6f} {1:.6f} {2:.6f} {3:.6f}".format(xerr, yerr, zerr, rerr))
 
@@ -356,6 +337,15 @@ if __name__ == '__main__':
     for i in range(0, 10):
         Cylinder.check_cylinder_fits(rad_min, rad_max, in_height=height_max)
     """
+
+    cyl_rw = Cylinder()
+    fname_check = "data/cyl_check_rw.txt"
+    with open(fname_check, "w") as fid:
+        cyl_rw.write(fid, False)
+
+    cyl_rw_check = Cylinder()
+    with open(fname_check, "r") as fid:
+        cyl_rw_check.read(fid, all_pts=None)
 
     cyl_pts = best_pts()
     cyl_pts.update(bad_pts())
