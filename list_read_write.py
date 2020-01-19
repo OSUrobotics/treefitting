@@ -143,11 +143,11 @@ class ReadWrite:
         self.write_class_members(fid, dir(self), ReadWrite)
         self.write_footer(fid)
 
-    def read_class_members(self, fid):
+    def read_class_members(self, fid, exclude_list=None):
         b_found_footer = False
         n_read = 0
         vals = []
-        method_name = ""
+        member_name = ""
         for l_str in fid:
             if self.check_footer(l_str, b_assert=False):
                 b_found_footer = True
@@ -156,17 +156,17 @@ class ReadWrite:
                 if isinstance(vals, list):
                     vals = self.get_vals_only(l_str, n_read)
                     if len(vals) != n_read:
-                        setattr(self, method_name, vals[0])
+                        setattr(self, member_name, vals[0])
                     else:
-                        setattr(self, method_name, vals)
-                    if n_read != len(getattr(self, method_name)):
+                        setattr(self, member_name, vals)
+                    if n_read != len(getattr(self, member_name)):
                         raise ValueError("List size not what is written to file {0} {1}".foramt(n_read, len(vals)))
                     n_read = 0
                 elif isinstance(vals, ndarray):
                     if len(vals.shape) == 1:
                         vals_row = array(self.get_vals_only(l_str, n_read))
                         vals = array(vals_row[0])
-                        setattr(self, method_name, vals)
+                        setattr(self, member_name, vals)
                         n_read = 0
                     else:
                         vals_row = array(self.get_vals_only(l_str, n_read))
@@ -179,12 +179,15 @@ class ReadWrite:
                     vals[key_val] = item_val
                     n_read = n_read - 1
                     if n_read == 0:
-                        setattr(self, method_name, vals)
+                        setattr(self, member_name, vals)
             else:
-                method_name, n_read, vals = self.get_class_member(l_str)
-                setattr(self, method_name, vals)
+                member_name, n_read, vals = self.get_class_member(l_str)
+                if exclude_list and member_name in exclude_list:
+                    return member_name, n_read, vals
+                setattr(self, member_name, vals)
         if b_found_footer == False:
             raise ValueError("Did not find footer")
+        return member_name, n_read, vals
 
     def read_check(self, fid):
         self.check_header(fid)
