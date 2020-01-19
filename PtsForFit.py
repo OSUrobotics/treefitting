@@ -386,7 +386,7 @@ if __name__ == '__main__':
     pts_rw.set_fit_pts(0, range(0, len(pts_3d)), pts_3d)
 
     # Check read/write with not writing points
-    fname_check = "data/pts_for_fit.txt"
+    fname_check = "data/pts_for_fit_check_rw.txt"
     with open(fname_check, "w") as fid:
         pts_rw.write(fid, False)
 
