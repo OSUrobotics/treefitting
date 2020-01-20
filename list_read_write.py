@@ -108,9 +108,12 @@ class ReadWrite:
             dims = member_value.shape
             try:
                 fid.write("{0} ndarray {1} {2}\n".format(member_name, dims[0], dims[1]))
+                # Otherwise it writes out ...
+                for v in member_value:
+                    fid.write(" {0}\n".format(v))
             except IndexError:
                 fid.write("{0} ndarray {1} 0\n".format(member_name, dims[0]))
-            fid.write(" {0}\n".format(member_value))
+                fid.write(" {0}\n".format(member_value))
         else:
             # Single element
             fid.write("{0} {1}\n".format(member_name, member_value))
