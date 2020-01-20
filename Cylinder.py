@@ -126,9 +126,11 @@ class Cylinder(ReadWrite):
         if proj_height < cylinder.height:
             err_h = np.power(1.0 - proj_height / cylinder.height, 2)
 
+        """
         for x in xs:
             print("{0:0.4f} ".format(x), end='')
         print("{0:0.4f} {1:0.4f} r in {2} r out {2}".format(err_proj, err_h, r_in, r_out))
+        """
         return err_proj + err_h + r_in / len(cylinder.data.pts) + r_out / len(cylinder.data.pts)
 
     def err_fit(self, in_rad_min, in_rad_max):

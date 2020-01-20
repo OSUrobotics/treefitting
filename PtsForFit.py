@@ -193,6 +193,9 @@ class PtsForFit(ReadWrite):
         if should_be_identity is False:
             print("Matrix not rotation: identity check failed")
             print(vecs)
+            for i in range(0, 3):
+                for j in range(0, 3):
+                    print("{:0.4f}".format(vecs[i].dot(vecs[j].T)))
 
         if should_be_one is False:
             print("Matrix not rotation: 1 determinate check failed")
