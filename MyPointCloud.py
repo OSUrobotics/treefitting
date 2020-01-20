@@ -108,7 +108,6 @@ class MyPointCloud(ReadWrite):
         :param: radius_search: maximum radius to try
         :return: list of ids of neighbor bin ids within radius_search
         """
-        print("Find neighbors n points {0}".format(len(self.bin_list)))
         p = self.pt(pi_index)
         last_count = 0
         ret_list = [self.bin_ids[pi_index]]
@@ -309,6 +308,19 @@ if __name__ == '__main__':
 
         with open(fname_rw, "w") as fid_out:
             my_pcd.write(fid_out)
+
+    from Cylinder import Cylinder
+    from test_pts import best_pts, bad_pts
+    cyl_pts = best_pts()
+    cyl_pts.update(bad_pts())
+
+    cyl = Cylinder()
+    for cyl_id, label in cyl_pts.items():
+        ret_val = my_pcd.find_connected(cyl_id, my_pcd.div * 10.0)
+        fname = "data/cyl_{0}.txt".format(cyl_id)
+        cyl.set_fit_pts(cyl_id, [reg[0] for reg in ret_val], my_pcd.pts())
+        with open(fname, "w") as f:
+            cyl.write(f, write_pts=True)
 
     for pid_rand in np.random.uniform(0, 1, 40):
         pid = int(np.floor(pid_rand * my_pcd.n_pts()))
