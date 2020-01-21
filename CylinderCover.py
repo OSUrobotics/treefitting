@@ -80,7 +80,6 @@ class CylinderCover(ReadWrite):
 
         # Put the cylinders in here so we can sort them before storing
         cyl_list_to_sort = []
-        cyl = Cylinder()
 
         # Go through all the bins...
         for b in self.my_pcd.bin_list.values():
@@ -100,6 +99,7 @@ class CylinderCover(ReadWrite):
             count_size_neighbor[1] += n_in_region
             count_size_neighbor[2] = max(count_size_neighbor[0], n_in_region)
 
+            cyl = Cylinder()
             cyl.set_fit_pts(b[0], [reg[0] for reg in region], self.my_pcd.pts())
             cyl.fit_pca()
             # Don't bother if the ratio is really, really off
@@ -107,9 +107,8 @@ class CylinderCover(ReadWrite):
                 n_bad_bins = n_bad_bins + 1
                 continue
 
-            cyl.fit_radius()
-
             # If height is not close to target means we have a blob of unconnected points
+            cyl.fit_radius()
             if not height_clip_low < cyl.height < height_clip_high:
                 n_bad_bins += 1
                 continue
@@ -130,8 +129,7 @@ class CylinderCover(ReadWrite):
                         pca_score[p_id].score = score
                         b_use = True
             if b_use:
-                cyl_save = copy(cyl)
-                cyl_list_to_sort.append((cyl_save, score))
+                cyl_list_to_sort.append((cyl, score))
 
         count_bad = 0  # Number of points not in any cylinder
         self.pt_score = []
@@ -151,20 +149,20 @@ class CylinderCover(ReadWrite):
         print("Tried {0} bins, {1} bad bins, {2} not covered, skipped {3} total {4}".format(n_bins_tried, n_bad_bins, count_bad, n_skipped, len(cyl_list_to_sort)))
         return len(cyl_list_to_sort)
 
-    def optimize_cyl(self, mark_size=0.9, err_max=0.4):
+    def optimize_cyl(self, mark_size=0.9):
         """
         Optimize the cylinders from the find_good_pca; eliminate bad ones
         :param mark_size: Size of region to mark off of covered
         :param err_max: Maximum error from err_fit in Cylinder allowed
         :return:
         """
-        covered = [False for i in range(0, len(self.my_pcd.pc_data))]
+        covered = [False for i in range(0, self.my_pcd.n_pts())]
 
         clip = mark_size * self.height
 
         # Already sorted - just do optimize fit
         for i, cyl in enumerate(self.cyls_pca):
-            if covered[cyl.id]:
+            if covered[cyl.id()]:
                 continue
 
             cyl.optimize_ang(self.radius_min, self.radius_max)
@@ -182,8 +180,8 @@ class CylinderCover(ReadWrite):
             cyl_keep = copy(cyl)
             self.cyls_fitted.append(cyl_keep)
 
-            for p_id in cyl.pts_ids:
-                dist = MyPointCloud.dist(cyl.pt_center, self.my_pcd.pc_data[p_id])
+            for p_id in cyl.data.pts_ids:
+                dist = MyPointCloud.dist(cyl.pt_center(), self.my_pcd.pt(p_id))
                 if dist < clip:
                     self.pt_score[p_id] = cyl.err
                     covered[p_id] = True
@@ -192,7 +190,7 @@ class CylinderCover(ReadWrite):
 
     def read(self, fid):
         self.check_header(fid)
-        member_name, n_read, _ = self.read_class_members(fid, ["cyls_pca", "cyls_fitted", "my_pcd"])
+        member_name, n_found = self.read_class_members(fid, ["cyls_pca", "cyls_fitted", "my_pcd"])
         pts = None
         try:
             with open(self.my_pcd_file_name, "r") as fid_pcd:
@@ -205,7 +203,7 @@ class CylinderCover(ReadWrite):
             raise ValueError("Should be cyls_pca, was {0}".format(member_name))
 
         self.cyls_pca = []
-        for _ in range(0, n_read):
+        for _ in range(0, n_found):
             self.cyls_pca.append(Cylinder())
             self.cyls_pca[-1].read(fid, all_pts=pts)
 
@@ -237,11 +235,11 @@ class CylinderCover(ReadWrite):
 
 
 def test_cylinder_cover_rw():
-    with open("data/cyl_cover.txt", 'w') as f:
-        my_cyl_cov.write(f)
+    with open("data/cyl_cover.txt", 'w') as fid:
+        my_cyl_cov.write(fid)
 
-    with open("data/cyl_cover.txt", 'r') as f:
-        my_cyl_cov.read(f)
+    with open("data/cyl_cover.txt", 'r') as fid:
+        my_cyl_cov.read(fid)
 
 
 if __name__ == '__main__':
@@ -263,21 +261,21 @@ if __name__ == '__main__':
     rad_min = width_small_branch / 2.0
     rad_max = width_large_branch / 2.0
 
-    b_read = False
+    b_read = True
     if b_read:
         with open("data/cyl_cover_pca.txt", 'r') as f:
             my_cyl_cov.read(f)
 
-        my_cyl_cov.optimize_cyl(mark_size=0.9, err_max=0.4)
+        my_cyl_cov.optimize_cyl(mark_size=0.9)
         with open("data/cyl_cover_all.txt", 'w') as f:
             my_cyl_cov.write(f)
     else:
-        my_cyl_cov.find_good_pca(mark_size=0.75, in_height=height_cyl, in_rad_min=rad_min, in_rad_max=rad_max)
+        my_cyl_cov.find_good_pca(mark_size=0.5, in_height=height_cyl, in_rad_min=rad_min, in_rad_max=rad_max)
 
         with open("data/cyl_cover_pca.txt", 'w') as f:
             my_cyl_cov.write(f)
 
-        my_cyl_cov.optimize_cyl(mark_size=0.9, err_max=0.4)
+        my_cyl_cov.optimize_cyl(mark_size=0.9)
         with open("data/cyl_cover_all.txt", 'w') as f:
             my_cyl_cov.write(f)
 
