@@ -132,6 +132,7 @@ class PtsForFit(ReadWrite):
             self.pca_vecs.append(vec)
             self.pca_vals.append(val)
 
+        self.pca_vecs = np.array(self.pca_vecs)
         self.pca_err = self.score_pca()
         return self.pca_err
 
