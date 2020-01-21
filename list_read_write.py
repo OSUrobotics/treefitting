@@ -2,6 +2,7 @@
 
 from numpy import ndarray, array, zeros
 
+
 class ReadWrite:
     def __init__(self, name):
         self.header_name = "Begin_{0}".format(name, end='')
@@ -42,8 +43,8 @@ class ReadWrite:
                     ret_list.append(vals)
         else:
             vals = l_str.strip('[,]\n').split()
-            for v in vals:
-                v_clean = v.strip('[,]\n')
+            for val in vals:
+                v_clean = val.strip('[,]\n')
                 try:
                     ret_list.append(int(v_clean))
                 except ValueError:
@@ -109,8 +110,8 @@ class ReadWrite:
             try:
                 fid.write("{0} ndarray {1} {2}\n".format(member_name, dims[0], dims[1]))
                 # Otherwise it writes out ...
-                for v in member_value:
-                    fid.write(" {0}\n".format(v))
+                for val in member_value:
+                    fid.write(" {0}\n".format(val))
             except IndexError:
                 fid.write("{0} ndarray {1} 0\n".format(member_name, dims[0]))
                 fid.write(" {0}\n".format(member_value))
@@ -163,7 +164,7 @@ class ReadWrite:
                     else:
                         setattr(self, member_name, vals)
                     if n_read != len(getattr(self, member_name)):
-                        raise ValueError("List size not what is written to file {0} {1}".foramt(n_read, len(vals)))
+                        raise ValueError("List size not what is written to file {0} {1}".format(n_read, len(vals)))
                     n_read = 0
                 elif isinstance(vals, ndarray):
                     if len(vals.shape) == 1:
@@ -186,11 +187,11 @@ class ReadWrite:
             else:
                 member_name, n_read, vals = self.get_class_member(l_str)
                 if exclude_list and member_name in exclude_list:
-                    return member_name, n_read, vals
+                    return member_name, vals
                 setattr(self, member_name, vals)
-        if b_found_footer == False:
+        if not b_found_footer:
             raise ValueError("Did not find footer")
-        return member_name, n_read, vals
+        return member_name, vals
 
     def read_check(self, fid):
         self.check_header(fid)
@@ -206,10 +207,7 @@ if __name__ == '__main__':
     rw.list_list = []
     rw.list_list.append([2, 3.0, 4])
     rw.list_list.append([1.0, 1, 4, 5])
-    rw.dict_val = {}
-    rw.dict_val[0] = "hello"
-    rw.dict_val[1] = 1
-    rw.dict_val[2] = [1, 2, 3]
+    rw.dict_val = {0: "hello", 1: 1, 2: [1, 2, 3]}
     rw.ndarray_val = array([10, 11.2, 12])
     rw.ndarray_mat_val = array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
@@ -230,8 +228,8 @@ if __name__ == '__main__':
 
                 try:
                     for i in range(0, len(v1)):
-                        for j, v in enumerate(v1[i]):
-                            if v != v2[i, j]:
+                        for j, v1 in enumerate(v1[i]):
+                            if v1 != v2[i, j]:
                                 raise ValueError("Read Write check failed, attribute {0}".format(d))
                 except TypeError:
                     for i, v in enumerate(v1):
