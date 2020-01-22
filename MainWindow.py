@@ -3,9 +3,7 @@
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
-from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QOpenGLWidget, QSlider, QWidget
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
 
 from MyPointCloud import MyPointCloud
 from Cylinder import Cylinder
@@ -25,6 +23,7 @@ class PointCloudViewerGUI(QMainWindow):
         # Control buttons for the interface
         left_side_layout = self._init_left_layout_()
         middle_layout = self._init_middle_layout_()
+        right_side_layout = self._init_right_layout_()
 
         # The layout of the interface
         widget = QWidget()
@@ -36,53 +35,46 @@ class PointCloudViewerGUI(QMainWindow):
 
         top_level_layout.addLayout(left_side_layout)
         top_level_layout.addLayout(middle_layout)
-
-        self.connected_neighborhood_radius.set_value( self.glWidget.my_pcd.radius_neighbor )
+        top_level_layout.addLayout(right_side_layout)
 
         SliderFloatDisplay.gui = self
         SliderIntDisplay.gui = self
 
-    # Set up the left set of sliders/buttons (parameters)
+    # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
-        # Two reset buttons one for probabilities, one for doors
-        recalc_neighbors_button = QPushButton('Recalculate neighbors')
-        recalc_neighbors_button.clicked.connect(self.recalc_neighbors)
+        # For reading and writing
+        QLabel
+        path_names = QGroupBox('File names')
+        path_names_layout = QGridLayout()
+        path_names_layout.setColumnMinimumWidth(0, 40)
+        path_names_layout.setColumnMinimumWidth(1, 200)
+        self.path_name = QLineEdit("data/point_clouds/bag_0/")
+        self.pcd_name = QLineEdit("cloud_final")
+        self.version_name = QLineEdit("" )
+        path_names_layout.addWidget(QLabel("Path dir:"))
+        path_names_layout.addWidget(self.path_name)
+        path_names_layout.addWidget(QLabel("PCD name:"))
+        path_names_layout.addWidget(self.pcd_name)
+        path_names_layout.addWidget(QLabel("Version:"))
+        path_names_layout.addWidget(self.version_name)
+        path_names.setLayout(path_names_layout)
 
-        recalc_cylinder_button = QPushButton('Recalculate cylinder')
-        recalc_cylinder_button.clicked.connect(self.recalc_cylinder)
+        read_point_cloud_button = QPushButton('Read point cloud')
+        read_point_cloud_button.clicked.connect(self.read_point_cloud)
 
-        new_id_button = QPushButton('Random new id')
-        new_id_button.clicked.connect(self.new_random_id)
+        read_cylinders_pca_button = QPushButton('Read pca cylinders')
+        read_cylinders_pca_button.clicked.connect(self.read_pca_cylinders)
 
-        resets = QGroupBox('Resets')
-        resets_layout = QVBoxLayout()
-        resets_layout.addWidget(recalc_neighbors_button)
-        resets_layout.addWidget(recalc_cylinder_button)
-        resets_layout.addWidget(new_id_button)
-        resets.setLayout(resets_layout)
+        read_cylinders_fit_button = QPushButton('Read fit cylinders')
+        read_cylinders_fit_button.clicked.connect(self.read_fit_cylinders)
 
-        # For setting the bin size, based on width of narrowest branch
-        self.smallest_branch_width = SliderFloatDisplay('Width small branch', 0.01, 0.1, 0.015)
-        self.largest_branch_width = SliderFloatDisplay('Width big branch', 0.05, 0.2, 0.1)
-        self.branch_height = SliderFloatDisplay('Height cyl fit', 0.1, 0.3, 0.15)
-
-        params_neighbors = QGroupBox('Neighbor parameters')
-        params_neighbors_layout = QVBoxLayout()
-        params_neighbors_layout.addWidget(self.smallest_branch_width)
-        params_neighbors_layout.addWidget(self.largest_branch_width)
-        params_neighbors_layout.addWidget(self.branch_height)
-        params_neighbors.setLayout(params_neighbors_layout)
-
-        # The parameters of the cylinder fit
-        params_labels = QGroupBox('Connected parameters                  ')
-        params_labels_layout = QVBoxLayout()
-        self.connected_neighborhood_radius = SliderFloatDisplay('K Neigh Radius', 0.01, 0.2, 0.05)
-        self.eigen_threshold = SliderFloatDisplay('Eigen threshold big name big name', 0.01, 0.99, 0.8)
-
-        params_labels_layout.addWidget(self.connected_neighborhood_radius)
-        params_labels_layout.addWidget(self.eigen_threshold)
-
-        params_labels.setLayout(params_labels_layout)
+        file_io = QGroupBox('File io')
+        file_io_layout = QVBoxLayout()
+        file_io_layout.addWidget(path_names)
+        file_io_layout.addWidget(read_point_cloud_button)
+        file_io_layout.addWidget(read_cylinders_pca_button)
+        file_io_layout.addWidget(read_cylinders_fit_button)
+        file_io.setLayout(file_io_layout)
 
         # Sliders for Camera
         self.turntable = SliderFloatDisplay('Rotate turntable', 0.0, 360, 0, 361)
@@ -120,10 +112,17 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.show_closeup_slider = SliderIntDisplay("Sel", 0, 10, 0)
 
+        self.show_min_val_slider = SliderFloatDisplay("Min", 1, 15, 5)
+        self.show_min_val_slider.b_recalc_ids = True
+        self.show_max_val_slider = SliderFloatDisplay("Max", 1, 15, 5)
+        self.show_max_val_slider.b_recalc_ids = True
+
         params_camera = QGroupBox('Camera parameters')
         params_camera_layout = QVBoxLayout()
         params_camera_layout.addWidget(show_buttons)
         params_camera_layout.addWidget(self.show_closeup_slider)
+        params_camera_layout.addWidget(self.show_min_val_slider)
+        params_camera_layout.addWidget(self.show_max_val_slider)
         params_camera_layout.addWidget(show_bins_button)
         params_camera_layout.addWidget(show_pca_cyl_button)
         params_camera_layout.addWidget(show_fitted_cyl_button)
@@ -135,10 +134,8 @@ class PointCloudViewerGUI(QMainWindow):
         # Put all the pieces in one box
         left_side_layout = QVBoxLayout()
 
-        left_side_layout.addWidget(resets)
+        left_side_layout.addWidget(file_io)
         left_side_layout.addStretch()
-        left_side_layout.addWidget(params_neighbors)
-        left_side_layout.addWidget(params_labels)
         left_side_layout.addWidget(params_camera)
 
         return left_side_layout
@@ -146,11 +143,11 @@ class PointCloudViewerGUI(QMainWindow):
     # Drawing screen and quit button
     def _init_middle_layout_(self):
         # The display for the robot drawing
-        self.glWidget = DrawPointCloud( self )
+        self.glWidget = DrawPointCloud(self)
 
-        self.up_down.slider.valueChanged.connect(self.glWidget.setUpDownRotation)
+        self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
-        self.turntable.slider.valueChanged.connect(self.glWidget.setTurntableRotation)
+        self.turntable.slider.valueChanged.connect(self.glWidget.set_turntable_rotation)
         self.glWidget.turntableRotationChanged.connect(self.turntable.slider.setValue)
         self.zoom.slider.valueChanged.connect(self.redraw_self)
 
@@ -165,19 +162,97 @@ class PointCloudViewerGUI(QMainWindow):
 
         return mid_layout
 
-    # set robot back in middle
-    def recalc_neighbors(self):
+    # Set up the left set of sliders/buttons (read/write, camera)
+    def _init_right_layout_(self):
+        # Recalculate the bins (MyPointCloud) then recalculae
+        # cylinders using PCA criteria then fit those
+        recalc_neighbors_button = QPushButton('Recalculate bins')
+        recalc_neighbors_button.clicked.connect(self.recalc_bins)
+
+        recalc_cylinder_button = QPushButton('Recalculate one cylinder')
+        recalc_cylinder_button.clicked.connect(self.recalc_one_cylinder)
+
+        recalc_pca_cylinder_button = QPushButton('Recalculate pca cylinder')
+        recalc_pca_cylinder_button.clicked.connect(self.recalc_pca_cylinder)
+
+        recalc_fit_cylinder_button = QPushButton('Recalculate fit cylinder')
+        recalc_fit_cylinder_button.clicked.connect(self.recalc_fit_cylinder)
+
+        new_id_button = QPushButton('Random new id')
+        new_id_button.clicked.connect(self.new_random_id)
+
+        resets = QGroupBox('Resets')
+        resets_layout = QVBoxLayout()
+        resets_layout.addWidget(recalc_neighbors_button)
+        resets_layout.addWidget(recalc_cylinder_button)
+        resets_layout.addWidget(recalc_pca_cylinder_button)
+        resets_layout.addWidget(recalc_fit_cylinder_button)
+        resets_layout.addWidget(new_id_button)
+        resets.setLayout(resets_layout)
+
+        # For setting the bin size, based on width of narrowest branch
+        self.smallest_branch_width = SliderFloatDisplay('Width small branch', 0.01, 0.1, 0.015)
+        self.largest_branch_width = SliderFloatDisplay('Width big branch', 0.05, 0.2, 0.1)
+        self.branch_height = SliderFloatDisplay('Height cyl fit', 0.1, 0.3, 0.15)
+
+        params_neighbors = QGroupBox('Neighbor parameters')
+        params_neighbors_layout = QVBoxLayout()
+        params_neighbors_layout.addWidget(self.smallest_branch_width)
+        params_neighbors_layout.addWidget(self.largest_branch_width)
+        params_neighbors_layout.addWidget(self.branch_height)
+        params_neighbors.setLayout(params_neighbors_layout)
+
+        # The parameters of the cylinder fit
+        params_labels = QGroupBox('Connected parameters                  ')
+        params_labels_layout = QVBoxLayout()
+        self.mark_neighbor_pca = SliderFloatDisplay('Mark Neighbor PCA', 0.1, 0.9, 0.75)
+        self.mark_neighbor_fit = SliderFloatDisplay('Mark Neighbor Fit', 0.1, 0.9, 0.5)
+
+        params_labels_layout.addWidget(self.mark_neighbor_pca)
+        params_labels_layout.addWidget(self.mark_neighbor_fit)
+
+        params_labels.setLayout(params_labels_layout)
+
+        # Put all the pieces in one box
+        right_side_layout = QVBoxLayout()
+
+        right_side_layout.addWidget(resets)
+        right_side_layout.addStretch()
+        right_side_layout.addWidget(params_neighbors)
+        right_side_layout.addWidget(params_labels)
+
+        return right_side_layout
+
+    # Recalcualte the bins based on the current smallest branch value
+    def recalc_bins(self):
         self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
-        self.glWidget.my_pcd.find_neighbors()
         self.glWidget.make_bin_gl_list()
         self.repaint()
 
-    def recalc_cylinder(self):
-        if not hasattr( self.glWidget, "selected_point"):
+    def recalc_one_cylinder(self):
+        if not hasattr(self.glWidget, "selected_point"):
             self.new_random_id()
         pt_ids = self.glWidget.my_pcd.find_connected( self.glWidget.selected_point, self.connected_neighborhood_radius.value() )
-        self.glWidget.cyl = self.glWidget.my_pcd.fit_cylinder(self.glWidget.selected_point, pt_ids.keys())
+        self.glWidget.cyl = self.glWidget.my_pcd.fit_cylinder(self.glWidget.selected_point, [ret[0] for ret in pt_ids])
         print( self.glWidget.cyl )
+        self.glWidget.update()
+        self.repaint()
+
+    def recalc_pca_cylinder(self):
+        self.glWidget.cyl_cover.find_good_pca(0.5, self.height(), self.smallest_branch_width.value(), self.largest_branch_width.value())
+        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_pca.txt"
+        with open(fname, "w") as fid:
+            self.glWidget.cyl_cover.write(fid)
+        self.set_closeup_slider()
+        self.glWidget.update()
+        self.repaint()
+
+    def recalc_fit_cylinder(self):
+        self.glWidget.cyl_cover.optimize_cyl()
+        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_fit.txt"
+        with open(fname, "w") as fid:
+            self.glWidget.cyl_cover.write(fid)
+        self.set_closeup_slider()
         self.glWidget.update()
         self.repaint()
 
@@ -190,10 +265,16 @@ class PointCloudViewerGUI(QMainWindow):
     def set_closeup_slider(self):
         if self.glWidget.show_bins:
             self.show_closeup_slider.setMaximum(len(self.glWidget.bin_mapping))
+            self.show_min_val_slider.set_range(1, 45)
+            self.show_max_val_slider.set_range(10, 65)
         if self.glWidget.show_pca_cylinders:
             self.show_closeup_slider.setMaximum(len(self.glWidget.cyl_cover.cyls_pca))
+            self.show_min_val_slider.set_range(0.0, 30.0)
+            self.show_max_val_slider.set_range(4.0, 50.0)
         if self.glWidget.show_fitted_cylinders:
             self.show_closeup_slider.setMaximum(len(self.glWidget.cyl_cover.cyls_fitted))
+            self.show_min_val_slider.set_range(0.0, 10.0)
+            self.show_max_val_slider.set_range(1.0, 10.0)
 
     def show_closeup(self):
         self.glWidget.show_closeup = not self.glWidget.show_closeup
@@ -231,6 +312,38 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.show_isolated = not self.glWidget.show_isolated
         self.glWidget.update()
         self.repaint()
+
+    def read_point_cloud(self):
+        fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
+        fname_my_pcd = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_pcd.txt"
+
+        try:
+            with open(fname_my_pcd, "r") as fid:
+                self.glWidget.my_pcd.read(fid)
+        except FileNotFoundError:
+            self.glWidget.my_pcd.load_point_cloud(fname_pcd)
+            self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
+            with open(fname_my_pcd, "w") as fid:
+                self.glWidget.my_pcd.write(fid)
+
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.cyl_cover = CylinderCover()
+
+    def read_pca_cylinders(self):
+        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_pca.txt"
+        try:
+            with open(fname, "r") as fid:
+                self.glWidget.cyl_cover.read(fid)
+        except FileNotFoundError:
+            print("File not found {0}".format(fname))
+
+    def read_fit_cylinders(self):
+        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_fit.txt"
+        try:
+            with open(fname, "r") as fid:
+                self.glWidget.cyl_cover.read(fid)
+        except FileNotFoundError:
+            print("File not found {0}".format(fname))
 
     def redraw_self(self):
         self.glWidget.update()

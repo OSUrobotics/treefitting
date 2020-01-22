@@ -111,14 +111,17 @@ class MyPointCloud(ReadWrite):
         p = self.pt(pi_index)
         last_count = 0
         ret_list = [self.bin_ids[pi_index]]
+        visited = {self.bin_ids[pi_index]: 0.0}
         while len(ret_list) > last_count:
             ipt = self.bin_ipt(ret_list[last_count])
             for o in self.offsets:
                 ipt_search = [ipt[i] + o[i] for i in range(0, 3)]
                 i_bin = self._bin_index_map(ipt_search)
-                if i_bin not in ret_list and i_bin in self.bin_list:
+                if i_bin in self.bin_list and i_bin not in visited:
                     q = self._bin_center(i_bin)
-                    if self.dist(p, q) < radius_search:
+                    dist_to_bin = self.dist(p, q)
+                    visited[i_bin] = dist_to_bin
+                    if dist_to_bin < radius_search:
                         ret_list.append(i_bin)
             last_count += 1
         return ret_list
@@ -156,6 +159,9 @@ class MyPointCloud(ReadWrite):
             for i in range(0, len(bl)):
                 bl[i] = dist_to_center[i][0]
 
+    def smallest_branch_width(self):
+        return 3.0 * self.div
+
     def create_bins(self, in_smallest_branch_width=0.01):
         """
         Make bins and put points in the bins. Aim for bins that are 1/3 radius of smallest branch width
@@ -165,8 +171,7 @@ class MyPointCloud(ReadWrite):
         max_width = 0
         for i in range(0, 3):
             max_width = max(max_width, self.max_pt[i] - self.min_pt[i])
-        radius_neighbor = 2.0 * in_smallest_branch_width / 3.0
-        self.div = radius_neighbor / 2.0
+        self.div = in_smallest_branch_width / 3.0
         # pad by one row of bins
         self.start_xyz = [self.min_pt[i] - self.div - 0.0001 for i in range(0, 3)]
         self.n_bins_xyz = [int(np.ceil((self.max_pt[i] + self.div - self.start_xyz[i]) / self.div)) for i in range(0, 3)]

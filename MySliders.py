@@ -22,6 +22,7 @@ class SliderFloatDisplay(QWidget):
         self.low = low
         self.range = high - low
         self.ticks = ticks
+        self.b_recalc_ids = False
 
         # I'm a widget with a text value next to a slider
         QWidget.__init__(self)
@@ -49,6 +50,11 @@ class SliderFloatDisplay(QWidget):
     # Called when the value changes - resets text
     def change_value(self):
         self.display.setText('{0}: {1:.3f}'.format(self.name, self.value()))
+        if self.b_recalc_ids:
+            try:
+                SliderFloatDisplay.gui.glWidget.recalc_gl_ids()
+            except (NameError, AttributeError):
+                pass
         try:
             SliderFloatDisplay.gui.repaint()
             SliderFloatDisplay.gui.glWidget.update()
@@ -61,6 +67,11 @@ class SliderFloatDisplay(QWidget):
         value_tick = min(max(0, value_tick), self.ticks)
         self.slider.setValue(int(value_tick))
         self.change_value()
+
+    def set_range(self, min_v, max_v):
+        self.slider.setMinimum(min_v)
+        self.slider.setMaximum(max_v)
+        self.set_value(0.5 * (min_v + max_v))
 
 
 class SliderIntDisplay(QWidget):
