@@ -5,17 +5,50 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
                              QWidget)
 
 import OpenGL.GL as GL
+from OpenGL.GL import shaders
+import OpenGL.GLUT as GLUT
+from OpenGL.arrays import vbo
 
 from Cylinder import Cylinder
 from CylinderCover import CylinderCover
 import numpy as np
+import ctypes
+
+
+SHADER_CODE = """
+#version {ver}
+    in vec4 position;
+    uniform mat4 modelViewMat;
+    void main() {
+    gl_Position = modelViewMat * position;
+}
+"""
+
+# SHADER_CODE = """
+# #version {ver}
+#     in vec4 position;
+#     uniform mat4 modelViewMat;
+#     void main() {
+#     gl_Position = position;
+# }
+# """
+
+FRAGMENT_CODE = """
+#version {ver}
+    void main(){
+    gl_FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    }
+"""
 
 
 class Window(QWidget):
-    def __init__(self):
+    def __init__(self, pcd_file=None, cover_file=None):
+
+
+
         super(Window, self).__init__()
 
-        self.glWidget = DrawPointCloud(self)
+        self.glWidget = DrawPointCloud(self, pcd_file=pcd_file, cover_file=cover_file)
 
         self.up_down = self.create_slider()
         self.turntable = self.create_slider()
@@ -24,6 +57,7 @@ class Window(QWidget):
         self.glWidget.upDownRotationChanged.connect(self.up_down.setValue)
         self.turntable.valueChanged.connect(self.glWidget.set_turntable_rotation)
         self.glWidget.turntableRotationChanged.connect(self.turntable.setValue)
+
 
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.glWidget)
@@ -54,8 +88,11 @@ class DrawPointCloud(QOpenGLWidget):
     turntableRotationChanged = pyqtSignal(int)
     zRotationChanged = pyqtSignal(int)
 
-    def __init__(self, gui, parent=None):
+    def __init__(self, gui, parent=None, pcd_file=None, cover_file=None):
         super(DrawPointCloud, self).__init__(parent)
+
+        self.shader_program = None
+        self.vbo = None
 
         self.object = 0
         self.up_down = 0
@@ -70,14 +107,17 @@ class DrawPointCloud(QOpenGLWidget):
         self.pcd_isolated_gl_list = -1
         self.pcd_bad_fit_gl_list = -1
 
+        self.mesh_list = None
+
         self.selected_point = 0
 
         self.gui = gui
         self.cyl = Cylinder()
 
-        self.cyl_cover = CylinderCover()
-        with open("data/cyl_cover_all.txt", "r") as fid:
-            self.cyl_cover.read(fid)
+        self.cyl_cover = CylinderCover(pcd_file)
+        if cover_file:
+            with open(cover_file, "r") as fid:
+                self.cyl_cover.read(fid)
         self.my_pcd = self.cyl_cover.my_pcd
         self.bin_mapping = self.set_bin_mapping()
 
@@ -89,7 +129,11 @@ class DrawPointCloud(QOpenGLWidget):
         self.show_fitted_cylinders = False
         self.show_bins = False
         self.show_isolated = False
+        self.show_skeleton = False
         self.last_cyl = -1
+
+        self.skeleton = None
+        self.mesh = np.zeros((0,3))
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
 
@@ -113,7 +157,7 @@ class DrawPointCloud(QOpenGLWidget):
             GL.glGetString(GL.GL_SHADING_LANGUAGE_VERSION)
         )
 
-        return info
+        return info, GL.glGetString(GL.GL_SHADING_LANGUAGE_VERSION)
 
     def minimumSizeHint(self):
         return QSize(50, 50)
@@ -136,14 +180,22 @@ class DrawPointCloud(QOpenGLWidget):
             self.update()
 
     def initializeGL(self):
-        print(self.get_opengl_info())
+        info_msg, shader_ver = self.get_opengl_info()
+        print(info_msg)
+
+        shader_ver = shader_ver.decode("utf8").replace('.', '')
+
+        vertex_shader = shaders.compileShader(SHADER_CODE.replace('{ver}', shader_ver), GL.GL_VERTEX_SHADER)
+        fragment_shader = shaders.compileShader(FRAGMENT_CODE.replace('{ver}', shader_ver), GL.GL_FRAGMENT_SHADER)
+        self.shader_program = shaders.compileProgram(vertex_shader, fragment_shader)
 
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
         self.pcd_gl_list = self.make_pcd_gl_list()
+        self.initialize_mesh()
         self.pcd_isolated_gl_list = self.make_isolated_gl_list()
         self.bin_gl_list = self.make_bin_gl_list()
-        GL.glShadeModel(GL.GL_FLAT)
+        GL.glShadeModel(GL.GL_SMOOTH)
         #  GL.glEnable(GL.GL_DEPTH_TEST)
         #  GL.glEnable(GL.GL_CULL_FACE)
 
@@ -190,7 +242,7 @@ class DrawPointCloud(QOpenGLWidget):
             GL.glBegin(GL.GL_POINTS)
             GL.glColor3f(0.95, 0.9, 0.7)
             for pt_id in cyl.pts_ids:
-                p = self.my_pcd.pt(pt_id)
+                p = self.my_pcd[pt_id]
                 GL.glVertex3d(p[0], p[1], p[2])
             GL.glEnd()
 
@@ -248,12 +300,14 @@ class DrawPointCloud(QOpenGLWidget):
             GL.glBegin(GL.GL_POINTS)
             GL.glColor3f(0.0, 1.0, 0.0)
             for p_id in pt_ids:
-                p = self.my_pcd.pt(p_id)
+                p = self.my_pcd[p_id]
                 GL.glVertex3d(p[0], p[1], p[2])
             GL.glEnd()
 
     def paintGL(self):
+        # GL.glClearColor(1.0, 1.0, 1.0, 1.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+
 
         pt_center = self.pt_center
         radius = self.radius
@@ -264,7 +318,7 @@ class DrawPointCloud(QOpenGLWidget):
 
         if self.show_closeup:
             if self.show_bins:
-                pt_center = self.my_pcd.pt(self.bin_mapping[which_one][0])
+                pt_center = self.my_pcd[self.bin_mapping[which_one][0]]
                 radius = 2 * self.my_pcd.div
             elif self.show_pca_cylinders:
                 pt_center = self.cyl_cover.cyls_pca[which_one].pt_center
@@ -285,6 +339,7 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glRotated(self.zRot, 0.0, 0.0, 1.0)
         GL.glScaled(2/radius, 2/radius, 2/radius)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
+
         if self.show_bins:
             self.draw_bins()
         else:
@@ -323,19 +378,29 @@ class DrawPointCloud(QOpenGLWidget):
                 for c in self.cyl_cover.cyls_fitted:
                     if clip_min <= c.err <= clip_max:
                         self.draw_cyl(c)
-
+        GL.glEnable(GL.GL_DEPTH_TEST)
         if hasattr(self, "selected_point"):
-            GL.glPointSize(10)
-            GL.glBegin(GL.GL_POINTS)
-            GL.glColor3f(1.0, 0.0, 0.0)
             try:
-                p = self.my_pcd.pt(self.selected_point)
+                p = self.my_pcd[self.selected_point]
+                GL.glPointSize(10)
+                GL.glBegin(GL.GL_POINTS)
+                GL.glColor3f(1.0, 0.0, 0.0)
+
+                GL.glVertex3d(p[0], p[1], p[2])
+                GL.glEnd()
+
             except IndexError:
                 pass
-            GL.glVertex3d(p[0], p[1], p[2])
-            GL.glEnd()
 
+        if self.show_skeleton and self.skeleton is not None:
+            self.draw_skeleton()
+
+        GL.glCallList(self.mesh_list)
+        # self.draw_mesh()
+        GL.glDisable(GL.GL_DEPTH_TEST)
         self.draw_bin_size(radius)
+
+
 
     @staticmethod
     def resizeGL(width, height):
@@ -363,21 +428,26 @@ class DrawPointCloud(QOpenGLWidget):
 
         self.lastPos = event.pos()
 
+
     def make_pcd_gl_list(self):
+
+        #draw_points()
+        # This is where the point drawing happens!
+
         self.pt_center = [0.5*(self.my_pcd.max_pt[i] + self.my_pcd.min_pt[i]) for i in range(0, 3)]
-        self.radius = 0
-        for i in range(0, 3):
-            self.radius = max(self.radius, self.my_pcd.max_pt[i] - self.my_pcd.min_pt[i])
+        self.radius = max(0.00001, np.max(np.abs(self.my_pcd.max_pt - self.my_pcd.min_pt)))
 
         if self.pcd_gl_list == -1:
             self.pcd_gl_list = GL.glGenLists(1)
 
+        print('Hit func 1')
         GL.glNewList(self.pcd_gl_list, GL.GL_COMPILE)
 
         GL.glPointSize(2)
         GL.glBegin(GL.GL_POINTS)
         n_neigh = 20
-        for i,p in enumerate(self.my_pcd.pts()):
+
+        for i,p in enumerate(self.my_pcd.points):
             if hasattr(self.my_pcd, "neighbors"):
                 n_neigh = len(self.my_pcd.neighbors)
                 if n_neigh  < 20:
@@ -387,12 +457,14 @@ class DrawPointCloud(QOpenGLWidget):
                 else:
                     GL.glColor3d(0.2, 0.8, 0.2)
             else:
-                GL.glColor3d(0.2, 0.8, 0.2)
+                GL.glColor3d(0.2, 0.8, 0.8)
             if n_neigh > 15:
                 GL.glVertex3d(p[0], p[1], p[2])
 
         GL.glEnd()
         GL.glEndList()
+
+
 
         return self.pcd_gl_list
 
@@ -404,7 +476,7 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glPointSize(2)
         GL.glBegin(GL.GL_POINTS)
-        for i, p in enumerate(self.my_pcd.pts()):
+        for i, p in enumerate(self.my_pcd.points):
             if hasattr(self.my_pcd, "neighbors"):
                 n_neigh = len(self.my_pcd.neighbors)
                 if n_neigh == 0:
@@ -441,7 +513,7 @@ class DrawPointCloud(QOpenGLWidget):
                 d_col = max(0.1, min(1.0, len(b) / 15.0))
                 GL.glColor3d(d_col, d_col, d_col)
 
-                p = self.my_pcd.pt(b[0])
+                p = self.my_pcd[b[0]]
                 GL.glVertex3d(p[0], p[1], p[2])
 
         GL.glEnd()
@@ -458,6 +530,54 @@ class DrawPointCloud(QOpenGLWidget):
 
     def set_color(self, c):
         GL.glColor4f(c.redF(), c.greenF(), c.blueF(), c.alphaF())
+
+    def compute_skeleton(self):
+        import skeletonization
+        self.skeleton = skeletonization.skeletonize(self.my_pcd.points)
+
+        import mesh
+        results = mesh.process_skeleton(self.skeleton)
+        self.mesh = results['v'][results['f']].reshape((-1, 3))
+        self.initialize_mesh()
+
+
+    def draw_skeleton(self):
+        if self.skeleton is None:
+            return
+
+        return
+
+        GL.glLineWidth(12)
+        GL.glBegin(GL.GL_LINES)
+
+        np.random.seed(0)
+        for s, e in self.skeleton:
+
+            GL.glColor3f(np.random.uniform(0,1), 0.0, 0.0)
+            GL.glVertex3f(*s)
+            GL.glVertex3f(*e)
+
+        GL.glEnd()
+
+    def initialize_mesh(self):
+
+        if self.mesh_list is None:
+            self.mesh_list = GL.glGenLists(1)
+
+        GL.glNewList(self.mesh_list, GL.GL_COMPILE)
+
+        # GL.glPointSize(2)
+        GL.glLineWidth(12)
+        GL.glPointSize(5)
+        GL.glBegin(GL.GL_TRIANGLES)
+
+
+        GL.glColor3d(0.6, 0.2, 0.0)
+        for r in self.mesh:
+            GL.glVertex3d(*r)
+
+        GL.glEnd()
+        GL.glEndList()
 
 
 if __name__ == '__main__':

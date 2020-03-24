@@ -15,10 +15,10 @@ class MyPointCloud(ReadWrite):
                     self.offsets.append([ix, iy, iz])
 
         # Set in load point cloud
-        self.pcd_data = None
-        self.pcd_data_name = ""
-        self.min_pt = [1e30, 1e30, 1e30]
-        self.max_pt = [-1e30, -1e30, -1e30]
+        self.points = np.zeros((0,3))
+        self.min_pt = np.array([1e30, 1e30, 1e30])
+        self.max_pt = np.array([-1e30, -1e30, -1e30])
+        self.file_name = None
 
         # Filled in by creating the bins
         self.div = 0.005                  # Defines width of bin
@@ -30,14 +30,11 @@ class MyPointCloud(ReadWrite):
         self.bin_ids = []   # bin index for each point, can recover ix, iy, iz from _bin_ipt
         self.bin_list = {}  # bins, key is bin index, list of points in bin
 
-    def pts(self):
-        return self.pcd_data.vertices
+    def __getitem__(self, i):
+        return self.points[i]
 
-    def pt(self, i):
-        return self.pcd_data.vertices[i]
-
-    def n_pts(self):
-        return len(self.pcd_data.vertices)
+    def __len__(self):
+        return self.points.shape[0]
 
     def _bin_index_pt(self, p):
         """
@@ -108,7 +105,7 @@ class MyPointCloud(ReadWrite):
         :param: radius_search: maximum radius to try
         :return: list of ids of neighbor bin ids within radius_search
         """
-        p = self.pt(pi_index)
+        p = self[pi_index]
         last_count = 0
         ret_list = [self.bin_ids[pi_index]]
         visited = {self.bin_ids[pi_index]: 0.0}
@@ -134,11 +131,11 @@ class MyPointCloud(ReadWrite):
         :return: Dictionary of neighbors containing distances to neighbors (id, pt, dist)
         """
         bin_id_list = self.find_neighbor_bins(pi_start, in_radius + self.div)
-        p = self.pt(pi_start)
+        p = self[pi_start]
         ret_list = []
         for i_bin in bin_id_list:
             for q_id in self.bin_list[i_bin]:
-                q = self.pt(q_id)
+                q = self[q_id]
                 d_pq = self.dist(p, q)
                 if d_pq < in_radius:
                     ret_list.append((q_id, q, d_pq))
@@ -153,7 +150,7 @@ class MyPointCloud(ReadWrite):
             pt_center = self._bin_center(k)
             dist_to_center = []
             for p_id in bl:
-                dist_to_center.append((p_id, MyPointCloud.dist(pt_center, self.pt(p_id))))
+                dist_to_center.append((p_id, MyPointCloud.dist(pt_center, self[p_id])))
             dist_to_center.sort(key=lambda list_item: list_item[1])
 
             for i in range(0, len(bl)):
@@ -184,8 +181,8 @@ class MyPointCloud(ReadWrite):
         min_ipt = [1000, 1000, 1000]
         max_ipt = [0, 0, 0]
 
-        print("Finding bins n points: {0}, div {1:0.4f}".format(self.n_pts(), self.div))
-        for i, p in enumerate(self.pts()):
+        print("Finding bins n points: {0}, div {1:0.4f}".format(len(self), self.div))
+        for i, p in enumerate(self.points):
             if i % 1000 == 0:
                 if i % 10000 == 0:
                     print("{0} ".format(i), end='')
@@ -233,38 +230,26 @@ class MyPointCloud(ReadWrite):
         return self.bin_list
 
     def load_point_cloud(self, file_name=None):
-        if file_name is None:
-            file_name = self.pcd_data_name
-        else:
-            self.pcd_data_name = file_name
-        self.pcd_data = pymesh.load_mesh(file_name)
-        """
-        self.pc_data = []
-        
-        for p in pcd_data.vertices:
-            if p[1] > 1.25 or p[2] > 1.7:
-                continue
-            self.pc_data.append(p)
 
-        self.pc_data = np.array(self.pc_data)
-        """
+        self.points = pymesh.load_mesh(file_name).vertices
+        self.file_name = file_name
+
+        if self.points.shape[0] > 10000:
+            print('TEMPORARY: DOWNSAMPLING TO 10K POINTS')
+            self.points = self.points[np.random.choice(self.points.shape[0], 10000, replace=False)]
 
         #  Find bounding box
-        self.min_pt = [1e30, 1e30, 1e30]
-        self.max_pt = [-1e30, -1e30, -1e30]
-        for p in self.pts():
-            for i in range(0, 3):
-                self.min_pt[i] = min(self.min_pt[i], p[i])
-                self.max_pt[i] = max(self.max_pt[i], p[i])
+        self.min_pt = np.min(self.points, axis=0)
+        self.max_pt = np.max(self.points, axis=0)
 
     def read(self, fid):
         self.check_header(fid)
         self.read_class_members(fid)
-        self.pcd_data = pymesh.load_mesh(self.pcd_data_name)
+        self.load_point_cloud(self.file_name)
 
     def write(self, fid):
         self.write_header(fid)
-        self.write_class_members(fid, dir(self), MyPointCloud, ["pcd_data"])
+        self.write_class_members(fid, dir(self), MyPointCloud, ["points"])
         self.write_footer(fid)
 
 
@@ -323,11 +308,11 @@ if __name__ == '__main__':
     for cyl_id, label in cyl_pts.items():
         ret_val = my_pcd.find_connected(cyl_id, my_pcd.div * 10.0)
         fname = "data/cyl_{0}.txt".format(cyl_id)
-        cyl.set_fit_pts(cyl_id, [reg[0] for reg in ret_val], my_pcd.pts())
+        cyl.set_fit_pts(cyl_id, [reg[0] for reg in ret_val], my_pcd.points)
         with open(fname, "w") as f:
             cyl.write(f, write_pts=True)
 
     for pid_rand in np.random.uniform(0, 1, 40):
-        pid = int(np.floor(pid_rand * my_pcd.n_pts()))
+        pid = int(np.floor(pid_rand * len(my_pcd)))
         ret_val = my_pcd.find_connected(pid, my_pcd.div * 10.0)
         print(ret_val)

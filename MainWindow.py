@@ -9,16 +9,25 @@ from MyPointCloud import MyPointCloud
 from Cylinder import Cylinder
 from CylinderCover import CylinderCover
 
+import os
 from DrawPointCloud import DrawPointCloud
-
+import sys
+import pickle
 import numpy as np
-
 from MySliders import SliderIntDisplay, SliderFloatDisplay
+import hashlib
+
+ROOT = os.path.dirname(os.path.realpath(__file__))
+CONFIG = os.path.join(ROOT, 'config')
+if not os.path.exists(CONFIG):
+    os.mkdir(CONFIG)
 
 class PointCloudViewerGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, **kwargs):
         QMainWindow.__init__(self)
         self.setWindowTitle('Point cloud Viewer')
+        self.settings = kwargs
+        self.config_dir = ''
 
         # Control buttons for the interface
         left_side_layout = self._init_left_layout_()
@@ -43,18 +52,24 @@ class PointCloudViewerGUI(QMainWindow):
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
         # For reading and writing
-        QLabel
+
+        try:
+            with open('last_config', 'rb') as fh:
+                last_config = pickle.load(fh)
+        except FileNotFoundError:
+            last_config = {}
+
         path_names = QGroupBox('File names')
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("data/point_clouds/bag_0/")
-        self.pcd_name = QLineEdit("cloud_final")
-        self.version_name = QLineEdit("" )
+        self.path_name = QLineEdit(last_config.get('fname', ''))
+        # self.pcd_name = QLineEdit("cloud_final")
+        self.version_name = QLineEdit(last_config.get('ver', ''))
         path_names_layout.addWidget(QLabel("Path dir:"))
         path_names_layout.addWidget(self.path_name)
-        path_names_layout.addWidget(QLabel("PCD name:"))
-        path_names_layout.addWidget(self.pcd_name)
+        # path_names_layout.addWidget(QLabel("PCD name:"))
+        # path_names_layout.addWidget(self.pcd_name)
         path_names_layout.addWidget(QLabel("Version:"))
         path_names_layout.addWidget(self.version_name)
         path_names.setLayout(path_names_layout)
@@ -62,19 +77,33 @@ class PointCloudViewerGUI(QMainWindow):
         read_point_cloud_button = QPushButton('Read point cloud')
         read_point_cloud_button.clicked.connect(self.read_point_cloud)
 
-        read_cylinders_pca_button = QPushButton('Read pca cylinders')
-        read_cylinders_pca_button.clicked.connect(self.read_pca_cylinders)
 
-        read_cylinders_fit_button = QPushButton('Read fit cylinders')
-        read_cylinders_fit_button.clicked.connect(self.read_fit_cylinders)
+
+        #
+        # read_cylinders_pca_button = QPushButton('Read pca cylinders')
+        # read_cylinders_pca_button.clicked.connect(self.read_pca_cylinders)
+        #
+        # read_cylinders_fit_button = QPushButton('Read fit cylinders')
+        # read_cylinders_fit_button.clicked.connect(self.read_fit_cylinders)
 
         file_io = QGroupBox('File io')
         file_io_layout = QVBoxLayout()
         file_io_layout.addWidget(path_names)
         file_io_layout.addWidget(read_point_cloud_button)
-        file_io_layout.addWidget(read_cylinders_pca_button)
-        file_io_layout.addWidget(read_cylinders_fit_button)
+        # file_io_layout.addWidget(read_cylinders_pca_button)
+        # file_io_layout.addWidget(read_cylinders_fit_button)
         file_io.setLayout(file_io_layout)
+
+        diagnostic_box = QGroupBox('diagnostics')
+        diagnostic_box_layout = QVBoxLayout()
+        self.loaded_hash_label = QLabel("File hash loaded: None")
+        self.pca_loaded_label = QLabel("PCA Cylinders Loaded: False")
+        self.fit_loaded_label = QLabel("Fit Cylinders Loaded: False")
+        diagnostic_box_layout.addWidget(self.loaded_hash_label)
+        diagnostic_box_layout.addWidget(self.pca_loaded_label)
+        diagnostic_box_layout.addWidget(self.fit_loaded_label)
+        diagnostic_box.setLayout(diagnostic_box_layout)
+
 
         # Sliders for Camera
         self.turntable = SliderFloatDisplay('Rotate turntable', 0.0, 360, 0, 361)
@@ -95,6 +124,9 @@ class PointCloudViewerGUI(QMainWindow):
 
         show_fitted_cyl_button = QCheckBox('Show fitted cylinders')
         show_fitted_cyl_button.clicked.connect(self.show_fitted_cylinders)
+
+        show_skeleton_button = QCheckBox('Show Skeleton')
+        show_skeleton_button.clicked.connect(self.show_skeleton)
 
         show_bins_button = QCheckBox('Show bins')
         show_bins_button.clicked.connect(self.show_bins)
@@ -126,6 +158,7 @@ class PointCloudViewerGUI(QMainWindow):
         params_camera_layout.addWidget(show_bins_button)
         params_camera_layout.addWidget(show_pca_cyl_button)
         params_camera_layout.addWidget(show_fitted_cyl_button)
+        params_camera_layout.addWidget(show_skeleton_button)
         params_camera_layout.addWidget(self.turntable)
         params_camera_layout.addWidget(self.up_down)
         params_camera_layout.addWidget(self.zoom)
@@ -135,6 +168,7 @@ class PointCloudViewerGUI(QMainWindow):
         left_side_layout = QVBoxLayout()
 
         left_side_layout.addWidget(file_io)
+        left_side_layout.addWidget(diagnostic_box)
         left_side_layout.addStretch()
         left_side_layout.addWidget(params_camera)
 
@@ -143,7 +177,8 @@ class PointCloudViewerGUI(QMainWindow):
     # Drawing screen and quit button
     def _init_middle_layout_(self):
         # The display for the robot drawing
-        self.glWidget = DrawPointCloud(self)
+        self.glWidget = DrawPointCloud(self, pcd_file=self.settings.get('pcd_file', None),
+                                       cover_file=self.settings.get('cover_file', None))
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -223,6 +258,14 @@ class PointCloudViewerGUI(QMainWindow):
 
         return right_side_layout
 
+    @property
+    def pca_cylinder_file(self):
+        return os.path.join(self.config_dir, 'cylinders_pca.txt')
+
+    @property
+    def fit_cylinder_file(self):
+        return os.path.join(self.config_dir, 'cylinders_fit.txt')
+
     # Recalcualte the bins based on the current smallest branch value
     def recalc_bins(self):
         self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
@@ -239,26 +282,31 @@ class PointCloudViewerGUI(QMainWindow):
         self.repaint()
 
     def recalc_pca_cylinder(self):
+        print('Running PCA stuff...')
         self.glWidget.cyl_cover.find_good_pca(0.5, self.height(), self.smallest_branch_width.value(), self.largest_branch_width.value())
-        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_pca.txt"
-        with open(fname, "w") as fid:
-            self.glWidget.cyl_cover.write(fid)
+        print('All done running PCA stuff!')
+
+        self.glWidget.cyl_cover.write(self.config_dir)
+        # with open(self.pca_cylinder_file, "w") as fid:
+        #     self.glWidget.cyl_cover.write(fid)
         self.set_closeup_slider()
         self.glWidget.update()
         self.repaint()
 
     def recalc_fit_cylinder(self):
         self.glWidget.cyl_cover.optimize_cyl()
-        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_fit.txt"
-        with open(fname, "w") as fid:
-            self.glWidget.cyl_cover.write(fid)
+        self.glWidget.cyl_cover.write(self.config_dir)
+
+        # with open(self.fit_cylinder_file, "w") as fid:
+        #     self.glWidget.cyl_cover.write(fid)
         self.set_closeup_slider()
         self.glWidget.update()
         self.repaint()
 
     def new_random_id(self):
-        id = np.random.uniform(0, len(self.glWidget.my_pcd.pc_data) )
-        self.glWidget.selected_point = int( np.floor( id ) )
+        self.glWidget.initialize_mesh()
+        # id = np.random.uniform(0, len(self.glWidget.my_pcd.pc_data) )
+        # self.glWidget.selected_point = int( np.floor( id ) )
         self.glWidget.update()
         self.repaint()
 
@@ -313,24 +361,72 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.update()
         self.repaint()
 
+    def show_skeleton(self):
+        self.glWidget.show_skeleton = not self.glWidget.show_skeleton
+        if self.glWidget.show_skeleton and self.glWidget.skeleton is None:
+            self.glWidget.compute_skeleton()
+
+        self.glWidget.update()
+        self.repaint()
+
+    # def read_point_cloud(self):
+    #     fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
+    #     fname_my_pcd = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_pcd.txt"
+    #
+    #     try:
+    #         with open(fname_my_pcd, "r") as fid:
+    #             self.glWidget.my_pcd.read(fid)
+    #     except FileNotFoundError:
+    #         self.glWidget.my_pcd.load_point_cloud(fname_pcd)
+    #         self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
+    #         with open(fname_my_pcd, "w") as fid:
+    #             self.glWidget.my_pcd.write(fid)
+    #
+    #     self.glWidget.make_pcd_gl_list()
+    #     self.glWidget.cyl_cover = CylinderCover()
+
     def read_point_cloud(self):
-        fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
-        fname_my_pcd = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_pcd.txt"
+        fname = self.path_name.text().strip()
+        file_hash = hashlib.md5(fname.encode('utf-8')).hexdigest()[:16]
+        ver = self.version_name.text().strip()
+        if ver:
+            file_hash += '_{}'.format(ver)
+        config_dir = os.path.join(CONFIG, file_hash)
+        self.config_dir = config_dir
+        self.loaded_hash_label.setText('File hash: {}'.format(file_hash))
 
-        try:
-            with open(fname_my_pcd, "r") as fid:
-                self.glWidget.my_pcd.read(fid)
-        except FileNotFoundError:
-            self.glWidget.my_pcd.load_point_cloud(fname_pcd)
+        if os.path.exists(os.path.join(config_dir, 'blah.txt')):
+            pass
+        else:
+            try:
+                self.glWidget.my_pcd.load_point_cloud(fname)
+            except OSError:
+                print('Couldn\'t find file!')
+                return
+
+            if not os.path.exists(config_dir):
+                os.mkdir(config_dir)
+
             self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
-            with open(fname_my_pcd, "w") as fid:
-                self.glWidget.my_pcd.write(fid)
+            self.glWidget.make_pcd_gl_list()
+            self.glWidget.initialize_mesh()
+            self.glWidget.cyl_cover = CylinderCover(self.glWidget.my_pcd)
 
-        self.glWidget.make_pcd_gl_list()
-        self.glWidget.cyl_cover = CylinderCover()
+        config_update = {
+            'fname': fname,
+            'ver': ver,
+        }
+
+        with open('last_config', 'wb') as fh:
+            pickle.dump(config_update, fh)
+
+        self.glWidget.update()
+        self.repaint()
+        print('Loading all done!')
+
 
     def read_pca_cylinders(self):
-        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_pca.txt"
+        fname = self.pca_cylinder_file
         try:
             with open(fname, "r") as fid:
                 self.glWidget.cyl_cover.read(fid)
@@ -338,7 +434,7 @@ class PointCloudViewerGUI(QMainWindow):
             print("File not found {0}".format(fname))
 
     def read_fit_cylinders(self):
-        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_fit.txt"
+        fname = self.fit_cylinder_file
         try:
             with open(fname, "r") as fid:
                 self.glWidget.cyl_cover.read(fid)
@@ -353,7 +449,18 @@ class PointCloudViewerGUI(QMainWindow):
 if __name__ == '__main__':
     app = QApplication([])
 
-    gui = PointCloudViewerGUI()
+    settings = {
+        'pcd_file': None, #'/home/main/data/point_clouds/bag_5/cloud_final.ply',
+        'cover_file': None, # 'data/test_cyl_cover.txt',
+    }
+
+    if len(sys.argv) > 1:
+        settings['pcd_file'] = sys.argv[1]
+
+    if len(sys.argv) > 2:
+        settings['cover_file'] = sys.argv[2]
+
+    gui = PointCloudViewerGUI(**settings)
 
     gui.show()
 
