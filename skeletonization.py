@@ -228,11 +228,12 @@ def smooth_graph_nodes(node_list, deviation, min_branch_len = 0.0):
 
     return return_list
 
-def create_edge_point_associations(graph, point_cloud_array):
+def create_edge_point_associations(graph, point_cloud_array, in_place=False):
     """
     Given a graph and a point cloud, assigns each edge a set of points in the point cloud
     :param graph: A NetworkX graph object
     :param point_cloud_array: a Nx3 Numpy array
+    :param in_place: if True, sets the association attribute for each edge
     :return: A dictionary indexed by edge, with each value being a list of indexes from the numpy array.
         All point assignments are unique, though some points may not be assigned.
     """
@@ -267,6 +268,9 @@ def create_edge_point_associations(graph, point_cloud_array):
     rez = {}
     for id, grouping in pd.Series(indexes).groupby(assignments):
         rez[edges[id]] = grouping.values
+
+    if in_place:
+        nx.set_edge_attributes(graph, rez, name='associations')
 
     return rez
 

@@ -14,6 +14,8 @@ from CylinderCover import CylinderCover
 import numpy as np
 import ctypes
 
+from tree_model import TreeModel
+
 
 SHADER_CODE = """
 #version {ver}
@@ -108,6 +110,7 @@ class DrawPointCloud(QOpenGLWidget):
         self.pcd_bad_fit_gl_list = -1
 
         self.mesh_list = None
+        self.skeleton_list = None
 
         self.selected_point = 0
 
@@ -132,10 +135,16 @@ class DrawPointCloud(QOpenGLWidget):
         self.show_skeleton = False
         self.last_cyl = -1
 
+        self.tree = None
         self.skeleton = None
         self.mesh = np.zeros((0,3))
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
+
+    def reset_model(self):
+        self.tree = None
+        self.skeleton = None
+        self.mesh = np.zeros((0, 3))
 
     def set_bin_mapping(self):
         bin_map = []
@@ -392,11 +401,11 @@ class DrawPointCloud(QOpenGLWidget):
             except IndexError:
                 pass
 
-        if self.show_skeleton and self.skeleton is not None:
-            self.draw_skeleton()
+        if self.mesh_list is not None:
+            GL.glCallList(self.mesh_list)
+        if self.skeleton_list and self.show_skeleton:
+            GL.glCallList(self.skeleton_list)
 
-        GL.glCallList(self.mesh_list)
-        # self.draw_mesh()
         GL.glDisable(GL.GL_DEPTH_TEST)
         self.draw_bin_size(radius)
 
@@ -440,7 +449,6 @@ class DrawPointCloud(QOpenGLWidget):
         if self.pcd_gl_list == -1:
             self.pcd_gl_list = GL.glGenLists(1)
 
-        print('Hit func 1')
         GL.glNewList(self.pcd_gl_list, GL.GL_COMPILE)
 
         GL.glPointSize(2)
@@ -532,20 +540,24 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glColor4f(c.redF(), c.greenF(), c.blueF(), c.alphaF())
 
     def compute_skeleton(self):
-        import skeletonization
-        self.skeleton = skeletonization.skeletonize(self.my_pcd.points)
 
-        import mesh
-        results = mesh.process_skeleton(self.skeleton)
-        self.mesh = results['v'][results['f']].reshape((-1, 3))
-        self.initialize_mesh()
+        self.tree = TreeModel.from_point_cloud(self.my_pcd.points.copy())
+        self.initialize_skeleton()
+
+    def compute_mesh(self):
+
+        self.tree.assign_branch_radii()
+        self.tree.create_mesh()
+
+    def save_mesh(self, file_name):
+        if not file_name.endswith('.obj'):
+            file_name += '.obj'
+        self.tree.output_mesh(file_name)
 
 
     def draw_skeleton(self):
         if self.skeleton is None:
             return
-
-        return
 
         GL.glLineWidth(12)
         GL.glBegin(GL.GL_LINES)
@@ -558,6 +570,28 @@ class DrawPointCloud(QOpenGLWidget):
             GL.glVertex3f(*e)
 
         GL.glEnd()
+
+    def initialize_skeleton(self):
+
+        if self.skeleton_list is None:
+            self.skeleton_list = GL.glGenLists(1)
+
+        GL.glNewList(self.skeleton_list, GL.GL_COMPILE)
+
+        # GL.glPointSize(2)
+        GL.glLineWidth(12)
+        GL.glBegin(GL.GL_LINES)
+
+        current_color = (0, 0, 0)
+        for (s, e), color in self.tree.iterate_skeleton_segments():
+            if color != current_color:
+                GL.glColor3f(*color)
+                current_color = color
+            GL.glVertex3f(*s)
+            GL.glVertex3f(*e)
+
+        GL.glEnd()
+        GL.glEndList()
 
     def initialize_mesh(self):
 

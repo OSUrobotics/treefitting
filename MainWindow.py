@@ -216,6 +216,14 @@ class PointCloudViewerGUI(QMainWindow):
         new_id_button = QPushButton('Random new id')
         new_id_button.clicked.connect(self.new_random_id)
 
+        compute_skeleton_button = QPushButton('Compute skeleton')
+        compute_skeleton_button.clicked.connect(self.compute_skeleton)
+
+        compute_mesh_button = QPushButton('Compute mesh')
+        compute_mesh_button.clicked.connect(self.compute_mesh)
+
+        self.save_as_field = QLineEdit('')
+
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
         resets_layout.addWidget(recalc_neighbors_button)
@@ -223,6 +231,9 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(recalc_pca_cylinder_button)
         resets_layout.addWidget(recalc_fit_cylinder_button)
         resets_layout.addWidget(new_id_button)
+        resets_layout.addWidget(compute_skeleton_button)
+        resets_layout.addWidget(compute_mesh_button)
+        resets_layout.addWidget(self.save_as_field)
         resets.setLayout(resets_layout)
 
         # For setting the bin size, based on width of narrowest branch
@@ -363,11 +374,18 @@ class PointCloudViewerGUI(QMainWindow):
 
     def show_skeleton(self):
         self.glWidget.show_skeleton = not self.glWidget.show_skeleton
-        if self.glWidget.show_skeleton and self.glWidget.skeleton is None:
-            self.glWidget.compute_skeleton()
 
         self.glWidget.update()
         self.repaint()
+
+    def compute_skeleton(self):
+        self.glWidget.compute_skeleton()
+
+    def compute_mesh(self):
+        self.glWidget.compute_mesh()
+        save_text = self.save_as_field.text().strip()
+        if save_text:
+            self.glWidget.save_mesh(save_text)
 
     # def read_point_cloud(self):
     #     fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
@@ -419,10 +437,9 @@ class PointCloudViewerGUI(QMainWindow):
 
         with open('last_config', 'wb') as fh:
             pickle.dump(config_update, fh)
-
+        self.glWidget.reset_model()
         self.glWidget.update()
         self.repaint()
-        print('Loading all done!')
 
 
     def read_pca_cylinders(self):
