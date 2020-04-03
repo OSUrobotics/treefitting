@@ -142,7 +142,7 @@ class DrawPointCloud(QOpenGLWidget):
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
 
     def reset_model(self):
-        self.tree = None
+        self.tree = TreeModel.from_point_cloud(self.my_pcd.points.copy())
         self.skeleton = None
         self.mesh = np.zeros((0, 3))
 
@@ -201,7 +201,6 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
         self.pcd_gl_list = self.make_pcd_gl_list()
-        self.initialize_mesh()
         self.pcd_isolated_gl_list = self.make_isolated_gl_list()
         self.bin_gl_list = self.make_bin_gl_list()
         GL.glShadeModel(GL.GL_SMOOTH)
@@ -541,13 +540,14 @@ class DrawPointCloud(QOpenGLWidget):
 
     def compute_skeleton(self):
 
-        self.tree = TreeModel.from_point_cloud(self.my_pcd.points.copy())
+
         self.initialize_skeleton()
 
     def compute_mesh(self):
 
         self.tree.assign_branch_radii()
         self.tree.create_mesh()
+        self.initialize_mesh()
 
     def save_mesh(self, file_name):
         if not file_name.endswith('.obj'):
@@ -606,9 +606,13 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glBegin(GL.GL_TRIANGLES)
 
 
-        GL.glColor3d(0.6, 0.2, 0.0)
-        for r in self.mesh:
-            GL.glVertex3d(*r)
+        GL.glColor4d(0.8, 0.3, 0.3, 0.5)
+
+        vertices = self.tree.mesh['v']
+        faces = self.tree.mesh['f']
+
+        for face_pt in faces.reshape((-1,)):
+            GL.glVertex3d(*vertices[face_pt])
 
         GL.glEnd()
         GL.glEndList()

@@ -84,6 +84,14 @@ def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0):
 
 def clean(graph, threshold=0):
 
+    """
+    Cleans a tree by outer branches whose lengths are less than the threshold. Runs recursively.
+    :param graph: A NetworkX graph
+    :param threshold: A non-negative float
+    :return: Returns the number of removed nodes. Modifications are made in-place to the graph.
+    """
+
+
     endpoints = [n for n, v in graph.degree if v == 1]
     to_remove = set()
 
@@ -227,6 +235,46 @@ def smooth_graph_nodes(node_list, deviation, min_branch_len = 0.0):
         return_list.append(tuple(last_node))
 
     return return_list
+
+def redistribute_branch_nodes(node_list, min_branch_len):
+    """
+    Alternative to smooth_graph_nodes (will decide on one or the other). Simply converts a series of nodes to another
+    series of evenly-spaced nodes.
+    :param node_list:
+    :param min_branch_len:
+    :return:
+    """
+
+    if not len(node_list):
+        return []
+
+    if not isinstance(node_list, np.ndarray):
+        node_list = np.array(node_list)
+
+    return_list = []
+    return_list.append(tuple(node_list[0]))
+
+    cumul_dists = np.concatenate([[0], np.cumsum(np.linalg.norm(node_list[1:] - node_list[:-1], axis=1))])
+    n_new = np.max([np.int(np.floor(cumul_dists[-1] / min_branch_len)), 1])
+
+    distance_distrib = np.linspace(0, cumul_dists[-1], num=n_new + 1)[1:]
+    for dist_marker in distance_distrib:
+        end_index = np.argmin(dist_marker > cumul_dists)
+        progress = (dist_marker - cumul_dists[end_index - 1]) / (cumul_dists[end_index] - cumul_dists[end_index - 1])
+
+        start_pt = node_list[end_index - 1]
+        end_pt = node_list[end_index]
+
+        intermediate_node = start_pt + progress * (end_pt - start_pt)
+
+        return_list.append(tuple(intermediate_node))
+
+    return return_list
+
+
+
+
+
 
 def create_edge_point_associations(graph, point_cloud_array, in_place=False):
     """

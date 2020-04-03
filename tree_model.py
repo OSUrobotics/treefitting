@@ -57,10 +57,19 @@ class TreeModel(object):
         self.status = Flags.UNPROCESSED
 
     @classmethod
-    def from_point_cloud(cls, pc):
+    def from_point_cloud(cls, pc, process=False):
         new_model = cls()
+        if process:
+            pc = preprocess_point_cloud(pc)
+
         new_model.points = pc
         return new_model
+
+    @classmethod
+    def from_file_name(cls, file_name, process=False):
+        import pymesh
+        pc = pymesh.load_mesh(file_name).vertices
+        return cls.from_point_cloud(pc, process=process)
 
 
     def skeletonize(self):
@@ -84,7 +93,7 @@ class TreeModel(object):
         smoothed_segments = []
 
         for segment in segments:
-            smoothed_segments.append(skel.smooth_graph_nodes(segment, 0.015))
+            smoothed_segments.append(skel.redistribute_branch_nodes(segment, 0.10))
 
         graph = nx.Graph()
 
@@ -265,6 +274,7 @@ class TreeModel(object):
         if self.status.value >= Flags.MESH_CREATED.value:
             return
 
+        self.assign_branch_radii()
         self.mesh = mesh.process_skeleton(self.graph, default_radius=0.01)
         self.status = Flags.MESH_CREATED
         return
@@ -338,6 +348,47 @@ class Segment:
         return color_wheel[self.classification.value]
 
 
+def preprocess_point_cloud(pc):
+    # Pre-process the cloud
+    # First, filter out Y-coordinate
+    hist_y, hist_edges = np.histogram(pc[:, 1], bins=20, density=True)
+    hist_y = -hist_y
+    req_height = (hist_y.max() + hist_y.min()) / 2
+    peak = max(signal.find_peaks(hist_y, height=req_height, distance=5)[0])
+    corresponding_edge = hist_edges[peak + 1]
+
+    pc = pc[pc[:, 1] < corresponding_edge]
+
+    # Next, filter out the back row of branches
+    hist_z, hist_edges = np.histogram(pc[:, 2], bins=20, density=True)
+    hist_z = -hist_z
+    req_height = (hist_z.max() + hist_z.min()) / 2
+    peak = max(signal.find_peaks(hist_z, height=req_height, distance=5)[0])
+    pc = pc[pc[:, 2] < hist_edges[peak + 1]]
+
+    if pc.shape[0] > 10000:
+        print('TEMPORARY: DOWNSAMPLING TO 10K POINTS')
+        pc = pc[np.random.choice(pc.shape[0], 10000, replace=False)]
+
+    return pc
+
 
 if __name__ == '__main__':
+
     file_path = sys.argv[1]
+    try:
+        output_path = sys.argv[2]
+    except IndexError:
+        components = list(os.path.split(file_path))
+        if '.' in components[-1]:
+            components[-1] = '.'.join(components[-1].split('.')[:-1]) + '.obj'
+        else:
+            components[-1] = components[-1] + '.obj'
+
+        output_path = os.path.join(*components)
+
+    print('Reading file from: {}'.format(file_path))
+    print('Outputting file:   {}'.format(output_path))
+
+    model = TreeModel.from_file_name(file_path, process=True)
+    model.output_mesh(output_path)

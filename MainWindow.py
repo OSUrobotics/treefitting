@@ -315,9 +315,9 @@ class PointCloudViewerGUI(QMainWindow):
         self.repaint()
 
     def new_random_id(self):
-        self.glWidget.initialize_mesh()
-        # id = np.random.uniform(0, len(self.glWidget.my_pcd.pc_data) )
-        # self.glWidget.selected_point = int( np.floor( id ) )
+        # self.glWidget.initialize_mesh()
+        id = np.random.uniform(0, len(self.glWidget.my_pcd.pc_data) )
+        self.glWidget.selected_point = int( np.floor( id ) )
         self.glWidget.update()
         self.repaint()
 
@@ -427,7 +427,6 @@ class PointCloudViewerGUI(QMainWindow):
 
             self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
             self.glWidget.make_pcd_gl_list()
-            self.glWidget.initialize_mesh()
             self.glWidget.cyl_cover = CylinderCover(self.glWidget.my_pcd)
 
         config_update = {

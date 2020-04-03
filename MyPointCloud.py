@@ -5,7 +5,6 @@ import numpy as np
 import scipy.signal as signal
 from list_read_write import ReadWrite
 
-
 class MyPointCloud(ReadWrite):
     def __init__(self):
         super(MyPointCloud, self). __init__("MYPOINTCLOUD")
@@ -235,26 +234,9 @@ class MyPointCloud(ReadWrite):
         self.points = pymesh.load_mesh(file_name).vertices
         self.file_name = file_name
 
-        # Pre-process the cloud
-        # First, filter out Y-coordinate
-        hist_y, hist_edges = np.histogram(self.points[:,1], bins=20, density=True)
-        hist_y = -hist_y
-        req_height = (hist_y.max() + hist_y.min()) / 2
-        peak = max(signal.find_peaks(hist_y, height=req_height, distance=5)[0])
-        corresponding_edge = hist_edges[peak+1]
-
-        self.points = self.points[self.points[:,1] < corresponding_edge]
-
-        # Next, filter out the back row of branches
-        hist_z, hist_edges = np.histogram(self.points[:,2], bins=20, density=True)
-        hist_z = -hist_z
-        req_height = (hist_z.max() + hist_z.min()) / 2
-        peak = max(signal.find_peaks(hist_z, height=req_height, distance=5)[0])
-        self.points = self.points[self.points[:,2] < hist_edges[peak+1]]
-
-        if self.points.shape[0] > 10000:
-            print('TEMPORARY: DOWNSAMPLING TO 10K POINTS')
-            self.points = self.points[np.random.choice(self.points.shape[0], 10000, replace=False)]
+        # TODO Remove this dependency by pre-filtering .ply files
+        import tree_model
+        self.points = tree_model.preprocess_point_cloud(self.points)
 
         #  Find bounding box
         self.min_pt = np.min(self.points, axis=0)
