@@ -3,24 +3,131 @@
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
-
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog
+from PyQt5.QtCore import QRect
 from MyPointCloud import MyPointCloud
 from Cylinder import Cylinder
 from CylinderCover import CylinderCover
+from PyQt5.QtGui import QColor
 
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from functools import partial
+import imageio
+import hashlib
+import time
+
+import random
 import os
 from DrawPointCloud import DrawPointCloud
 import sys
 import pickle
 import numpy as np
 from MySliders import SliderIntDisplay, SliderFloatDisplay
+from tree_model import Superpoint
 import hashlib
+from functools import partial
+from collections import defaultdict
+from MachineLearningPanel import ML_Panel
+
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 CONFIG = os.path.join(ROOT, 'config')
 if not os.path.exists(CONFIG):
     os.mkdir(CONFIG)
+
+
+class ToggleDialog(QWidget):
+    def __init__(self, callback=None):
+        super(ToggleDialog, self).__init__()
+
+        self.callback = callback
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        grid = QGridLayout()
+        layout.addWidget(QLabel('Options'))
+        layout.addLayout(grid)
+
+        bottom = QHBoxLayout()
+        layout.addLayout(bottom)
+
+        commit_button = QPushButton("Commit")
+        commit_button.clicked.connect(self.commit)
+        reset_button = QPushButton("Reset")
+        reset_button.clicked.connect(self.reset)
+        bottom.addWidget(commit_button)
+        bottom.addWidget(reset_button)
+
+        self.checkboxes = {}
+        self.thresholds = {}
+        self.colors = {}
+        self.color_buttons = {}
+        for i, cat in enumerate(sorted(Superpoint.CLASSIFICATIONS)):
+            label = Superpoint.CLASSIFICATIONS[cat]
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)
+            edit = QLineEdit('0.0')
+            self.checkboxes[cat] = checkbox
+            self.thresholds[cat] = edit
+
+            grid.addWidget(QLabel(label), i, 0)
+            grid.addWidget(checkbox, i, 1)
+            grid.addWidget(edit, i, 2)
+
+            only_button = QPushButton('Only')
+            only_button.clicked.connect(partial(self.toggle_only, cat))
+
+            except_button = QPushButton('Except')
+            except_button.clicked.connect(partial(self.toggle_except, cat))
+
+            grid.addWidget(only_button, i, 3)
+            grid.addWidget(except_button, i, 4)
+
+            color_button = QPushButton('Set Color')
+            color_button.clicked.connect(partial(self.change_color, cat))
+            self.color_buttons[cat] = color_button
+            grid.addWidget(color_button, i, 5)
+
+    def toggle_except(self, undesired):
+        for cat in Superpoint.CLASSIFICATIONS:
+            self.checkboxes[cat].setChecked(cat != undesired)
+        self.commit()
+
+    def toggle_only(self, desired):
+        for cat in Superpoint.CLASSIFICATIONS:
+            self.checkboxes[cat].setChecked(cat == desired)
+        self.commit()
+
+    def reset(self):
+        for cat in Superpoint.CLASSIFICATIONS:
+            self.checkboxes[cat].setChecked(True)
+            self.thresholds[cat].setText('0.0')
+            self.color_buttons[cat].setStyleSheet("background-color: rgb(255,255,255)")
+        self.colors = {}
+        self.commit()
+
+    def change_color(self, cat):
+        color = QColorDialog.getColor()
+        r, g, b, _ = color.getRgb()
+        self.color_buttons[cat].setStyleSheet("background-color: rgb({},{},{})".format(r, g, b))
+
+        print(color.getRgbF())
+        self.colors[cat] = color
+
+    def commit(self):
+
+        state = {cat: {'threshold': float(self.thresholds[cat].text()),
+                       'active': self.checkboxes[cat].isChecked(),
+                       'color': self.colors.get(cat, QColor.fromRgb(255, 255, 255)).getRgbF()}
+                 for cat in Superpoint.CLASSIFICATIONS}
+        if self.callback is None:
+            print(state)
+        else:
+            self.callback(state)
+
+
 
 class PointCloudViewerGUI(QMainWindow):
     def __init__(self, **kwargs):
@@ -28,6 +135,9 @@ class PointCloudViewerGUI(QMainWindow):
         self.setWindowTitle('Point cloud Viewer')
         self.settings = kwargs
         self.config_dir = ''
+        self.current_superpoint = None
+        self.net = None
+        self.temp_process = None
 
         # Control buttons for the interface
         left_side_layout = self._init_left_layout_()
@@ -159,9 +269,10 @@ class PointCloudViewerGUI(QMainWindow):
         params_camera_layout.addWidget(show_pca_cyl_button)
         params_camera_layout.addWidget(show_fitted_cyl_button)
         params_camera_layout.addWidget(show_skeleton_button)
+        params_camera_layout.addWidget(self.zoom)
         params_camera_layout.addWidget(self.turntable)
         params_camera_layout.addWidget(self.up_down)
-        params_camera_layout.addWidget(self.zoom)
+
         params_camera.setLayout(params_camera_layout)
 
         # Put all the pieces in one box
@@ -216,6 +327,9 @@ class PointCloudViewerGUI(QMainWindow):
         new_id_button = QPushButton('Random new id')
         new_id_button.clicked.connect(self.new_random_id)
 
+        highlight_random_button = QPushButton('Highlight random')
+        highlight_random_button.clicked.connect(self.highlight_random)
+
         compute_skeleton_button = QPushButton('Compute skeleton')
         compute_skeleton_button.clicked.connect(self.compute_skeleton)
 
@@ -224,16 +338,70 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.save_as_field = QLineEdit('')
 
+        magic_button = QPushButton('Click here for magic')
+        magic_button.clicked.connect(self.magic)
+
+        self.toggles = ToggleDialog(callback=self.redraw_by_classification)
+        self.toggles.hide()
+        toggle_button = QPushButton('Classification toggles')
+        toggle_button.clicked.connect(partial(self.toggle_window, self.toggles))
+
+        ml_callbacks = {
+            'random_point': self.highlight_random_radius,
+            'resample': self.resample,
+        }
+        self.ml_panel = ML_Panel(ml_callbacks, '/home/main/data/autoencoder_real_tree')
+        self.ml_panel.hide()
+        ml_button = QPushButton('ML Panel')
+        ml_button.clicked.connect(partial(self.toggle_window, self.ml_panel))
+
+        self.figure = Figure()
+        self.display = FigureCanvas(self.figure)
+        self.figure.clear()
+
+        classifying_layout = QVBoxLayout()
+        import tree_model
+        for val in sorted(tree_model.Superpoint.CLASSIFICATIONS):
+            label = tree_model.Superpoint.CLASSIFICATIONS[val]
+            button = QPushButton(label)
+            button.clicked.connect(partial(self.save_image, val))
+            classifying_layout.addWidget(button)
+
+
+        # button_joint = QPushButton('Joint')
+        # button_leader = QPushButton('Branch')
+        # button_other = QPushButton('Other')
+        # button_skip = QPushButton('>')
+        #
+        # classifying_layout.addWidget(button_joint)
+        # classifying_layout.addWidget(button_leader)
+        # classifying_layout.addWidget(button_other)
+        # classifying_layout.addWidget(button_skip)
+        self.guess_label = QLabel()
+        #
+        # button_joint.clicked.connect(partial(self.save_image, 'joint'))
+        # button_leader.clicked.connect(partial(self.save_image, 'branch'))
+        # button_other.clicked.connect(partial(self.save_image, 'other'))
+        # button_skip.clicked.connect(partial(self.save_image, None))
+
+
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
-        resets_layout.addWidget(recalc_neighbors_button)
-        resets_layout.addWidget(recalc_cylinder_button)
-        resets_layout.addWidget(recalc_pca_cylinder_button)
-        resets_layout.addWidget(recalc_fit_cylinder_button)
-        resets_layout.addWidget(new_id_button)
+        # resets_layout.addWidget(recalc_neighbors_button)
+        # resets_layout.addWidget(recalc_cylinder_button)
+        # resets_layout.addWidget(recalc_pca_cylinder_button)
+        # resets_layout.addWidget(recalc_fit_cylinder_button)
+        # resets_layout.addWidget(new_id_button)
+        resets_layout.addWidget(highlight_random_button)
         resets_layout.addWidget(compute_skeleton_button)
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
+        resets_layout.addWidget(magic_button)
+        resets_layout.addWidget(self.display)
+        resets_layout.addWidget(toggle_button)
+        resets_layout.addWidget(ml_button)
+        resets_layout.addLayout(classifying_layout)
+        resets_layout.addWidget(self.guess_label)
         resets.setLayout(resets_layout)
 
         # For setting the bin size, based on width of narrowest branch
@@ -267,6 +435,9 @@ class PointCloudViewerGUI(QMainWindow):
         right_side_layout.addWidget(params_neighbors)
         right_side_layout.addWidget(params_labels)
 
+        params_neighbors.hide()
+        params_labels.hide()
+
         return right_side_layout
 
     @property
@@ -276,6 +447,10 @@ class PointCloudViewerGUI(QMainWindow):
     @property
     def fit_cylinder_file(self):
         return os.path.join(self.config_dir, 'cylinders_fit.txt')
+
+    def toggle_window(self, window):
+        window.setGeometry(QRect(100, 100, 400, 200))
+        window.show()
 
     # Recalcualte the bins based on the current smallest branch value
     def recalc_bins(self):
@@ -425,6 +600,7 @@ class PointCloudViewerGUI(QMainWindow):
             if not os.path.exists(config_dir):
                 os.mkdir(config_dir)
 
+            self.glWidget.reset_model()
             self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
             self.glWidget.make_pcd_gl_list()
             self.glWidget.cyl_cover = CylinderCover(self.glWidget.my_pcd)
@@ -436,10 +612,99 @@ class PointCloudViewerGUI(QMainWindow):
 
         with open('last_config', 'wb') as fh:
             pickle.dump(config_update, fh)
-        self.glWidget.reset_model()
+        # self.glWidget.reset_model()
         self.glWidget.update()
         self.repaint()
 
+    def resample(self, cover_radius, neighbor_radius):
+
+        pc = self.glWidget.tree.resample(cover_radius, neighbor_radius)
+        self.glWidget.reset_model(pc)
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.update()
+        self.repaint()
+
+    def highlight_random_radius(self, rad):
+
+        pt_indexes, ref_index = self.glWidget.tree.query_neighborhood(rad, highlight=True)
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.update()
+        self.repaint()
+        return self.glWidget.tree.points[pt_indexes].copy(), self.glWidget.tree.points[ref_index].copy()
+
+    def highlight_random(self):
+
+        self.glWidget.tree.rasterize()
+
+        random_node = random.choice(list(self.glWidget.tree.superpoint_graph.nodes))
+        superpoint = self.glWidget.tree.superpoint_graph.nodes[random_node]['superpoint']
+        im_array = superpoint.neighbor_image_array
+        self.glWidget.tree.highlight_superpoint(superpoint)
+        self.glWidget.make_pcd_gl_list()
+
+        self.glWidget.update()
+        self.repaint()
+
+        guess_dict, _ = superpoint.classify()
+        top_guesses = [(label, guess_dict[label]) for label in sorted(guess_dict, key=lambda x: -guess_dict[x])][:3]
+        text = 'Confidence: {:.2f} ({})'.format(top_guesses[0][1], top_guesses[0][0])
+        for label, val in top_guesses[1:]:
+            text += '\n  {:.2f} ({})'.format(val, label)
+
+        self.guess_label.setText(text)
+
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.imshow(im_array)
+        self.display.draw()
+        self.current_superpoint = superpoint
+
+
+    def save_image(self, category=None):
+        if category is not None:
+            raster_data = self.glWidget.tree.get_raster_dict(self.current_superpoint.ref_point)
+            rez = self.current_superpoint.export(category, raster_data)
+
+            print(rez)
+
+            all_files = os.listdir('training_data')
+            if not all_files:
+                file_num = 0
+            else:
+                max_file = max(all_files)
+                file_num = int(max_file.split('.')[0]) + 1
+
+            with open('training_data/{:06}.pt'.format(file_num), 'wb') as fh:
+                pickle.dump(rez, fh)
+
+        self.highlight_random()
+
+    def magic(self):
+
+
+
+        if self.temp_process is None:
+            def callback():
+                self.glWidget.make_pcd_gl_list()
+                self.glWidget.update()
+                self.repaint()
+            self.temp_process = self.glWidget.tree.get_bitmap_histogram(callback=callback)
+
+        try:
+            next(self.temp_process)
+        except StopIteration:
+            self.temp_process = None
+
+
+        # self.glWidget.make_pcd_gl_list()
+
+        # self.glWidget.tree.do_pca()
+        #
+        # self.glWidget.tree.connect_open_cover()
+        # self.glWidget.initialize_skeleton()
+        # self.glWidget.make_pcd_gl_list()
+        # self.glWidget.update()
+        # self.repaint()
 
     def read_pca_cylinders(self):
         fname = self.pca_cylinder_file
@@ -458,6 +723,24 @@ class PointCloudViewerGUI(QMainWindow):
             print("File not found {0}".format(fname))
 
     def redraw_self(self):
+        self.glWidget.update()
+        self.repaint()
+
+    def redraw_by_classification(self, state):
+        self.glWidget.ignore_points = set()
+        self.glWidget.tree.highlighted_points = defaultdict(list)
+
+        for superpoint_node in self.glWidget.tree.superpoint_graph.nodes:
+            superpoint = self.glWidget.tree.superpoint_graph.nodes[superpoint_node]['superpoint']
+            classification = superpoint.classification
+            sorted_cats = sorted(classification, key=lambda x: -classification[x])
+            top_cat = sorted_cats[0]
+            if not state[top_cat]['active'] or classification[top_cat] < state[top_cat]['threshold']:
+                self.glWidget.ignore_points.update(superpoint.neighbor_index)
+            else:
+                self.glWidget.tree.highlighted_points[state[top_cat]['color']].extend(superpoint.neighbor_index)
+
+        self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
         self.repaint()
 

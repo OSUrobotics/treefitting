@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QSlider, QWidget, QLabel, QPushButton
-
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QSlider, QWidget, QLabel, QPushButton
+import math
 
 # A helper class that implements a slider with given start and end float value; displays values
 class SliderFloatDisplay(QWidget):
@@ -23,10 +23,11 @@ class SliderFloatDisplay(QWidget):
         self.range = high - low
         self.ticks = ticks
         self.b_recalc_ids = False
+        self.max_digits = int(math.floor(math.log10(max(abs(low), abs(high)))))
 
         # I'm a widget with a text value next to a slider
         QWidget.__init__(self)
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
         self.setLayout(layout)
 
         self.slider = QSlider(Qt.Horizontal)

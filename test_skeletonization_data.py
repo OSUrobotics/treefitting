@@ -103,17 +103,43 @@ def perturb_graph(graph, noise_stdev):
 def plot_graph(graph, pts=None):
     plt.clf()
     if pts is not None:
-        plt.scatter(pts[:,0], pts[:,1])
+        plt.scatter(pts[:,0], pts[:,1], color=(0.8, 0.8, 0.9, 0.4))
     nodes = np.array(graph.nodes)
     for edge in graph.edges:
         a, b = edge
         data = graph.edges[edge]
         cat = data['category']
-        correct = data.get('correct', True)
-        if not correct:
-            plt.plot([a[0], b[0]], [a[1], b[1]], color='yellow', linewidth=6)
-        plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat], linewidth=2 if correct else 4)
+        info = data.get('info', None)
 
+        if info is None:
+            # Just plot standard
+            plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat], linewidth=2)
+        else:
+            pred_category = info['pred_category']
+            pred_connected = info['pred_connected']
+            conn = info['connected']
+
+            # Case 1: Cat is correct and it is connected, plot like usual
+            if conn and pred_category == cat:
+                plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat], linewidth=2)
+
+            # Case 2: Predicted connection when there was none
+            if not conn and pred_connected:
+                plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[pred_category],
+                         linewidth=4, linestyle='dotted')
+
+            # Case 3: Predicted no connection when there was one
+            if conn and not pred_connected:
+                plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat],
+                         linewidth=4, linestyle='dashdot')
+
+            # Case 4: Predicted connection correctly, but wrong category
+            if (conn and pred_connected) and (pred_category != cat):
+                plt.plot([a[0], b[0]], [a[1], b[1]], color=(*COLORS[cat][:3], 0.5),
+                         linewidth=10)
+
+                plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[pred_category],
+                         linewidth=2, linestyle='dotted')
 
     plt.scatter(nodes[:,0], nodes[:,1], marker='x')
     plt.axis('equal')
@@ -251,21 +277,53 @@ class TreeComponent:
         return np.max(params['dists'])
 
 
-def convert_points_to_histogram(points, ref=None, size=16):
+def convert_points_to_histogram(points, ref=None, size=16, scale=None):
     if ref is None:
         ref = (np.max(points, axis=0) + np.min(points, axis=0))/2
 
     demeaned = points - ref
-    scale = np.max(np.abs(demeaned))
+    if scale is None:
+        scale = np.max(np.abs(demeaned))
     bins = np.linspace(-scale, scale, num=size+1)
     hist = np.histogram2d(demeaned[:,0], demeaned[:,1], bins=bins)[0]
-    hist /= np.max(hist)
+    if np.max(hist):
+        hist /= np.max(hist)
     return hist, scale, ref
 
 def construct_superpoint_histogram(pt, all_points, rad, size=16):
 
     valid = np.linalg.norm(all_points - pt, axis=1) < rad
     return convert_points_to_histogram(all_points[valid], ref=pt, size=size)
+
+
+def construct_dual_superpoint_histogram(pt_1, pt_2, all_points, rad, size=16):
+    pt_1 = np.array(pt_1)
+    pt_2 = np.array(pt_2)
+
+    valid_1 = (np.linalg.norm(all_points - pt_1, axis=1) < rad)
+    valid_2 = (np.linalg.norm(all_points - pt_2, axis=1) < rad)
+    all_valid = all_points[valid_1 | valid_2]
+    diff = pt_2 - pt_1
+    diff_mag = np.linalg.norm(diff)
+
+    # Transform original points into straight line view to be from 0 to 1
+    # Then filter points to fit into box [0, 1] x [-0.5, 0.5]
+    # Feed it into histogram with origin [0.5, 0]
+    new_pts = tf_2d(all_valid, pt_1, pt_2 - pt_1) / diff_mag
+    new_pts = new_pts[np.abs(new_pts[:,1]) <= 0.5]
+    hist, _, _ = convert_points_to_histogram(new_pts, ref=np.array([0.5, 0]), size=size,
+                                             scale=0.5)
+
+    return hist
+
+
+
+
+
+
+
+
+
 
 GLOBAL_COUNTER = None
 
@@ -305,21 +363,43 @@ def export_as_dataset(graph, points, rad=0.15, global_size=128, return_dict=Fals
 
     for node in graph.nodes:
         i = node_index_dict[node]
-        image, scale, _ = construct_superpoint_histogram(node, points, rad, size=32)
+        # image, scale, _ = construct_superpoint_histogram(node, points, rad, size=32)
 
         to_export['superpoints'][i] = {
-            'image': image,
-            'scale': scale,
             'location': (np.array(node) - global_ref_pt) / global_scale
         }
 
     for a, b, cat in graph.edges.data('category'):
-        truth_vec = np.zeros(5)
-        truth_vec[cat] = 1
+
+        if a == b:
+            continue
+
+        is_connected = np.array([1, 0]) if cat != CATEGORY_FALSE_CONNECTION else np.array([0, 1])
+        truth_vec = np.zeros(4)
+        if cat != CATEGORY_FALSE_CONNECTION:
+            truth_vec[cat] = 1
+
         i_a = node_index_dict[a]
         i_b = node_index_dict[b]
-        to_export['edges'].append([(i_a, i_b), truth_vec])
-        to_export['edges'].append([(i_b, i_a), truth_vec.copy()])
+
+        data = {
+            'connected': is_connected,
+            'category': truth_vec,
+        }
+
+        image_1 = construct_dual_superpoint_histogram(a, b, points, rad, size=32)
+        image_2 = construct_dual_superpoint_histogram(b, a, points, rad, size=32)
+
+        data_1 = deepcopy(data)
+        data_1['edge'] = (i_a, i_b)
+        data_1['image'] = image_1
+
+        data_2 = deepcopy(data)
+        data_2['edge'] = (i_b, i_a)
+        data_2['image'] = image_2
+
+        to_export['edges'].append(data_1)
+        to_export['edges'].append(data_2)
 
     root = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'experimental_training_data')
     if not return_dict:
@@ -345,11 +425,44 @@ class ExponentialGenerator(TreeComponent):
         scale = self.height / (end_val - 1)
         return scale * (np.exp(x_val) - 1)
 
+
+
+def tf_2d(points, new_origin, new_x_axis):
+    # Equivalent of project_point_onto_plane
+
+
+    t = np.arctan2(new_x_axis[1], new_x_axis[0])
+    tf_mat = np.array([
+        [np.cos(t), -np.sin(t), new_origin[0]],
+        [np.sin(t), np.cos(t), new_origin[1]],
+        [0, 0, 1]
+    ])
+
+    pts_homog = np.ones((points.shape[0], 3))
+    pts_homog[:,0:2] = points
+    return np.linalg.inv(tf_mat).dot(pts_homog.T).T[:,0:2]
+
+
+
+
+
+
+
+def reproject_pt_onto_plane(pt, plane_pt, plane_vec):
+
+    plane_vec = plane_vec / np.linalg.norm(plane_vec)
+
+    vec = pt - plane_pt
+    dist = vec.dot(plane_vec)
+    return pt - dist.reshape((-1, 1)).dot(plane_vec.reshape(1,-1))
+
+
+
 if __name__ == '__main__':
 
     import torch
 
-    from test_skeletonization_network import TreeDatasetFromExportDict, SyntheticTreeClassifier
+    from test_skeletonization_network import TreeDataset, SyntheticTreeClassifier
     net = SyntheticTreeClassifier().double()
     with open('synthetic_best.model', 'rb') as fh:
         state_dict = torch.load(fh)
@@ -369,7 +482,7 @@ if __name__ == '__main__':
 
     # plot_graph(graph_perturbed, pts)
     to_export, index_to_nodes = export_as_dataset(graph_perturbed, pts, 0.15, return_dict=True)
-    dataset = TreeDatasetFromExportDict(to_export)
+    dataset = TreeDataset.from_dict(to_export)
     classifications, edge_ids = net.guess_from_export_dataset(dataset)
 
     graph_copy = graph_perturbed.copy()
@@ -378,31 +491,54 @@ if __name__ == '__main__':
 
 
     for edge_id, classification in zip(edge_ids, classifications):
-        (a_i, b_i), truth = to_export['edges'][edge_id]
+
+        a_i, b_i = to_export['edges'][edge_id]['edge']
+        true_cat = to_export['edges'][edge_id]['category']
+        true_conn = to_export['edges'][edge_id]['connected']
+
+        predicted_class = classification[:4].argmax()
+        predicted_conn = 1 - classification[4:6].argmax()
 
         if b_i < a_i:
             a_i, b_i = b_i, a_i
-        cats[index_to_nodes[a_i], index_to_nodes[b_i]] = classification.argmax()
+        cats[index_to_nodes[a_i], index_to_nodes[b_i]] = (predicted_conn, predicted_class)
 
-    total = 0
-    right = 0
+    # Update this section for proper connectedness
 
-    correctness = {}
-    for edge, predicted_cat in cats.items():
-        if predicted_cat == graph_perturbed.edges[edge]['category']:
-            right += 1
-            correctness[edge] = True
-        else:
-            correctness[edge] = False
-        total += 1
-    print('Accuracy: {:.2f}%'.format(100*right/total))
+    connect_total = 0
+    connect_right = 0
+    cat_total = 0
+    cat_right = 0
 
-    nx.set_edge_attributes(graph_copy, cats, name='category')
-    nx.set_edge_attributes(graph_copy, correctness, name='correct')
+    correctness_info = {}
+    for edge, (predicted_conn, predicted_cat) in cats.items():
+        true_cat = graph_perturbed.edges[edge]['category']
+        summary = {
+            'connected': true_cat != CATEGORY_FALSE_CONNECTION,
+            'pred_connected': predicted_conn,
+            'category': true_cat,
+            'pred_category': predicted_cat,
+        }
+
+        # Check connection accuracy
+        connect_total += 1
+        if bool(predicted_conn) ^ (true_cat == 4):
+            connect_right += 1
+
+        if true_cat != 4:
+            cat_total += 1
+            if predicted_cat == true_cat:
+                cat_right += 1
+
+        correctness_info[edge] = summary
+
+    print('Connection accuracy: {:.2f}%'.format(100*connect_right/connect_total))
+    print('Category accuracy: {:.2f}%'.format(100 * cat_right / cat_total))
+    nx.set_edge_attributes(graph_copy, correctness_info, name='info')
     plot_graph(graph_copy, pts)
 
 
-    # for _ in range(2000):
+    # for _ in range(400):
     #
     #     num = np.random.randint(3000, 20000)
     #     extreme_noise_p = np.random.uniform(0, 0.10)

@@ -231,12 +231,16 @@ class MyPointCloud(ReadWrite):
 
     def load_point_cloud(self, file_name=None):
 
-        self.points = pymesh.load_mesh(file_name).vertices
-        self.file_name = file_name
+        if isinstance(file_name, str):
+            self.points = pymesh.load_mesh(file_name).vertices
+            self.file_name = file_name
 
-        # TODO Remove this dependency by pre-filtering .ply files
-        import tree_model
-        self.points = tree_model.preprocess_point_cloud(self.points)
+            # TODO Remove this dependency by pre-filtering .ply files
+            import tree_model
+            self.points = tree_model.preprocess_point_cloud(self.points, downsample=50000)
+
+        else:   # Super hack!
+            self.points = file_name
 
         #  Find bounding box
         self.min_pt = np.min(self.points, axis=0)

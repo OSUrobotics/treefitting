@@ -34,7 +34,7 @@ class SyntheticTreeClassifier(nn.Module):
         self.raster_fc = nn.Linear(self.flat_raster_size, 64)
         self.raster_vec = nn.Linear(64, raster_vec_size)
 
-        # Convert local info to a 6-vec
+        # Convert edge info to a 6-vec
         self.local_conv_1 = nn.Conv2d(1, 2, 3, padding=1)
         self.local_conv_2 = nn.Conv2d(2, 4, 3, padding=1)
         self.local_conv_3 = nn.Conv2d(4, 8, 3, padding=1)
@@ -43,23 +43,19 @@ class SyntheticTreeClassifier(nn.Module):
         self.local_vec = nn.Linear(64, local_vec_size)
 
         # Combine both along with linear info
-        self.combination_fc = nn.Linear(raster_vec_size + local_vec_size * 2 + 6, 128)
-        self.output = nn.Linear(128, data_params.get('num_classes', 5))
+        self.combination_fc = nn.Linear(local_vec_size + raster_vec_size + 4, 128)
+        self.output = nn.Linear(128, data_params.get('num_classes', 4) + 2)
 
     def forward(self, x):
 
-        # Get classifications for node_a and node_b
-        rez = []
-        for local_info in [x['node_a'], x['node_b']]:
-            local = local_info['image']
-            local = local.view(-1, 1, *local.shape[-2:])
-            local = self.pool(nn_func.relu(self.local_conv_1(local)))
-            local = self.pool(nn_func.relu(self.local_conv_2(local)))
-            local = nn_func.relu(self.local_conv_3(local)).view(-1, self.flat_local_size)
-            local = nn_func.relu(self.local_fc(local))
-            local = self.local_vec(local)
-            rez.append(local)
-        a, b = rez
+        # Get edge classification
+        local = x['edge_image']
+        local = local.view(-1, 1, *local.shape[-2:])
+        local = self.pool(nn_func.relu(self.local_conv_1(local)))
+        local = self.pool(nn_func.relu(self.local_conv_2(local)))
+        local = nn_func.relu(self.local_conv_3(local)).view(-1, self.flat_local_size)
+        local = nn_func.relu(self.local_fc(local))
+        local = self.local_vec(local)
 
         rast = x['global_image']
         rast = rast.view(-1, 1, *rast.shape[-2:])
@@ -71,8 +67,7 @@ class SyntheticTreeClassifier(nn.Module):
         rast = self.raster_vec(rast)
 
         # Combine into final
-        final = torch.cat([rast, a, b, x['node_a']['location'], x['node_b']['location'],
-                           x['node_a']['scale'].double(), x['node_b']['scale'].double()], 1)
+        final = torch.cat([local, rast, x['node_a'], x['node_b']], 1)
         final = nn_func.relu(self.combination_fc(final))
         final = self.output(final)
 
@@ -84,6 +79,7 @@ class SyntheticTreeClassifier(nn.Module):
         edge_indexes = []
         numpy_rez = []
         self.eval()
+
         for data in val_loader:
             rez = self.forward(data)
             edge_indexes.extend(data['edge_id'].numpy())
@@ -96,16 +92,22 @@ class SyntheticTreeClassifier(nn.Module):
 
 class TreeDataset(torch.utils.data.Dataset):
 
-    def __init__(self, set_type='training', root='experimental_training_data', transform=None):
+    @classmethod
+    def from_dict(cls, data_dict):
+        dataset = cls()
+        dataset.process_dict(deepcopy(data_dict))
+        return dataset
 
-        self.transform = transform
+    @classmethod
+    def from_directory(cls, root, set_type='training'):
+
+        dataset = cls()
+
         default_props = {
             'training': [0.0, 0.7],
             'validation': [0.7, 0.9],
             'testing': [0.9, 1.0],
         }
-        self.all_edges = []
-
         if isinstance(set_type, str):
             proportions = default_props[set_type]
         elif isinstance(set_type, list):
@@ -119,54 +121,69 @@ class TreeDataset(torch.utils.data.Dataset):
         rand = np.random.uniform(size=len(all_files))
         to_select = np.where((proportions[0] <= rand) & (rand < proportions[1]))[0]
         files_to_load = [all_files[i] for i in to_select]
-        self.all_data = []
+
         for i, file in enumerate(files_to_load):
+
             with open(os.path.join(root, file), 'rb') as fh:
                 data_dict = pickle.load(fh)
-            edges = data_dict.pop('edges')
-            self.all_edges.extend([(i, a_i, b_i) for a_i, b_i in edges])
-            convert_dict_to_torch(data_dict)
-            self.all_data.append(data_dict)
+                dataset.process_dict(data_dict)
 
         np.random.seed(None)
+        return dataset
 
-    def __len__(self):
-        return len(self.all_edges)
+    def __init__(self, transform=None):
 
-    def __getitem__(self, i):
-        data_i, (a_i, b_i), truth = self.all_edges[i]
-        dataset = self.all_data[data_i]
-        return {
-            'edge_id': i,
-            'global_image': dataset['global']['image'],
-            'node_a': dataset['superpoints'][a_i],
-            'node_b': dataset['superpoints'][b_i],
-            'truth': truth
-        }
-
-class TreeDatasetFromExportDict(torch.utils.data.Dataset):
-    def __init__(self, data_dict, transform=None):
+        super(TreeDataset, self).__init__()
         self.transform = transform
-        self.data_dict = deepcopy(data_dict)
-        self.edges = self.data_dict.pop('edges')
-        convert_dict_to_torch(self.data_dict)
+        self.global_info = {}       # i
+        self.superpoint_info = {}   # i, a
+        self.edge_info = []         # (i, a, b), data
 
     def __len__(self):
-        return len(self.edges)
+        return len(self.edge_info)
 
     def __getitem__(self, i):
-        (a_i, b_i), truth = self.edges[i]
+
+        (data_i, a_i, b_i), data = self.edge_info[i]
         return {
             'edge_id': i,
-            'global_image': self.data_dict['global']['image'],
-            'node_a': self.data_dict['superpoints'][a_i],
-            'node_b': self.data_dict['superpoints'][b_i],
-            'truth': truth
+            'edge': torch.Tensor([a_i, b_i]),
+            'global_image': self.global_info[data_i]['image'],
+            'node_a': self.superpoint_info[data_i, a_i]['location'],
+            'node_b': self.superpoint_info[data_i, b_i]['location'],
+            'edge_image': data['image'],
+            'category': data['category'],
+            'connected': data['connected']
         }
 
+    def process_dict(self, data_dict):
+        # Process global data
+        i = len(self.global_info)
+        global_dict = data_dict['global']
+        convert_dict_to_torch(global_dict)
+        self.global_info[i] = global_dict
 
-def convert_dict_to_torch(data_dict, add_dim=False):
+        # Process superpoint-based information
+        superpoint_info = data_dict['superpoints']
+        convert_dict_to_torch(superpoint_info)
+        for node_id, data in superpoint_info.items():
+            self.superpoint_info[i, node_id] = data
+
+        # Process edge-based information
+        edge_data = data_dict['edges']
+        for edge_dict in edge_data:
+            node_a, node_b = edge_dict.pop('edge')
+            convert_dict_to_torch(edge_dict)
+            edge = (i, node_a, node_b)
+            self.edge_info.append([edge, edge_dict])
+
+
+def convert_dict_to_torch(data_dict, add_dim=False, ignore_keys=None):
+    if ignore_keys is None:
+        ignore_keys = set()
     for key, val in data_dict.items():
+        if key in ignore_keys:
+            continue
         if isinstance(val, np.ndarray):
             data_dict[key] = torch.from_numpy(val)
             if add_dim:
@@ -180,22 +197,29 @@ def convert_dict_to_torch(data_dict, add_dim=False):
 
 
 
-def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4):
+def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
     """
 
     :param max_epochs: Max number of epochs to train
     :param no_improve_threshold: If the validation error does not get better after X epochs, stop the training
     :return:
     """
-    train_data = TreeDataset('training')
+    train_data = TreeDataset.from_directory('experimental_training_data', 'training')
     train_loader = torch_data.DataLoader(train_data, batch_size=10, shuffle=True, num_workers=0)
 
-    val_data = TreeDataset('validation')
+    val_data = TreeDataset.from_directory('experimental_training_data', 'validation')
     val_loader = torch_data.DataLoader(val_data, batch_size=10, shuffle=False, num_workers=0)
 
 
     net = SyntheticTreeClassifier().double()
+    if load:
+        with open('synthetic_best.model', 'rb') as fh:
+            state_dict = torch.load(fh)
+        net.load_state_dict(state_dict)
+        print('Loaded existing model weights!')
+
     criterion = nn.CrossEntropyLoss()
+    criterion_cat = nn.CrossEntropyLoss(reduction='sum')
     optimizer = optim.Adam(net.parameters(), lr=lr)
 
     last_val_accuracy = 0
@@ -211,18 +235,38 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4):
             if not iter % 100:
                 print('{}/{}'.format(iter, total))
 
-            classification = torch.max(data['truth'], 1)[1]
             optimizer.zero_grad()
 
             outputs = net(data)
+            category_prediction = outputs[:,:4]
+            connect_prediction = outputs[:,4:6]
 
-            loss = criterion(outputs, classification)
-            loss.backward()
+            connect_true = torch.max(data['connected'], 1)[1]
+            category_true = torch.max(data['category'], 1)[1]
+            # First compute connectedness estimates
+            connected_loss = criterion(connect_prediction, connect_true)
+
+            # Next, compute loss on categories, but only for values where connected
+            is_connected = data['connected'][:,0].bool()
+            num_connected = is_connected.sum()
+            if num_connected:
+                category_loss = criterion_cat(category_prediction[is_connected], category_true[is_connected]) / num_connected
+                connected_loss.backward(retain_graph=True)
+                category_loss.backward()
+            else:
+                connected_loss.backward()
+
             optimizer.step()
 
 
-        train_acc, _ = eval_net(net, train_loader)
-        acc, acc_by_label = eval_net(net, val_loader)
+        # train_acc, _ = eval_net(net, train_loader)
+        acc_rez = eval_net(net, val_loader)
+
+        conn_acc = acc_rez['connected_accuracy']
+        cat_acc = acc_rez['category_accuracy']
+        acc_by_label = acc_rez['per_category_accuracy']
+        acc = 2/3 * conn_acc + 1/3 * cat_acc
+
 
         if acc > last_val_accuracy:
             not_improved_streak = 0
@@ -233,8 +277,11 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4):
                 print('Stopping training')
                 break
 
-        print('Epoch {} training accuracy:   {:.2f}%'.format(epoch, train_acc * 100))
+        # print('Epoch {} training accuracy:   {:.2f}%'.format(epoch, train_acc * 100))
+
         print('Epoch {} validation accuracy: {:.2f}%'.format(epoch, acc*100))
+        print('({:.2f}% connectedness, {:.2f}% category)'.format(conn_acc * 100, cat_acc * 100))
+
 
         if acc > best_acc:
             best_acc = acc
@@ -248,27 +295,42 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4):
 
         print('Accuracy by label:')
         for label, label_acc in acc_by_label.items():
-            print('\t{}: {:.2f}%'.format(label, label_acc * 100))
+            print('\t{}: {:.2f}% (out of {})'.format(label, label_acc * 100, acc_rez['per_category_count'][label]))
 
 
 def eval_net(net, dataloader):
     net.eval()
 
-    total = 0
-    correct = 0
+    connect_total = 0
+    connect_correct = 0
+
+    category_total = 0
+    category_correct = 0
 
     total_per = defaultdict(lambda: 0)
     correct_per = defaultdict(lambda: 0)
 
     for data in dataloader:
 
-        classification = torch.max(data['truth'], 1)[1]
         outputs = net(data)
-        _, predicted = torch.max(outputs.data, 1)
-        total += classification.size(0)
-        correct += (predicted == classification.data).sum().item()
 
-        for label, prediction in zip(classification.data, predicted):
+        category_prediction = torch.max(outputs[:, :4], 1)[1]
+        connect_prediction = torch.max(outputs[:, 4:6], 1)[1]
+
+        connect_true = torch.max(data['connected'], 1)[1]
+        category_true = torch.max(data['category'], 1)[1]
+
+        connect_total += len(connect_true)
+        connect_correct += (connect_prediction == connect_true).sum().item()
+
+        real_connect = data['connected'][:,0].bool()
+        category_prediction = category_prediction[real_connect]
+        category_true = category_true[real_connect]
+
+        category_total += len(category_prediction)
+        category_correct += (category_prediction == category_true).sum().item()
+
+        for label, prediction in zip(category_true, category_prediction):
             label = label.item()
             prediction = prediction.item()
             total_per[label] += 1
@@ -278,9 +340,16 @@ def eval_net(net, dataloader):
 
     final = {k: correct_per.get(k, 0) / total_per[k] for k in total_per}
 
-    return correct / total, final
+    rez = {
+        'connected_accuracy': connect_correct / connect_total,
+        'category_accuracy': category_correct / category_total,
+        'per_category_accuracy': final,
+        'per_category_count': total_per,
+    }
+
+    return rez
 
 if __name__ == '__main__':
 
-    train_net(500, 500)
+    train_net(500, 500, load=True)
 

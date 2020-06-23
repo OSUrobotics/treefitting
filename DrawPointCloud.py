@@ -15,7 +15,8 @@ import numpy as np
 import ctypes
 
 from tree_model import TreeModel
-
+import matplotlib.pyplot as plt
+plt.ion()
 
 SHADER_CODE = """
 #version {ver}
@@ -113,6 +114,8 @@ class DrawPointCloud(QOpenGLWidget):
         self.skeleton_list = None
 
         self.selected_point = 0
+        self.highlighted_points = []
+        self.ignore_points = set()
 
         self.gui = gui
         self.cyl = Cylinder()
@@ -141,8 +144,11 @@ class DrawPointCloud(QOpenGLWidget):
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
 
-    def reset_model(self):
-        self.tree = TreeModel.from_point_cloud(self.my_pcd.points.copy())
+    def reset_model(self, pc=None):
+        if pc is None:
+            pc = self.my_pcd.points.copy()
+        self.tree = TreeModel.from_point_cloud(pc)
+        self.tree.load_superpoint_graph()
         self.skeleton = None
         self.mesh = np.zeros((0, 3))
 
@@ -201,7 +207,7 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
         self.pcd_gl_list = self.make_pcd_gl_list()
-        self.pcd_isolated_gl_list = self.make_isolated_gl_list()
+        # self.pcd_isolated_gl_list = self.make_isolated_gl_list()
         self.bin_gl_list = self.make_bin_gl_list()
         GL.glShadeModel(GL.GL_SMOOTH)
         #  GL.glEnable(GL.GL_DEPTH_TEST)
@@ -412,6 +418,7 @@ class DrawPointCloud(QOpenGLWidget):
 
     @staticmethod
     def resizeGL(width, height):
+
         side = min(width, height)
         if side < 0:
             return
@@ -436,7 +443,6 @@ class DrawPointCloud(QOpenGLWidget):
 
         self.lastPos = event.pos()
 
-
     def make_pcd_gl_list(self):
 
         #draw_points()
@@ -450,25 +456,54 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glNewList(self.pcd_gl_list, GL.GL_COMPILE)
 
+        # if self.tree is None:
+        #     return self.pcd_gl_list
+
         GL.glPointSize(2)
+        GL.glEnable(GL.GL_BLEND)
+        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+
         GL.glBegin(GL.GL_POINTS)
+
         n_neigh = 20
 
-        for i,p in enumerate(self.my_pcd.points):
-            if hasattr(self.my_pcd, "neighbors"):
-                n_neigh = len(self.my_pcd.neighbors)
-                if n_neigh  < 20:
-                    GL.glColor3d(0.8, 0.2, 0.0)
-                elif n_neigh < 30:
-                    GL.glColor3d(0.6, 0.2, 0.0)
-                else:
-                    GL.glColor3d(0.2, 0.8, 0.2)
-            else:
-                GL.glColor3d(0.2, 0.8, 0.8)
-            if n_neigh > 15:
-                GL.glVertex3d(p[0], p[1], p[2])
+        if self.tree is None:
+            GL.glColor4d(0.0, 0.0, 0.0, 0.0)
+            GL.glVertex3d(0.0, 0.0, 0.0)
+        else:
+
+            for (r, g, b, a), point_indexes in self.tree.get_pt_colors():
+                print(r, g, b, a)
+                if a < 0.3:
+                    continue
+
+                GL.glColor3d(r, g, b)
+                for pt_index in point_indexes:
+                    if pt_index in self.ignore_points:
+                        continue
+                    GL.glVertex3d(*self.tree.points[pt_index])
+
+        #
+        #
+        # for i,p in enumerate(self.my_pcd.points):
+        #     if hasattr(self.my_pcd, "neighbors"):
+        #         n_neigh = len(self.my_pcd.neighbors)
+        #         if n_neigh  < 20:
+        #             GL.glColor3d(0.8, 0.2, 0.0)
+        #         elif n_neigh < 30:
+        #             GL.glColor3d(0.6, 0.2, 0.0)
+        #         else:
+        #             GL.glColor3d(0.2, 0.8, 0.2)
+        #     else:
+        #         if i in self.highlighted_points:
+        #             GL.glColor3d(0.8, 0.2, 0.2)
+        #         else:
+        #             GL.glColor3d(0.2, 0.8, 0.8)
+        #     if n_neigh > 15:
+        #         GL.glVertex3d(p[0], p[1], p[2])
 
         GL.glEnd()
+        GL.glDisable(GL.GL_BLEND)
         GL.glEndList()
 
 
@@ -616,6 +651,24 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glEnd()
         GL.glEndList()
+
+    # def update_highlighted_points(self, points):
+    #     # Should be express as a set of indexes
+    #     self.highlighted_points = points
+    #     self.make_pcd_gl_list()
+
+    # def random_select_radius(self, radius = 0.15):
+    #     # Picks a random point in the point cloud and all points with a certain radius
+    #     pt_indexes, ref_index = self.tree.query_random_radius(radius)
+    #     self.update_highlighted_points(pt_indexes)
+    #
+    #     self.update()
+    #     from exp_joint_detector import convert_pc_to_grid
+    #     img = convert_pc_to_grid(self.tree.points[pt_indexes], self.tree.points[ref_index])
+    #
+    #     return img
+    #
+    #
 
 
 if __name__ == '__main__':

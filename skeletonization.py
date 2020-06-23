@@ -33,7 +33,7 @@ def view_edges_in_matplotlib(edge_list):
 def get_node_dist(n1, n2):
     return np.linalg.norm(np.array(n1) - np.array(n2))
 
-def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0):
+def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0, leafsize=10, node_index=False):
     """
     Constructs a graph from the points in point cloud in which each point is connected to its k-nearest neighbors,
     but only if the connection is mutual.
@@ -46,19 +46,29 @@ def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0):
     :return: An undirected NetworkX graph
     """
 
-    tree = KDTree(pc)
+    tree = KDTree(pc, leafsize=leafsize)
     _, indexes = tree.query(pc, k+1, eps, distance_upper_bound=max_dist)
     indexes = indexes[:, 1:]    # The nearest neighbor is always itself
 
     graph = nx.Graph()
     edge_counts = defaultdict(lambda: 0)
     idx_to_node_dict = {}
+    idx_to_point_dict = {}
 
     for current_idx in range(indexes.shape[0]):
 
-        node = tuple(pc[current_idx])
+        if isinstance(node_index, np.ndarray):
+            node = node_index[current_idx]
+            pt = pc[current_idx]
+        elif node_index:
+            node = current_idx
+            pt = pc[current_idx]
+        else:
+            pt = pc[current_idx]
+            node = tuple(pt)
         graph.add_node(node)
         idx_to_node_dict[current_idx] = node
+        idx_to_point_dict[current_idx] = pt
 
         for col in range(k):
             neighbor_idx = indexes[current_idx, col]
@@ -76,8 +86,9 @@ def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0):
             continue
         node_a = idx_to_node_dict[a]
         node_b = idx_to_node_dict[b]
-
-        graph.add_edge(node_a, node_b, weight=get_node_dist(node_a, node_b))
+        pt_a = idx_to_point_dict[a]
+        pt_b = idx_to_point_dict[b]
+        graph.add_edge(node_a, node_b, weight=get_node_dist(pt_a, pt_b))
 
     return graph
 
