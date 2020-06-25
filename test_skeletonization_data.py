@@ -11,8 +11,10 @@ CATEGORY_SUPPORT = 1
 CATEGORY_LEADER = 2
 CATEGORY_SIDE_BRANCH = 3
 CATEGORY_FALSE_CONNECTION = 4
+CATEGORY_OTHER = 5
 
 COLORS = {
+    5: (0.4, 0.7, 0.8, 1.0),
     4: (0.1, 0.1, 0.1, 0.4),
     0: (0.9, 0, 0.9, 1.0),
     1: (0.1, 0.9, 0.1, 1.0),
@@ -100,7 +102,7 @@ def perturb_graph(graph, noise_stdev):
 
     return new_graph
 
-def plot_graph(graph, pts=None):
+def plot_graph(graph, pts=None, title=None):
     plt.clf()
     if pts is not None:
         plt.scatter(pts[:,0], pts[:,1], color=(0.8, 0.8, 0.9, 0.4))
@@ -143,6 +145,8 @@ def plot_graph(graph, pts=None):
 
     plt.scatter(nodes[:,0], nodes[:,1], marker='x')
     plt.axis('equal')
+    if title is not None:
+        plt.title(title)
     plt.show()
 
 

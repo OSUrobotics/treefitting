@@ -8,6 +8,7 @@ from scipy.linalg import svd
 import numpy as np
 from ipdb import set_trace
 import os
+import sys
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from collections import defaultdict
@@ -31,7 +32,7 @@ class WordLoader(torch.utils.data.Dataset):
     }
 
     @classmethod
-    def from_folder(cls, root='/home/main/data/fake_2d_trees/data', max_per_tree = 500):
+    def from_folder(cls, root='/home/main/data/fake_2d_trees/data', max_per_tree = 500, save_metadata=False):
 
         mapping = {
             'b': 1,
@@ -52,6 +53,8 @@ class WordLoader(torch.utils.data.Dataset):
 
             graph = data['graph']
             points = data['points']
+            if save_metadata:
+                dataset.source_info[file] = data
             tree = KDTree(points, 200)
             pt_subsets = {}
             edge_images_cache = {}
@@ -74,8 +77,11 @@ class WordLoader(torch.utils.data.Dataset):
                 edge_ends = []
                 edge_images = []
 
-                assignments_subsetted = assignments[start:end+1]
-                for letter, truth in assignments_subsetted:
+                assignments_subsetted = assignments[start:end]
+                edge_sequence = endpoints[start:end+1]
+                edge_nodes = zip(edge_sequence[:-1], edge_sequence[1:])
+
+                for (letter, truth), (start_idx, end_idx) in zip(assignments_subsetted, edge_nodes):
                     category_idx = mapping[letter]
                     category_ser = np.zeros(len(mapping))
                     category_ser[category_idx] = 1
@@ -83,8 +89,6 @@ class WordLoader(torch.utils.data.Dataset):
                     if not truth:
                         valid = False
 
-                    start_idx = endpoints[0]
-                    end_idx = endpoints[1]
                     start = graph.nodes[start_idx]['point']
                     end = graph.nodes[end_idx]['point']
 
@@ -121,6 +125,8 @@ class WordLoader(torch.utils.data.Dataset):
                     'edge_image': torch.stack(edge_images).double(),
                 }
                 dataset.register_data(data_point)
+                if save_metadata:
+                    dataset.source_file.append((file, edge_sequence))
 
         return dataset
 
@@ -144,6 +150,8 @@ class WordLoader(torch.utils.data.Dataset):
         self.transform = transform
         self.data = []
         self.counts_by_len = defaultdict(list)
+        self.source_file = []
+        self.source_info = {}
 
     def register_data(self, item):
         seq_len = item['sequence'].shape[0]
@@ -244,6 +252,16 @@ class Skeletonizer(nn.Module):
 
         return {'classification': classifications,
                 'correctness': correctness}
+
+    def predict_single(self, item):
+        for key, val in item.items():
+            item[key] = val.view(-1, *val.shape)
+        rez = self.forward(item)
+
+        category_prediction = torch.max(rez['classification'][0], 1)[1]
+        is_valid_prediction = torch.max(rez['correctness'][0])[1]
+
+        return category_prediction, is_valid_prediction
 
 
 def convert_to_image(points, start, end, size=(32, 16)):
@@ -413,4 +431,57 @@ def eval_net(net, dataset):
 
 
 if __name__ == '__main__':
-    train_net(1000, 1000, load=False, lr=1e-3)
+    import sys
+    mode = 'train'
+    if len(sys.argv > 1):
+        mode = sys.argv[1]
+
+    if mode == 'train':
+        train_net(1000, 1000, load=False, lr=1e-3)
+    elif mode == 'eval':
+        import test_skeletonization_data as tsd
+        import networkx as nx
+
+        category_map = {
+            0: tsd.CATEGORY_FALSE_CONNECTION,
+            1: tsd.CATEGORY_SIDE_BRANCH,
+            2: tsd.CATEGORY_LEADER,
+            3: tsd.CATEGORY_SUPPORT,
+            4: tsd.CATEGORY_TRUNK,
+            5: tsd.CATEGORY_OTHER
+        }
+
+        net = Skeletonizer()
+        net.load_model()
+
+        root = '/home/main/data/fake_2d_trees/data_validation'
+        loader = WordLoader.from_folder(root, max_per_tree=500, save_metadata=True)
+        for i, item in enumerate(loader):
+            file, seq = loader.source_file[i]
+            data = loader.source_info[file]
+
+            orig_graph = data['graph']
+            pts = data['points']
+            new_graph = deepcopy(orig_graph)
+            master = {}
+            predictions, valid = net.predict_single(item)
+            real_valid = torch.max(item['truth_array'])[1]
+
+            for i, (start, end) in enumerate(zip(seq[:-1], seq[1:])):
+                info = {}
+                pred_category = category_map[predictions[i]]
+                info['pred_category'] = category_map[pred_category]
+                info['pred_connected'] = info['pred_category'] != tsd.CATEGORY_FALSE_CONNECTION
+                cat = category_map[int(torch.max(item['sequence'][i]))[1]]
+                info['connected'] = cat != tsd.CATEGORY_FALSE_CONNECTION
+
+                master[(start, end)] = {'category': cat, 'info': info}
+
+            title = '{} sequence predicted {}'.format('Valid' if real_valid else 'Invalid',
+                                                      'valid' if valid else 'invalid')
+
+            nx.set_edge_attributes(new_graph, master)
+            tsd.plot_graph(new_graph, pts, title)
+
+    else:
+        raise ValueError('Invalid mode {}'.format(mode))
