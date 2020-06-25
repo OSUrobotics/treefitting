@@ -15,7 +15,7 @@ import pickle
 from numbers import Number
 import imageio
 from copy import deepcopy
-from itertools import product, chain
+from itertools import product, chain, permutations
 import hashlib
 from ipdb import set_trace
 import matplotlib
@@ -31,7 +31,7 @@ class WordLoader(torch.utils.data.Dataset):
     }
 
     @classmethod
-    def from_folder(cls, root='/home/main/data/fake_2d_trees/data'):
+    def from_folder(cls, root='/home/main/data/fake_2d_trees/data', max_per_tree = 500):
 
         mapping = {
             'b': 1,
@@ -46,13 +46,27 @@ class WordLoader(torch.utils.data.Dataset):
 
         files = os.listdir(root)
         for file in files:
+            print('Loading {}...'.format(file))
             with open(os.path.join(root, file), 'rb') as fh:
                 data = pickle.load(fh)
-            for endpoints, assignments in data['all_labels']:
 
-                graph = data['graph']
-                points = data['points']
-                tree = KDTree(points, 200)
+            graph = data['graph']
+            points = data['points']
+            tree = KDTree(points, 200)
+            pt_subsets = {}
+            edge_images_cache = {}
+
+            for _ in range(max_per_tree):
+                endpoints, assignments = random.choice(data['all_labels'])
+
+                # Encourage data selection to pick longer sequences
+                possible_lens = np.arange(1, len(assignments) + 1)
+                wgts = possible_lens / possible_lens.sum()
+
+                chosen_len = possible_lens[np.random.choice(len(possible_lens), p=wgts)]
+                possible_starts = np.arange(0, len(assignments) - chosen_len + 1)
+                start = possible_starts[np.random.choice(len(possible_starts))]
+                end = start + chosen_len
 
                 valid = True
                 category_sequence = []
@@ -60,7 +74,8 @@ class WordLoader(torch.utils.data.Dataset):
                 edge_ends = []
                 edge_images = []
 
-                for idx, (letter, truth) in enumerate(assignments):
+                assignments_subsetted = assignments[start:end+1]
+                for letter, truth in assignments_subsetted:
                     category_idx = mapping[letter]
                     category_ser = np.zeros(len(mapping))
                     category_ser[category_idx] = 1
@@ -81,22 +96,31 @@ class WordLoader(torch.utils.data.Dataset):
                     r = np.linalg.norm(start-end)/2 * 1.01      # Add small fudge factor
                     edge_pt_indexes = set()
                     for pt in [start, end]:
-                        subpts = tree.query_ball_point(pt, r)
+                        pt_tuple = tuple(pt)
+                        subpts = pt_subsets.get(pt_tuple)
+                        if subpts is None:
+                            subpts = tree.query_ball_point(pt, r)
+                            pt_subsets[pt_tuple] = subpts
                         edge_pt_indexes.update(subpts)
 
-                    edge_points = points[list(edge_pt_indexes)]
+                    id_tuple = (tuple(start), tuple(end))
+                    edge_points = edge_images_cache.get(id_tuple)
+                    if edge_points is None:
+                        edge_points = points[list(edge_pt_indexes)]
+                        edge_images_cache[id_tuple] = edge_points
+
                     img = torch.Tensor(convert_to_image(edge_points, start, end, size=(32, 16)))
                     edge_images.append(img)
 
 
-                data = {
+                data_point = {
                     'sequence': torch.Tensor(category_sequence),
                     'truth_array': torch.Tensor([1, 0] if valid else [0, 1]),
-                    'start': torch.stack(edge_starts),
-                    'end': torch.stack(edge_ends)
-                    'edge_image': torch.stack(edge_images),
+                    'start': torch.stack(edge_starts).double(),
+                    'end': torch.stack(edge_ends).double(),
+                    'edge_image': torch.stack(edge_images).double(),
                 }
-                dataset.register_data(data)
+                dataset.register_data(data_point)
 
         return dataset
 
@@ -104,12 +128,13 @@ class WordLoader(torch.utils.data.Dataset):
         seq = []
         for seq_len, items in self.counts_by_len.items():
             random.shuffle(items)
-            for start_mult in range((len(items) - 1) // batch_size):
+            for start_mult in range((len(items) - 1) // batch_size + 1):
                 seq.append(items[start_mult * batch_size: (start_mult + 1) * batch_size])
         random.shuffle(seq)
-        for subseq in seq:
-            yield combine_tensor_dicts([self.data[i] for i in subseq])
-        raise StopIteration
+        return (combine_tensor_dicts([self.data[i] for i in subseq]) for subseq in seq)
+        # for subseq in seq:
+        #     yield combine_tensor_dicts([self.data[i] for i in subseq])
+        # raise StopIteration
 
 
 
@@ -137,8 +162,8 @@ class WordLoader(torch.utils.data.Dataset):
 
 
 class Skeletonizer(nn.Module):
-    def __init__(self, hidden_size=10, conv_layers=(8, 16, 32), point_dim = 2,
-                 image_size=(32, 16), image_nodes=64, image_dim=6, dropout=0.2,
+    def __init__(self, hidden_size=10, conv_layers=(8, 32), point_dim = 2,
+                 image_size=(32, 16), image_nodes=64, image_dim=6, dropout=0.3,
                  post_lstm_nodes = 64, num_classes = 6, bidirectional=True):
         super(Skeletonizer, self).__init__()
 
@@ -150,7 +175,7 @@ class Skeletonizer(nn.Module):
         all_layers = []
         augmented_conv_layers = [1, *conv_layers]
         for start, end in zip(augmented_conv_layers[:-1], augmented_conv_layers[1:]):
-            conv = nn.Conv2d(start, end, 3)
+            conv = nn.Conv2d(start, end, 3, padding=1)
             relu = nn.ReLU()
             pool = nn.MaxPool2d(2, 2)
             all_layers.extend([conv, relu, pool])
@@ -159,9 +184,11 @@ class Skeletonizer(nn.Module):
 
         self.conv = nn.Sequential(*all_layers)
         self.conv_to_features = nn.Sequential(
-            nn.Linear(num_pixels, image_nodes),
+            nn.Linear(num_pixels * conv_layers[-1], image_nodes),
+            nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(image_nodes, image_dim)
+            nn.Linear(image_nodes, image_dim),
+            nn.ReLU(),      # Is this one necessary?
         )
 
         # Set up LSTM - Takes the linear features for each image and any additional linear features, in this case the
@@ -169,6 +196,7 @@ class Skeletonizer(nn.Module):
         self.lstm = nn.LSTM(image_dim + 2 * point_dim, hidden_size, bidirectional=bidirectional, batch_first=True)
         self.hidden_to_classifications = nn.Sequential(
             nn.Linear(hidden_size * (2 if bidirectional else 1), post_lstm_nodes),
+            nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(post_lstm_nodes, num_classes + 2)
         )
@@ -183,20 +211,18 @@ class Skeletonizer(nn.Module):
         try:
             with open(self.model_name + '.model', 'rb') as fh:
                 state_dict = torch.load(fh)
-            net.load_state_dict(state_dict)
+            self.load_state_dict(state_dict)
             print('Loaded existing model weights!')
         except:
             print('No existing model weights.')
 
     def save_model(self, suffix=''):
         name = self.model_name + suffix + '.model'
-        torch.save(net.state_dict(), name)
+        torch.save(self.state_dict(), name)
         print('Model {} saved!'.format(name))
 
 
     def forward(self, batch):
-        import ipdb
-        ipdb.set_trace()
 
         # Take images, reshape them to 4-D (sequence_len * batch_size, 1, im_size, im_size)
         batch_len, seq_len, x, y = batch['edge_image'].shape
@@ -260,7 +286,7 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, batch=4, load=Fal
     :return:
     """
     train_data = WordLoader.from_folder()
-    val_data = WordLoader.from_folder('/home/main/data/fake_2d_trees/data')
+    val_data = WordLoader.from_folder('/home/main/data/fake_2d_trees/data_validation')
 
     net = Skeletonizer().double()
     if load:
@@ -279,27 +305,28 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, batch=4, load=Fal
     for epoch in range(1, max_epochs + 1):
         print('Starting Epoch {}...'.format(epoch))
         for iter, data in enumerate(train_data.fixed_length_batch_iterator(batch)):
-
             if not iter % 100:
                 print('{}/{}'.format(iter, total))
 
             optimizer.zero_grad()
 
             outputs = net(data)
-            category_prediction = outputs['classifications']
+            batch_size, sequence_size, feature_size = outputs['classification'].shape
+            category_prediction = outputs['classification'].view(-1, 6)
             is_valid_prediction = outputs['correctness']
 
-            cat_true = data['sequence']
-            is_valid_true = data['truth_array']
 
-            category_loss = criterion(category_prediction, cat_true) * batch
+            cat_true = torch.max(data['sequence'].view(-1, 6), 1)[1]
+            is_valid_true = torch.max(data['truth_array'], 1)[1]
+
+            category_loss = criterion(category_prediction, cat_true) * batch * (sequence_size) ** 0.5
             truth_loss = criterion(is_valid_prediction, is_valid_true) * batch
 
             category_loss.backward(retain_graph=True)
             truth_loss.backward()
+            # category_loss.backward()
 
             optimizer.step()
-
 
         # train_acc, _ = eval_net(net, train_loader)
         acc_rez = eval_net(net, val_data)
@@ -336,25 +363,37 @@ def eval_net(net, dataset):
     valid_correct = 0
     category_correct = 0
 
+    predictions = []
+    reals = []
+
     for data in dataset.fixed_length_batch_iterator(4):
         with torch.no_grad():
 
             outputs = net(data)
-            category_prediction = torch.max(outputs['classifications'], 2)[1]
+            category_prediction = torch.max(outputs['classification'].view(-1, 6), 1)[1]
             is_valid_prediction = torch.max(outputs['correctness'], 1)[1]
 
-            cat_true = torch.max(data['sequence'], 2)[1]
+            cat_true = torch.max(data['sequence'].view(-1, 6), 1)[1]
             is_valid_true = torch.max(data['truth_array'], 1)[1]
 
             total += len(data)
 
-            cat_acc = (category_prediction == cat_true).mean().item()
-            valid_acc = (is_valid_prediction == is_valid_true).mean().item()
+            cat_acc = (category_prediction == cat_true).float().mean().item()
+            valid_acc = (is_valid_prediction == is_valid_true).float().mean().item()
 
             valid_correct += valid_acc * len(data)
             category_correct += cat_acc * len(data)
 
+            predictions.extend(category_prediction.numpy())
+            reals.extend(cat_true.numpy())
+
+
+
     net.train()
+
+    from collections import Counter
+    print('Counts by prediction:\n{}'.format(Counter(predictions)))
+    print('Counts by truth:\n{}'.format(Counter(reals)))
 
     rez = {
         'category_accuracy': category_correct / total,
@@ -374,6 +413,4 @@ def eval_net(net, dataset):
 
 
 if __name__ == '__main__':
-    data = WordLoader.from_folder()
-    net = Skeletonizer().double()
-    train_net(1000, 1000, load=True)
+    train_net(1000, 1000, load=False, lr=1e-3)
