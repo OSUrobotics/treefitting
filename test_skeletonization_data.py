@@ -102,21 +102,20 @@ def perturb_graph(graph, noise_stdev):
 
     return new_graph
 
-def plot_graph(graph, pts=None, title=None, convert_node_to_point=False):
+def plot_graph(graph, class_identifier='category', pts=None, title=None):
     plt.clf()
     if pts is not None:
         plt.scatter(pts[:,0], pts[:,1], color=(0.8, 0.8, 0.9, 0.4))
     nodes = np.array(graph.nodes)
-    if convert_node_to_point:
+    if len(nodes.shape) != 2:
         nodes = np.array([graph.nodes[n]['point'] for n in nodes])
     for edge in graph.edges:
         a, b = edge
-        if convert_node_to_point:
+        if isinstance(a, int):
             a = graph.nodes[a]['point']
             b = graph.nodes[b]['point']
-
         data = graph.edges[edge]
-        cat = data.get('category', CATEGORY_FALSE_CONNECTION)
+        cat = data[class_identifier]
         info = data.get('info', None)
 
         if info is None:
@@ -203,7 +202,7 @@ def reconnect_graph(graph, points, connection_dist):
     all_nodes = np.array(all_nodes)
     for node in all_nodes:
         dists = np.linalg.norm(all_nodes - node, axis=1)
-        to_connect = all_nodes[dists <= connection_dist]
+        to_connect = all_nodes[(dists > 0) & (dists <= connection_dist)]
         node = tuple(node)
         for connect_node in to_connect:
             connect_node = tuple(connect_node)
@@ -465,6 +464,64 @@ def reproject_pt_onto_plane(pt, plane_pt, plane_vec):
     vec = pt - plane_pt
     dist = vec.dot(plane_vec)
     return pt - dist.reshape((-1, 1)).dot(plane_vec.reshape(1,-1))
+
+
+
+def generate_points_and_graph(classify=False, map_to_points=False):
+
+    num = np.random.randint(3000, 20000)
+    extreme_noise_p = np.random.uniform(0, 0.10)
+    noise = np.random.uniform(0, 0.004)
+    graph_perturbation = np.random.uniform(0, 0.0070)
+    extreme_noise_level = np.random.uniform(0, 0.05)
+
+    graph = (perturb_graph(generate_random_tree(), 0.005))
+    pts = sample_points_from_graph(graph, num, noise=noise, extreme_noise=extreme_noise_level,
+                                   extreme_noise_p=extreme_noise_p)
+    graph_perturbed = perturb_graph(graph, graph_perturbation)
+    reconnect_graph(graph_perturbed, pts, 0.15)
+
+    if classify:
+        print('Running classification...')
+        from test_skeletonization_network import TreeDataset, SyntheticTreeClassifier
+        net = SyntheticTreeClassifier().double()
+
+        with open('synthetic_best.model', 'rb') as fh:
+            state_dict = torch.load(fh)
+        net.load_state_dict(state_dict)
+
+        to_export, index_to_nodes = export_as_dataset(graph_perturbed, pts, 0.15, return_dict=True)
+        dataset = TreeDataset.from_dict(to_export)
+        classifications, edge_ids = net.guess_from_export_dataset(dataset)
+
+        classifications_dict = dict(zip(map(lambda e: to_export['edges'][e]['edge'], edge_ids), classifications))
+        nx.set_edge_attributes(graph_perturbed, classifications_dict, 'class_probs')
+        print('Classification done!')
+
+    if map_to_points:
+        all_points = list(graph_perturbed.nodes)
+        idx = list(range(len(all_points)))
+        nx.relabel_nodes(graph_perturbed, dict(zip(all_points, idx)), copy=False)
+        idx_to_point = dict(zip(idx, np.array(all_points)))
+        nx.set_node_attributes(graph_perturbed, idx_to_point, 'point')
+
+    return graph_perturbed, pts
+
+    # Remap graph for cleanliness
+
+    point_to_idx = dict(zip(all_points, idx))
+
+    final_graph = nx.Graph()
+    final_graph.add_nodes_from(idx)
+    final_graph.add_edges_from([(point_to_idx[a], point_to_idx[b]) for a, b in graph_perturbed.edges])
+    nx.set_node_attributes(final_graph, idx_to_point, 'point')
+
+
+
+
+    return final_graph, pts
+
+
 
 
 
