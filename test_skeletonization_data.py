@@ -102,15 +102,21 @@ def perturb_graph(graph, noise_stdev):
 
     return new_graph
 
-def plot_graph(graph, pts=None, title=None):
+def plot_graph(graph, pts=None, title=None, convert_node_to_point=False):
     plt.clf()
     if pts is not None:
         plt.scatter(pts[:,0], pts[:,1], color=(0.8, 0.8, 0.9, 0.4))
     nodes = np.array(graph.nodes)
+    if convert_node_to_point:
+        nodes = np.array([graph.nodes[n]['point'] for n in nodes])
     for edge in graph.edges:
         a, b = edge
+        if convert_node_to_point:
+            a = graph.nodes[a]['point']
+            b = graph.nodes[b]['point']
+
         data = graph.edges[edge]
-        cat = data['category']
+        cat = data.get('category', CATEGORY_FALSE_CONNECTION)
         info = data.get('info', None)
 
         if info is None:

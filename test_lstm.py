@@ -254,14 +254,15 @@ class Skeletonizer(nn.Module):
                 'correctness': correctness}
 
     def predict_single(self, item):
+        item_reshaped = {}
         for key, val in item.items():
-            item[key] = val.view(-1, *val.shape)
-        rez = self.forward(item)
+            item_reshaped[key] = val.view(-1, *val.shape)
+        rez = self.forward(item_reshaped)
 
         category_prediction = torch.max(rez['classification'][0], 1)[1]
-        is_valid_prediction = torch.max(rez['correctness'][0])[1]
+        is_valid_prediction = torch.max(rez['correctness'][0], 0)[1]
 
-        return category_prediction, is_valid_prediction
+        return category_prediction.numpy(), int(is_valid_prediction)
 
 
 def convert_to_image(points, start, end, size=(32, 16)):
@@ -337,7 +338,7 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, batch=4, load=Fal
             cat_true = torch.max(data['sequence'].view(-1, 6), 1)[1]
             is_valid_true = torch.max(data['truth_array'], 1)[1]
 
-            category_loss = criterion(category_prediction, cat_true) * batch * (sequence_size) ** 0.5
+            category_loss = criterion(category_prediction, cat_true) * batch
             truth_loss = criterion(is_valid_prediction, is_valid_true) * batch
 
             category_loss.backward(retain_graph=True)
@@ -433,7 +434,7 @@ def eval_net(net, dataset):
 if __name__ == '__main__':
     import sys
     mode = 'train'
-    if len(sys.argv > 1):
+    if len(sys.argv) > 1:
         mode = sys.argv[1]
 
     if mode == 'train':
@@ -451,7 +452,7 @@ if __name__ == '__main__':
             5: tsd.CATEGORY_OTHER
         }
 
-        net = Skeletonizer()
+        net = Skeletonizer().double()
         net.load_model()
 
         root = '/home/main/data/fake_2d_trees/data_validation'
@@ -465,14 +466,16 @@ if __name__ == '__main__':
             new_graph = deepcopy(orig_graph)
             master = {}
             predictions, valid = net.predict_single(item)
-            real_valid = torch.max(item['truth_array'])[1]
+            valid=1-valid
+            real_valid = 1-int(torch.max(item['truth_array'],0)[1])
+            real_cats = torch.max(item['sequence'], 1)[1].numpy()
 
             for i, (start, end) in enumerate(zip(seq[:-1], seq[1:])):
                 info = {}
                 pred_category = category_map[predictions[i]]
                 info['pred_category'] = category_map[pred_category]
                 info['pred_connected'] = info['pred_category'] != tsd.CATEGORY_FALSE_CONNECTION
-                cat = category_map[int(torch.max(item['sequence'][i]))[1]]
+                cat = category_map[real_cats[i]]
                 info['connected'] = cat != tsd.CATEGORY_FALSE_CONNECTION
 
                 master[(start, end)] = {'category': cat, 'info': info}
@@ -481,7 +484,7 @@ if __name__ == '__main__':
                                                       'valid' if valid else 'invalid')
 
             nx.set_edge_attributes(new_graph, master)
-            tsd.plot_graph(new_graph, pts, title)
+            tsd.plot_graph(new_graph, pts, title, convert_node_to_point=True)
 
     else:
         raise ValueError('Invalid mode {}'.format(mode))
