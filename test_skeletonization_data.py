@@ -102,7 +102,7 @@ def perturb_graph(graph, noise_stdev):
 
     return new_graph
 
-def plot_graph(graph, class_identifier='category', pts=None, title=None):
+def plot_graph(graph, class_identifier='category', pts=None, title=None, save_to=None, null_assignments=None):
     plt.clf()
     if pts is not None:
         plt.scatter(pts[:,0], pts[:,1], color=(0.8, 0.8, 0.9, 0.4))
@@ -148,11 +148,22 @@ def plot_graph(graph, class_identifier='category', pts=None, title=None):
                 plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[pred_category],
                          linewidth=2, linestyle='dotted')
 
+    if null_assignments is not None:
+        for edge in null_assignments:
+            a, b = edge
+            if isinstance(a, (int, np.int64)):
+                a = graph.nodes[a]['point']
+                b = graph.nodes[b]['point']
+            plt.plot([a[0], b[0]], [a[1], b[1]], color=(0.5, 0.5, 0.5, 0.5), linewidth=2, linestyle='dotted')
+
     plt.scatter(nodes[:,0], nodes[:,1], marker='x')
     plt.axis('equal')
     if title is not None:
         plt.title(title)
-    plt.show()
+    if save_to:
+        plt.savefig(save_to)
+    else:
+        plt.show()
 
 
 def add_branch_nodes_to_graph(graph, pts, branch_type, lenience=0.01):
@@ -484,6 +495,7 @@ def generate_points_and_graph(classify=False, map_to_points=False):
     if classify:
         print('Running classification...')
         from test_skeletonization_network import TreeDataset, SyntheticTreeClassifier
+        import torch
         net = SyntheticTreeClassifier().double()
 
         with open('synthetic_best.model', 'rb') as fh:
@@ -494,7 +506,11 @@ def generate_points_and_graph(classify=False, map_to_points=False):
         dataset = TreeDataset.from_dict(to_export)
         classifications, edge_ids = net.guess_from_export_dataset(dataset)
 
-        classifications_dict = dict(zip(map(lambda e: to_export['edges'][e]['edge'], edge_ids), classifications))
+        def edge_id_to_nodes(i):
+            a, b = to_export['edges'][i]['edge']
+            return index_to_nodes[a], index_to_nodes[b]
+
+        classifications_dict = dict(zip(map(edge_id_to_nodes, edge_ids), classifications))
         nx.set_edge_attributes(graph_perturbed, classifications_dict, 'class_probs')
         print('Classification done!')
 
@@ -602,7 +618,7 @@ if __name__ == '__main__':
     print('Connection accuracy: {:.2f}%'.format(100*connect_right/connect_total))
     print('Category accuracy: {:.2f}%'.format(100 * cat_right / cat_total))
     nx.set_edge_attributes(graph_copy, correctness_info, name='info')
-    plot_graph(graph_copy, pts)
+    plot_graph(graph_copy, pts=pts, save_to='outputs/naive_assignment.png')
 
 
     # for _ in range(400):

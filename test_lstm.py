@@ -484,7 +484,7 @@ if __name__ == '__main__':
                                                       'valid' if valid else 'invalid')
 
             nx.set_edge_attributes(new_graph, master)
-            tsd.plot_graph(new_graph, pts, title, convert_node_to_point=True)
+            tsd.plot_graph(new_graph, pts, title)
 
     else:
         raise ValueError('Invalid mode {}'.format(mode))

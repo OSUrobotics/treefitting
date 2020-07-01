@@ -27,7 +27,6 @@ Idea: Maybe use evolutionary where the optimal is coverage and the "traits" are 
 class DirectedTree:
 
     COLS = ['p_trunk', 'p_support', 'p_leader', 'p_other']
-    POSITIVE_COLS = COLS[:3]
 
     def __init__(self, graph, starting_node, weights=None):
         self.base_graph = graph
@@ -44,22 +43,31 @@ class DirectedTree:
         nx.set_node_attributes(self.assigned_graph, {starting_node: 0}, 'classification')
         self.add_actions(starting_node)
 
-    def grow(self):
+    def grow(self, deterministic=False, plot_each_step=False, pts=None):
+
+        i=0
+        null_assignments = []
         while self.action_queue:
             try:
-                self.pick_action(commit=True)
+                edge, classification = self.pick_action(commit=True, deterministic=deterministic)
+                if classification == 3:
+                    null_assignments.append(edge)
             except ZeroDivisionError:
                 print('All remaining options have zero probability!')
                 break
+            if plot_each_step:
+                self.plot(pts, file='outputs/{:03d}'.format(i), null_assignments=null_assignments)
+
+            i += 1
 
     def get_coverage(self):
         return len(self.all_assignments)
         # return len(self.covered_points)
 
 
-    def plot(self):
+    def plot(self, pts=None, file=None, null_assignments=None):
         from test_skeletonization_data import plot_graph
-        plot_graph(self.assigned_graph, 'classification', title='Assigned Tree')
+        plot_graph(self.assigned_graph, 'classification', pts=pts, title='Assigned Tree', save_to=file, null_assignments=null_assignments)
 
     def initialize_edge_weights(self, weights=None):
         if weights is None:
@@ -67,9 +75,17 @@ class DirectedTree:
             for a, b in self.base_graph.edges:
                 pt_a = self.base_graph.nodes[a]['point']
                 pt_b = self.base_graph.nodes[b]['point']
+                probs = self.base_graph.edges[a, b].get('class_probs', None)
+                if probs is None:
+                    weights = [0.5, 0.5, 0.5, 0.1]
+                else:
+                    weights = np.zeros(4)
+                    weights[:3] = probs[:3] * probs[4]          # Is connected prob * respective class prob
+                    weights[3] = probs[3]*probs[4] + probs[5]  # Is connected prob * side branch prob + not connected prob
+
+                # Enforce hard cutoffs on leaders, supports
                 diff = np.abs(pt_a - pt_b)
                 angle = np.arctan2(diff[1], diff[0])
-                weights = [0.5, 0.5, 0.5, 0.1]
                 if angle < np.pi / 4:   # Less than 45 degrees, cannot be a vertical leader
                     weights[2] = 0
                 if angle > np.pi / 3:   # Greater than 60 degrees, cannot be a support
@@ -123,7 +139,7 @@ class DirectedTree:
                     support_successors = [n for n in self.assigned_graph.successors(start)
                                           if self.assigned_graph.nodes[n]['classification'] == 1]
                     if len(support_successors) == 2:
-                        self.probability_table.ix[self.get_edges(start), 'p_support'] = 0
+                        self.probability_table.loc[self.get_edges(start), 'p_support'] = 0
                 else:
                     self.remove_actions(start)
             else:
@@ -132,12 +148,12 @@ class DirectedTree:
                 if start_class == edge_classification:
                     edges = self.get_edges(start)
                     to_null = ['p_support'] if edge_classification == 1 else ['p_support', 'p_leader']
-                    self.probability_table.ix[edges, to_null] = 0.0
+                    self.probability_table.loc[edges, to_null] = 0.0
 
             # Topology constraint: All future assignments must be of a "higher" category
             # Here only applies to leaders, in which case support probability is nulled out
             if edge_classification == 2:
-                self.probability_table.ix[list(new_actions), 'p_support'] = 0.0
+                self.probability_table.loc[list(new_actions), 'p_support'] = 0.0
 
             # Curvature constraint on leaders
             if start_class == 2:
@@ -145,17 +161,23 @@ class DirectedTree:
 
 
 
-    def pick_action(self, commit=True):
+    def pick_action(self, commit=True, deterministic=False):
         subset = self.probability_table.reindex(list(self.action_queue))
         selection_chance = subset.sum(axis=1)
-        total_weight = selection_chance.sum()
-        if not total_weight:
-            raise ZeroDivisionError
-        selection_chance = selection_chance / total_weight
-        to_pick = np.random.choice(len(selection_chance), p=selection_chance.values)
+        if deterministic:
+            to_pick = np.argmax(selection_chance.values)
+        else:
+            total_weight = selection_chance.sum()
+            if not total_weight:
+                raise ZeroDivisionError
+            selection_chance = selection_chance / total_weight
+            to_pick = np.random.choice(len(selection_chance), p=selection_chance.values)
         edge = selection_chance.index[to_pick]
-        p_s = subset.ix[edge] / subset.ix[edge].sum()
-        chosen_class = np.random.choice(len(self.COLS), p=p_s.values)
+        if deterministic:
+            chosen_class = np.argmax(subset.loc[edge].values)
+        else:
+            p_s = subset.loc[edge] / subset.loc[edge].sum()
+            chosen_class = np.random.choice(len(self.COLS), p=p_s.values)
 
 
         if commit:
@@ -222,8 +244,8 @@ class DirectedTree:
 
 
 class EvolutionaryManager:
-    def __init__(self, graph, min_node, population_size=10, mutation_prob=0.1, crossover_prob=0.5,
-                 mutation_proportion=0.1, weight_magnitude=0.5):
+    def __init__(self, graph, min_node, population_size=5, mutation_prob=0.00, crossover_prob=0.3,
+                 mutation_proportion=0.1, weight_magnitude=0.1):
         """
         Manages the trees for the evolutionary algorithm.
         :param graph: The base graph
@@ -284,9 +306,6 @@ class EvolutionaryManager:
                 chosen = np.random.choice(len(self.pool), p=selection_prob)
                 probs = self.pool[chosen].get_probability_update(update_weights[chosen])
 
-            if (probs < 0).values.any():
-                import pdb
-                pdb.set_trace()
             new_pool.append(DirectedTree(self.orig_graph, self.orig_node, weights=probs))
 
         best_i = np.argmax(objectives)
@@ -308,19 +327,24 @@ def three_point_angle(x, y, z):
 if __name__ == '__main__':
     from test_skeletonization_data import generate_points_and_graph
 
-    graph, pts = generate_points_and_graph(classify=True)
+    graph, pts = generate_points_and_graph(classify=True, map_to_points=True)
     min_node = min(graph.nodes, key=lambda k: graph.nodes[k]['point'][1])
 
     manager = EvolutionaryManager(graph, min_node)
+    # base_tree = DirectedTree(graph, min_node)
+    # base_tree.grow(deterministic=True, plot_each_step=True, pts=pts)
+    # base_tree.plot(pts)
+
     print('Starting evolution')
     best_obj = 0
-
+    best_obj_ct = 0
     for i in range(101):
         print(i)
         obj, tree = manager.iterate()
         if obj > best_obj:
             best_obj = obj
-            tree.plot()
+            tree.plot(pts, file='outputs/best_{:03d}.png'.format(best_obj_ct))
+            best_obj_ct += 1
     print('Ending evolution')
 
 
