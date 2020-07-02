@@ -5,6 +5,7 @@ import random
 import os
 import pickle
 from copy import deepcopy
+from scipy.spatial import KDTree
 
 CATEGORY_TRUNK = 0
 CATEGORY_SUPPORT = 1

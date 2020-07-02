@@ -1,6 +1,9 @@
 import networkx as nx
 import pandas as pd
 import numpy as np
+from functools import reduce
+from collections import defaultdict
+from scipy.spatial import KDTree
 
 """
 Step 1: Take your graph and process the classification probabilities for each edge 
@@ -61,6 +64,11 @@ class DirectedTree:
             i += 1
 
     def get_coverage(self):
+
+        return len(set().union(*[self.base_graph.edges[e].get('points', set()) for e in self.assigned_graph.edges]))
+
+
+        raise NotImplementedError("FIX THIS TOMORROW!")
         return len(self.all_assignments)
         # return len(self.covered_points)
 
@@ -316,6 +324,154 @@ class EvolutionaryManager:
 
         return best_objective, best_orig_tree
 
+
+class ActionAttributionManager:
+    def __init__(self, graph, min_node, max_shift=0.5, tries_per_iter=5, keep_best=True):
+        # Idea: Keep the best tree copy around and have that influence the selection each round?
+        self.tries_per_iter = tries_per_iter
+        self.keep_best = keep_best
+
+        self.graph = graph
+        self.min_node = min_node
+        self.max_shift = max_shift
+
+        self.current_weights = None
+        self.current_best_assignments = None
+        self.current_best_objective = -1
+
+    def iterate(self):
+
+        trees = [DirectedTree(graph, min_node, weights = self.current_weights) for _ in range(self.tries_per_iter)]
+        objectives = []
+        assignments = []
+        for tree in trees:
+            tree.grow()
+            objectives.append(tree.get_coverage())
+            assignments.append(tree.assignments)
+
+
+
+        best_obj_i = np.argmax(objectives)
+        best_obj = objectives[best_obj_i]
+
+        if best_obj > self.current_best_objective:
+            self.current_best_objective = best_obj
+            self.current_best_assignments = assignments[best_obj_i]
+        elif self.keep_best and self.current_best_assignments is not None:
+            objectives.append(self.current_best_objective)
+            assignments.append(self.current_best_assignments)
+
+        n = len(assignments)
+        assignment_weights = (pd.Series(objectives).rank() - (n+1) / 2) * get_ranking_weight(n) * self.max_shift
+        # Sum the weighted assignment values together
+        update_weight = pd.DataFrame(0, index=assignments[0].index, columns=assignments[0].columns)
+        for wgt, assignment in zip(assignment_weights, assignments):
+            update_weight = update_weight + wgt * assignment
+
+        if self.current_weights is None:
+            self.current_weights = trees[0].probability_table_original
+        new_weights = self.current_weights.copy()
+        new_weights[update_weight > 0] = self.current_weights + (1 - self.current_weights) * update_weight
+        new_weights[update_weight < 0] = self.current_weights * (1 - update_weight.abs())
+
+        self.current_weights = new_weights
+        return best_obj, trees[best_obj_i]
+
+
+        # p = self.probability_table_original.copy()
+        # subsetted = p[self.assignments]
+        # if weight > 0:
+        #     new = subsetted + (1-subsetted) * weight
+        # else:
+        #     new = subsetted * (1-abs(weight))
+        # p[self.assignments] = new
+        # return p
+
+
+def get_point_segment_distance(point_or_points, start, end):
+    is_1d = False
+    if len(point_or_points.shape) == 1:
+        is_1d = True
+        point_or_points = point_or_points.reshape((1,-1))
+
+    diff = end - start
+    segment_magnitude = np.linalg.norm(diff)
+    diff_n = diff / segment_magnitude
+
+    frame_pts = point_or_points - start
+    linear_comp = (frame_pts).dot(diff_n)
+    dist_comp = np.linalg.norm(frame_pts - linear_comp.reshape(-1,1) * diff_n.reshape(1,-1), axis=1)
+
+    # Adjust the dist components so that anything "outside" of the segment range is normalized by the extent to which
+    # it's outside
+
+    before_start = linear_comp < 0
+    past_end = linear_comp > segment_magnitude
+    linear_comp[past_end] -= segment_magnitude
+    outside = before_start | past_end
+    dist_comp[outside] = np.sqrt(linear_comp[outside]**2 + dist_comp[outside]**2)
+
+    if is_1d:
+        dist_comp = dist_comp.reshape(-1)
+
+    return dist_comp
+
+def assign_points_to_edges(graph, pts, max_threshold=0.2, visualize=False):
+    """
+    Takes a graph and a set of points, and tries to assign each point to at most one edge to which it is closest.
+    :param graph:
+    :param pts:
+    :param max_threshold:
+    :return:
+    """
+
+    nodes = list(graph.nodes)
+    all_edges = list(graph.edges)
+    pt_assignments = np.zeros(pts.shape[0], dtype=np.int64)
+    pt_distances = np.ones(pts.shape[0]) * np.inf
+
+    point_index_cache = {n: graph.nodes[n].get('points', None) for n in nodes}
+    kdtree = None
+
+
+
+    for i, edge in enumerate(graph.edges):
+        candidate_idx = set()
+        for n in edge:
+            pt_indexes = point_index_cache[n]
+            if pt_indexes is None:
+                if kdtree is None:
+                    kdtree = KDTree(pts, leafsize=20)
+                pt_indexes = kdtree.query_ball_point(graph.nodes[n]['point'], max_threshold)
+                point_index_cache[n] = pt_indexes
+            candidate_idx.update(pt_indexes)
+
+        candidate_idx = np.array(list(candidate_idx))
+        candidate_pts = pts[candidate_idx]
+        dists = get_point_segment_distance(candidate_pts, graph.nodes[edge[0]]['point'], graph.nodes[edge[1]]['point'])
+        beaten = (dists < pt_distances[candidate_idx]) & (dists < max_threshold)
+
+        to_update = candidate_idx[beaten]
+        pt_assignments[to_update] = i
+        pt_distances[to_update] = dists[beaten]
+
+    update_dict = defaultdict(set)
+    for pt_idx, edge_idx in enumerate(pt_assignments):
+        if pt_distances[pt_idx] < np.inf:
+            update_dict[all_edges[edge_idx]].add(pt_idx)
+
+    nx.set_edge_attributes(graph, update_dict, 'points')
+
+    if visualize:
+        import matplotlib.pyplot as plt
+        for edge, pt_indexes in update_dict.items():
+            a = graph.nodes[edge[0]]['point']
+            b = graph.nodes[edge[1]]['point']
+            plt.plot([a[0], b[0]], [a[1], b[1]])
+            subset = pts[list(pt_indexes)]
+            plt.scatter(subset[:,0], subset[:,1])
+        plt.show()
+
 def three_point_angle(x, y, z):
     # Represents the amount of "turning" you have to do.
     # (This is why a and b are flipped.)
@@ -323,14 +479,37 @@ def three_point_angle(x, y, z):
     b = z-y
     return np.arccos(a.dot(b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
+def memoize(f):
+    cache = {}
+    def func(*args):
+        if args in cache:
+            return cache[args]
+        rez = f(*args)
+        cache[args] = rez
+        return rez
+    return func
+
+@memoize
+def get_ranking_weight(n):
+    # Gets the scaling factor so that when ranking from 1, 2, ..., n,
+    # and then demeaning, scaling by this factor will cause the positive elements to sum to 1.
+    ranks = np.arange(1, n+1)
+    demeaned = ranks - (n+1)/2
+    return 1 / demeaned[demeaned > 0].sum()
+
+
 
 if __name__ == '__main__':
     from test_skeletonization_data import generate_points_and_graph
 
-    graph, pts = generate_points_and_graph(classify=True, map_to_points=True)
+    graph, pts = generate_points_and_graph(classify=False, map_to_points=True)
+    print('Assigning points...')
+    assign_points_to_edges(graph, pts, 0.15, visualize=False)
+    print('Done assigning points to edges!')
     min_node = min(graph.nodes, key=lambda k: graph.nodes[k]['point'][1])
 
-    manager = EvolutionaryManager(graph, min_node)
+    # manager = EvolutionaryManager(graph, min_node)
+    manager = ActionAttributionManager(graph, min_node, max_shift=0.75, tries_per_iter=10)
     # base_tree = DirectedTree(graph, min_node)
     # base_tree.grow(deterministic=True, plot_each_step=True, pts=pts)
     # base_tree.plot(pts)
@@ -338,14 +517,19 @@ if __name__ == '__main__':
     print('Starting evolution')
     best_obj = 0
     best_obj_ct = 0
-    for i in range(101):
+    best_tree = None
+    for i in range(50):
         print(i)
         obj, tree = manager.iterate()
         if obj > best_obj:
             best_obj = obj
-            tree.plot(pts, file='outputs/best_{:03d}.png'.format(best_obj_ct))
+            tree.plot(pts)
             best_obj_ct += 1
+            best_tree = tree
     print('Ending evolution')
+    new_tree = DirectedTree(graph, min_node, weights=best_tree.probability_table_original)
+    new_tree.grow(deterministic=True)
+    new_tree.plot(pts)
 
 
 
