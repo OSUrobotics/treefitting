@@ -118,10 +118,11 @@ def plot_graph(graph, class_identifier='category', pts=None, title=None, save_to
         data = graph.edges[edge]
         cat = data[class_identifier]
         info = data.get('info', None)
+        committed = data.get('committed', False)
 
         if info is None:
             # Just plot standard
-            plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat], linewidth=2)
+            plt.plot([a[0], b[0]], [a[1], b[1]], color=COLORS[cat], linewidth=6 if committed else 2)
         else:
             pred_category = info['pred_category']
             pred_connected = info['pred_connected']

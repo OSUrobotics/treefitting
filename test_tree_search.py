@@ -31,7 +31,7 @@ class DirectedTree:
 
     COLS = ['p_trunk', 'p_support', 'p_leader', 'p_other']
 
-    def __init__(self, graph, starting_node, weights=None):
+    def __init__(self, graph, starting_node, weights=None, base_tree=None):
         self.base_graph = graph
         self.assigned_graph = nx.DiGraph(nx.create_empty_copy(graph))
         self.action_queue = set()
@@ -44,7 +44,14 @@ class DirectedTree:
 
         self.initialize_edge_weights(weights)
         nx.set_node_attributes(self.assigned_graph, {starting_node: 0}, 'classification')
+
         self.add_actions(starting_node)
+
+        if base_tree is not None and starting_node in base_tree:
+            for edge in nx.algorithms.traversal.dfs_edges(base_tree, source=starting_node):
+                self.add_edge(edge, base_tree.edges[edge]['classification'])
+            nx.set_edge_attributes(self.assigned_graph, True, 'committed')
+
 
     def grow(self, deterministic=False, plot_each_step=False, pts=None):
 
@@ -64,14 +71,7 @@ class DirectedTree:
             i += 1
 
     def get_coverage(self):
-
         return len(set().union(*[self.base_graph.edges[e].get('points', set()) for e in self.assigned_graph.edges]))
-
-
-        raise NotImplementedError("FIX THIS TOMORROW!")
-        return len(self.all_assignments)
-        # return len(self.covered_points)
-
 
     def plot(self, pts=None, file=None, null_assignments=None):
         from test_skeletonization_data import plot_graph
@@ -251,82 +251,8 @@ class DirectedTree:
         return p
 
 
-class EvolutionaryManager:
-    def __init__(self, graph, min_node, population_size=5, mutation_prob=0.00, crossover_prob=0.3,
-                 mutation_proportion=0.1, weight_magnitude=0.1):
-        """
-        Manages the trees for the evolutionary algorithm.
-        :param graph: The base graph
-        :param population_size: How many samples should be kept around at each generation.
-        :param mutation_prob: The probability of a sample being derived from mutation.
-        :param crossover_prob: The probability of a sample being derived from a random crossover.
-        :param mutation_proportion: The proportion of table entries to be randomly assigned when mutating.
-        :param weight_magnitude: The strength at which an assignment probability is shifted towards 0 or 1
-        """
-
-        self.orig_graph = graph
-        self.orig_node = min_node
-
-        self.pool = [DirectedTree(graph, min_node) for _ in range(population_size)]
-        self.mutation_prob = mutation_prob
-        self.crossover_prob = crossover_prob
-        self.mutation_proportion = mutation_proportion
-        self.weight_magnitude = weight_magnitude
-
-    def mutate_weights(self, df):
-        zeroed = df == 0
-        to_mutate = pd.DataFrame(np.random.uniform(size=df.shape) < self.mutation_proportion, columns=df.columns, index=df.index)
-        df[to_mutate] = np.random.uniform(size=to_mutate.shape)
-        df[zeroed] = 0
-        return df
-
-    def crossover_weights(self, df1, df2):
-        weights = np.random.uniform(size=df1.shape)
-        return df1 * weights + df2 * (1-weights)
-
-    def iterate(self):
-        objectives = []
-        for tree in self.pool:
-            tree.grow()
-            objectives.append(tree.get_coverage())
-
-        ranks = pd.Series(objectives).rank()
-        selection_prob = ranks / ranks.sum()
-        update_weights = ranks - ranks.mean()
-        update_weights = update_weights / update_weights.abs().max() * self.weight_magnitude
-
-        # Prepare the next generation
-        new_pool = []
-        probs = np.random.uniform(size=len(self.pool))
-
-        for p in probs:
-            if p < self.mutation_prob:
-                # Pick one at random to mutate
-                chosen = np.random.choice(len(self.pool))
-                probs = self.pool[chosen].get_probability_update(update_weights[chosen])
-                probs = self.mutate_weights(probs)
-            elif p < self.mutation_prob + self.crossover_prob:
-                chosen_a, chosen_b = np.random.choice(len(self.pool), 2, replace=False, p=selection_prob)
-                probs_a = self.pool[chosen_a].get_probability_update(update_weights[chosen_a])
-                probs_b = self.pool[chosen_b].get_probability_update(update_weights[chosen_b])
-                probs = self.crossover_weights(probs_a, probs_b)
-            else:
-                chosen = np.random.choice(len(self.pool), p=selection_prob)
-                probs = self.pool[chosen].get_probability_update(update_weights[chosen])
-
-            new_pool.append(DirectedTree(self.orig_graph, self.orig_node, weights=probs))
-
-        best_i = np.argmax(objectives)
-        best_objective = objectives[best_i]
-        best_orig_tree = self.pool[best_i]
-
-        self.pool = new_pool
-
-        return best_objective, best_orig_tree
-
-
 class ActionAttributionManager:
-    def __init__(self, graph, min_node, max_shift=0.5, tries_per_iter=5, keep_best=True):
+    def __init__(self, graph, min_node, max_shift=0.5, tries_per_iter=10, keep_best=True):
         # Idea: Keep the best tree copy around and have that influence the selection each round?
         self.tries_per_iter = tries_per_iter
         self.keep_best = keep_best
@@ -335,20 +261,22 @@ class ActionAttributionManager:
         self.min_node = min_node
         self.max_shift = max_shift
 
+        self.last_base_tree = None
         self.current_weights = None
         self.current_best_assignments = None
         self.current_best_objective = -1
 
+
     def iterate(self):
 
-        trees = [DirectedTree(graph, min_node, weights = self.current_weights) for _ in range(self.tries_per_iter)]
+        trees = [DirectedTree(graph, min_node, weights = self.current_weights, base_tree=self.last_base_tree) for _ in range(self.tries_per_iter)]
         objectives = []
         assignments = []
+
         for tree in trees:
             tree.grow()
             objectives.append(tree.get_coverage())
             assignments.append(tree.assignments)
-
 
 
         best_obj_i = np.argmax(objectives)
@@ -374,18 +302,16 @@ class ActionAttributionManager:
         new_weights[update_weight > 0] = self.current_weights + (1 - self.current_weights) * update_weight
         new_weights[update_weight < 0] = self.current_weights * (1 - update_weight.abs())
 
+        # Save the common tree for next time so that you don't have to waste time propagating through them again
+        def get_edge_assignment_pairs(t):
+            return set([(e, t.assigned_graph.edges[e]['classification']) for e in t.assigned_graph.edges])
+        common_assignments = [p[0] for p in set.intersection(*[get_edge_assignment_pairs(tree) for tree in trees])]
+        print('{} common assignments'.format(len(common_assignments)))
+
+        self.last_base_tree = trees[0].assigned_graph.edge_subgraph(common_assignments)
+
         self.current_weights = new_weights
         return best_obj, trees[best_obj_i]
-
-
-        # p = self.probability_table_original.copy()
-        # subsetted = p[self.assignments]
-        # if weight > 0:
-        #     new = subsetted + (1-subsetted) * weight
-        # else:
-        #     new = subsetted * (1-abs(weight))
-        # p[self.assignments] = new
-        # return p
 
 
 def get_point_segment_distance(point_or_points, start, end):
@@ -509,7 +435,7 @@ if __name__ == '__main__':
     min_node = min(graph.nodes, key=lambda k: graph.nodes[k]['point'][1])
 
     # manager = EvolutionaryManager(graph, min_node)
-    manager = ActionAttributionManager(graph, min_node, max_shift=0.75, tries_per_iter=10)
+    manager = ActionAttributionManager(graph, min_node, max_shift=0.5, tries_per_iter=10)
     # base_tree = DirectedTree(graph, min_node)
     # base_tree.grow(deterministic=True, plot_each_step=True, pts=pts)
     # base_tree.plot(pts)
@@ -523,13 +449,12 @@ if __name__ == '__main__':
         obj, tree = manager.iterate()
         if obj > best_obj:
             best_obj = obj
-            tree.plot(pts)
+            # tree.plot(pts)
             best_obj_ct += 1
             best_tree = tree
     print('Ending evolution')
-    new_tree = DirectedTree(graph, min_node, weights=best_tree.probability_table_original)
-    new_tree.grow(deterministic=True)
-    new_tree.plot(pts)
+    best_tree.plot(pts)
+
 
 
 
