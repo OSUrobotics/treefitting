@@ -23,15 +23,18 @@ Constraints:
 
 Idea: Maybe use Bayesian updating to update probabilities based on coverage? Mainly of falsity
 Idea: Simple flow prediction scheme that can make long-distance connections
-Idea: Maybe use evolutionary where the optimal is coverage and the "traits" are the probabilities in the probability table
-      Randomly crossover table entries to each other
+
+Idea: Rewind mechanism - Keep track of chosen edge assignment history and discarded options.
+      Pick R options based on probability to "rewind". Roll back to where it was thrown out and insert that action instead.
+      Rollout and add to pool. Regrow.
+
 """
 
 class DirectedTree:
 
     COLS = ['p_trunk', 'p_support', 'p_leader', 'p_other']
 
-    def __init__(self, graph, starting_node, weights=None, base_tree=None):
+    def __init__(self, graph, starting_node, weights=None, base_assignments=None, replay=None):
         self.base_graph = graph
         self.assigned_graph = nx.DiGraph(nx.create_empty_copy(graph))
         self.action_queue = set()
@@ -42,16 +45,24 @@ class DirectedTree:
         self.assignments = None
         self.covered_points = set()
 
+        self.assignment_history = []
+        self.option_removal_history = []
+
+
         self.initialize_edge_weights(weights)
         nx.set_node_attributes(self.assigned_graph, {starting_node: 0}, 'classification')
 
         self.add_actions(starting_node)
 
-        if base_tree is not None and starting_node in base_tree:
-            for edge in nx.algorithms.traversal.dfs_edges(base_tree, source=starting_node):
-                self.add_edge(edge, base_tree.edges[edge]['classification'])
+        if base_assignments is not None and starting_node in base_assignments:
+            base_assignments = [(e, base_assignments.edges[e]['classification']) for e in nx.algorithms.traversal.dfs_edges(base_assignments, source=starting_node)]
+            for edge, classification in base_assignments:
+                self.add_edge(edge, classification, add_to_history=False)
             nx.set_edge_attributes(self.assigned_graph, True, 'committed')
 
+        if replay is not None:
+            for edge, classification in replay:
+                self.add_edge(edge, classification)
 
     def grow(self, deterministic=False, plot_each_step=False, pts=None):
 
@@ -111,11 +122,14 @@ class DirectedTree:
         self.probability_table_original = df.copy()
         self.assignments = pd.DataFrame(False, index=df.index, columns=df.columns)
 
-    def add_edge(self, edge, edge_classification):
+    def add_edge(self, edge, edge_classification, add_to_history=True):
 
         start, end = edge
         self.action_queue.remove(edge)
         self.assignments.loc[edge, self.probability_table.columns[edge_classification]] = True
+        if add_to_history:
+            self.assignment_history.append((edge, edge_classification))
+
 
         # Case 1: We assign this as being False - simply remove this one from consideration
         if edge_classification == 3:
@@ -131,7 +145,20 @@ class DirectedTree:
             assert edge_classification >= start_class
             self.assigned_graph.add_edge(start, end, classification=edge_classification)
             nx.set_node_attributes(self.assigned_graph, {end: edge_classification}, 'classification')
-            new_actions = self.add_actions(end)
+            new_actions, removed_actions = self.add_actions(end)
+            if add_to_history:
+                removed_actions.add(edge)
+                step = len(self.assignment_history) - 1
+                for removed_edge in removed_actions:
+                    table_entries = self.probability_table.loc[removed_edge].values
+                    for i, p in enumerate(table_entries):
+                        if not p:
+                            continue
+                        if removed_edge == edge and i == edge_classification:
+                            continue
+
+                        data = (step, edge, i, p)
+                        self.option_removal_history.append(data)
 
             # Update action set based on constraints
             # Include curvature constraint, grammar constraint
@@ -201,7 +228,10 @@ class DirectedTree:
 
         # Remove all possible actions leading to this action, but add all actions leading FROM this action
         # (So long as they are not part of the do-not-consider list)
-        self.action_queue.difference_update([(neighbor, node) for neighbor in neighbors])
+        # But also add their probabilities to the
+        consider_for_removal = [(neighbor, node) for neighbor in neighbors]
+        removed_actions = self.action_queue.intersection(consider_for_removal)
+        self.action_queue.difference_update(removed_actions)
         new_actions = set([(node, neighbor) for neighbor in to_consider]).difference(self.do_not_consider)
 
         # If dealing with a leader, impose curvature constraint
@@ -213,7 +243,30 @@ class DirectedTree:
 
         self.action_queue.update(new_actions.difference(curvature_violations))
 
-        return new_actions
+        return new_actions, removed_actions
+
+    def get_rewinds(self, n):
+        if not n:
+            return []
+
+        if n > len(self.option_removal_history):
+            to_rewind = self.option_removal_history
+        else:
+            ps = np.array([info[-1] for info in self.option_removal_history])
+            ps = ps / ps.sum()
+            to_rewind = [self.option_removal_history[c] for c in np.random.choice(len(self.option_removal_history), n, replace=False, p=ps)]
+
+        rez = []
+        for step, edge, category, _ in to_rewind:
+            previous_steps = self.assignment_history[:step]
+            previous_steps.append((edge, category))
+            rez.append(previous_steps)
+
+        return rez
+
+
+
+
 
     def get_edges(self, node, as_set=False):
         neighbors = [(node, neighbor) for neighbor in self.base_graph[node]]
@@ -252,7 +305,7 @@ class DirectedTree:
 
 
 class ActionAttributionManager:
-    def __init__(self, graph, min_node, max_shift=0.5, tries_per_iter=10, keep_best=True):
+    def __init__(self, graph, min_node, max_shift=0.5, tries_per_iter=5, keep_best=True, rewinds=1):
         # Idea: Keep the best tree copy around and have that influence the selection each round?
         self.tries_per_iter = tries_per_iter
         self.keep_best = keep_best
@@ -260,6 +313,7 @@ class ActionAttributionManager:
         self.graph = graph
         self.min_node = min_node
         self.max_shift = max_shift
+        self.rewinds = rewinds
 
         self.last_base_tree = None
         self.current_weights = None
@@ -269,7 +323,7 @@ class ActionAttributionManager:
 
     def iterate(self):
 
-        trees = [DirectedTree(graph, min_node, weights = self.current_weights, base_tree=self.last_base_tree) for _ in range(self.tries_per_iter)]
+        trees = [DirectedTree(graph, min_node, weights = self.current_weights, base_assignments=self.last_base_tree) for _ in range(self.tries_per_iter)]
         objectives = []
         assignments = []
 
@@ -277,6 +331,16 @@ class ActionAttributionManager:
             tree.grow()
             objectives.append(tree.get_coverage())
             assignments.append(tree.assignments)
+
+        new_trees = []
+        for tree in trees:
+            for rewind in tree.get_rewinds(self.rewinds):
+                new_tree = DirectedTree(graph, min_node, weights=self.current_weights, base_assignments=self.last_base_tree, replay=rewind)
+                new_trees.append(new_tree)
+                objectives.append(new_tree.get_coverage())
+                assignments.append(new_tree.assignments)
+
+        trees = trees + new_trees
 
 
         best_obj_i = np.argmax(objectives)
@@ -435,7 +499,10 @@ if __name__ == '__main__':
     min_node = min(graph.nodes, key=lambda k: graph.nodes[k]['point'][1])
 
     # manager = EvolutionaryManager(graph, min_node)
-    manager = ActionAttributionManager(graph, min_node, max_shift=0.5, tries_per_iter=10)
+    manager = ActionAttributionManager(graph, min_node, max_shift=0.5, tries_per_iter=10, rewinds=0)
+    # TODO: Rewind tends to kill the commitment. Maybe should "lock in" common assignments before doing rewinds?
+    # TODO: Add convergence stopping criterion
+
     # base_tree = DirectedTree(graph, min_node)
     # base_tree.grow(deterministic=True, plot_each_step=True, pts=pts)
     # base_tree.plot(pts)
@@ -447,9 +514,10 @@ if __name__ == '__main__':
     for i in range(50):
         print(i)
         obj, tree = manager.iterate()
-        if obj > best_obj:
+        if obj >= best_obj:
+            if obj > best_obj:
+                tree.plot(pts)
             best_obj = obj
-            # tree.plot(pts)
             best_obj_ct += 1
             best_tree = tree
     print('Ending evolution')
