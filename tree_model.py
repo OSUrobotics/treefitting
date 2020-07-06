@@ -43,28 +43,19 @@ class SegmentType(Enum):
     NOISE = 5
     FALSE_CONNECTION = 6
 
-class Flags(Enum):
-    UNPROCESSED = 0
-    SKELETONIZED = 1
-
-    RADII_ASSIGNED = 2
-    MESH_CREATED = 3
-
-
 SUPPORT_LEN_THRESHOLD = 0.4
 
 class TreeModel(object):
 
     def __init__(self):
         self.points = None
+        self.base_points = None     # Used to keep the original PC around if necessary
         self.graph = None
         self.segment_graph = None
         self.segments = []
-        self.flags = {}
         self.mesh = None
         self.kd_tree = None
         self.net = None
-        self.bin_data = {}
         self.trunk_guess = None
         self.raster = None
         self.raster_info = None
@@ -79,17 +70,15 @@ class TreeModel(object):
         self.cover = None
         self.toggle = 0
 
-        self.status = Flags.UNPROCESSED
-
     @classmethod
     def from_point_cloud(cls, pc, process=False, kd_tree_pts = 100, bin_width=0.01):
         new_model = cls()
+        new_model.base_points = pc
         if process:
             pc = preprocess_point_cloud(pc)
 
         new_model.points = pc
         new_model.kd_tree = KDTree(pc, kd_tree_pts)
-        new_model.process_bins(bin_width)
 
         new_model.trunk_guess = np.array([pc[:, 0].mean(), np.max(pc[:, 1]), np.max(pc[:, 2])])
         print('Trunk guess: {}'.format(new_model.trunk_guess))
@@ -135,212 +124,33 @@ class TreeModel(object):
             'raster_location': rasterized_point
         }
 
-
-    def skeletonize(self):
-
-        if self.status.value >= Flags.SKELETONIZED.value:
-            return
-
-        print('Computing skeletonization...')
-
-        graph = skel.construct_mutual_k_neighbors_graph(self.points, 15, 0.05)
-        skel.clean(graph, threshold=0.10)
-
-        spanning_tree = nx.algorithms.tree.minimum_spanning_tree(graph)
-        while True:
-            rez = skel.clean(spanning_tree, threshold=0.05)
-            if not rez:
-                break
-
-        segments = skel.split_graph_into_segments(spanning_tree)
-
-        smoothed_segments = []
-
-        for segment in segments:
-            smoothed_segments.append(skel.redistribute_branch_nodes(segment, 0.10))
-
-        graph = nx.Graph()
-
-        vertex_associations = defaultdict(lambda: {'segments': [], 'is_endpoint': False})
-        edge_id_counter = 0
-
-        for i, segment in enumerate(smoothed_segments):
-
-            self.segments.append(Segment(segment, segment_id=i))
-
-            vertex_associations[segment[0]]['is_endpoint'] = True
-            vertex_associations[segment[-1]]['is_endpoint'] = True
-
-            for pt in segment:
-                vertex_associations[pt]['segments'].append(i)
-                graph.add_node(pt, segments=vertex_associations[pt]['segments'], is_endpoint=vertex_associations[pt]['is_endpoint'])
-
-            for start, end in zip(segment[:-1], segment[1:]):
-                graph.add_edge(start, end, segment=i, edge_id=edge_id_counter)
-                edge_id_counter += 1
-
-        self.graph = graph
-
-        # Make the segment-based graph
-        edges = []
-        for vertex, metadata in vertex_associations.items():
-            if len(metadata['segments']) <= 1:
-                continue
-
-            connections = combinations(metadata['segments'], 2)
-            edges.extend(connections)
-
-        self.segment_graph = nx.Graph()
-        self.segment_graph.add_nodes_from(range(len(self.segments)))
-        self.segment_graph.add_edges_from(edges)
-
-        print('Running branch classification...')
-        self.run_classification()
-
-        print('Skeletonization complete!')
-        self.status = Flags.SKELETONIZED
-
-    def run_classification(self):
-        self.classify_support_branches()
-        self.classify_vertical_leaders()
-        self.classify_targets()
-
-
-    def classify_support_branches(self):
-        candidates = [seg for seg in self.segments if abs(seg.angle) < np.pi / 4]
-        y_loc = []
-        weights = []
-        corresponding_segment = []
-        for segment in candidates:
-            for s, e in segment.edges():
-                y_loc.append((s[1] + e[1]) / 2)
-                weights.append(np.linalg.norm(np.array(s) - np.array(e)))
-                corresponding_segment.append(segment.id)
-
-        y_loc = np.array(y_loc)
-        corresponding_segment = np.array(corresponding_segment)
-
-
-
-        bin_size = 0.10
-        bins = np.arange(min(y_loc), max(y_loc) + bin_size, bin_size)
-        hist, hist_edges = np.histogram(y_loc, bins=bins, weights=weights, density=True)
-
-        req_height = (hist.max() + hist.min()) / 2
-
-        peaks = signal.find_peaks(hist, height=req_height, distance=2)[0]
-        peak = max(peaks)
-        eligible = (y_loc > hist_edges[peak] - 0.05) & (y_loc < hist_edges[peak + 1] + 0.05)
-        cand_segments = set(corresponding_segment[eligible])
-        subgraph = self.segment_graph.subgraph([seg.id for seg in candidates])
-        connected_components = nx.connected_components(subgraph)
-
-        for subgraph_nodes in connected_components:
-
-            if not cand_segments.intersection(subgraph_nodes):
-                continue
-
-            sum_len = 0
-            for segment_id in subgraph_nodes:
-                sum_len += Segment.get_by_id(segment_id).length
-            if sum_len < SUPPORT_LEN_THRESHOLD:
-                continue
-
-            for segment_id in subgraph_nodes:
-                Segment.get_by_id(segment_id).classification = SegmentType.SUPPORT
-
-
-    def classify_vertical_leaders(self):
-
-
-        endpoint_graph = nx.Graph()
-        for seg_id in self.segment_graph.nodes:
-            seg = Segment.get_by_id(seg_id)
-            endpts = [tuple(pt) for pt in seg.endpoints]
-            is_support = seg.classification == SegmentType.SUPPORT
-            endpoint_graph.add_nodes_from(endpts, is_support_node=is_support)
-            if not is_support:
-                endpoint_graph.add_edge(endpts[0], endpts[1], length=seg.length, id=seg_id)
-
-        for sg_nodes in nx.connected_components(endpoint_graph):
-            sg = endpoint_graph.subgraph(sg_nodes)
-            roots = [n for n,data in sg.nodes(data=True) if data['is_support_node']]
-            if not roots:
-                # Heuristically assign the top-most terminal vertex
-                candidate_roots = [n for n, deg in sg.degree if deg == 1]
-                roots = [min(candidate_roots, key=lambda r: r[1])]
-
-            for root in roots:
-                root_neighbors = set(sg[root])
-                for n in root_neighbors:
-
-                    sg_mod = sg.copy()
-                    sg_mod.remove_nodes_from(root_neighbors.difference({n}))
-
-                    dists, paths = nx.algorithms.shortest_paths.single_source_dijkstra(sg_mod, root, weight='length')
-                    winner = paths[max(dists, key=dists.get)]
-
-                    for s, e in zip(winner[:-1], winner[1:]):
-                        seg_id = sg_mod.edges[(s, e)]['id']
-                        Segment.get_by_id(seg_id).classification = SegmentType.LEADER
-
-    def classify_targets(self):
-        graph = self.segment_graph.copy()
-        for seg_id in graph.nodes:
-            if Segment.get_by_id(seg_id).classification == SegmentType.LEADER:
-                neighbors = set(graph[seg_id])
-                for neighbor in neighbors:
-                    seg = Segment.get_by_id(neighbor)
-                    if seg.classification == SegmentType.UNASSIGNED:
-                        seg.classification = SegmentType.TARGET
-
-    def iterate_skeleton_segments(self):
-
-        if self.points is None:
-            raise StopIteration()
-
-        self.skeletonize()
-        for segment in self.segments:
-            color = segment.get_segment_color()
-            for s, e in segment.edges():
-                yield (s, e), color
-        raise StopIteration()
-
     def assign_branch_radii(self):
 
-        if self.status.value >= Flags.RADII_ASSIGNED.value:
-            return
+        raise NotImplementedError('Temporarily disabled.')
 
-        self.skeletonize()
-        skel.create_edge_point_associations(self.graph, self.points, in_place=True)
-        radii = {}
-        for a, b, data in self.graph.edges(data=True):
-            edge = (a,b)
-            try:
-                assoc = data['associations']
-            except KeyError:
-                continue
-
-            if len(assoc) < 4:
-                print('Dropping cylinder with {} pts'.format(len(assoc)))
-
-            cyl = Cylinder()
-            cyl.set_fit_pts(assoc[0], assoc, self.points)
-            cyl.optimize_cyl(0.005, 0.10)
-            radii[edge] = 0.01 if cyl.radius > 0.10 else cyl.radius
-
-        nx.set_edge_attributes(self.graph, radii, name='radius')
-        self.status = Flags.RADII_ASSIGNED
-
-        return radii
+        # for a, b, data in self.graph.edges(data=True):
+        #     edge = (a,b)
+        #     try:
+        #         assoc = data['associations']
+        #     except KeyError:
+        #         continue
+        #
+        #     if len(assoc) < 4:
+        #         print('Dropping cylinder with {} pts'.format(len(assoc)))
+        #
+        #     cyl = Cylinder()
+        #     cyl.set_fit_pts(assoc[0], assoc, self.points)
+        #     cyl.optimize_cyl(0.005, 0.10)
+        #     radii[edge] = 0.01 if cyl.radius > 0.10 else cyl.radius
+        #
+        # nx.set_edge_attributes(self.graph, radii, name='radius')
+        #
+        # return radii
 
     def create_mesh(self):
-        if self.status.value >= Flags.MESH_CREATED.value:
-            return
-
+        raise NotImplementedError('Temporarily unavailable.')
         self.assign_branch_radii()
         self.mesh = mesh.process_skeleton(self.graph, default_radius=0.01)
-        self.status = Flags.MESH_CREATED
         return
 
     def output_mesh(self, file_name):
@@ -408,24 +218,6 @@ class TreeModel(object):
 
         nx.set_node_attributes(self.superpoint_graph, all_superpoints, name='superpoint')
 
-    #
-    # def add_superpoint_graph_attributes(self):
-    #     if self.superpoint_graph is None:
-    #         self.load_superpoint_graph()
-    #
-    #     edge_densities = {}
-    #     for edge in self.superpoint_graph.edges:
-    #         edge_densities[edge] = self.query_segment_density(self.points[edge[0]], self.points[edge[1]])
-    #
-    #     nx.set_edge_attributes(self.superpoint_graph, edge_densities, name='density')
-    #
-    #     # to_update = defaultdict(dict)
-    #     # for node in self.superpoint_graph:
-    #     #
-    #     #     degree = self.superpoint_graph.degree[node]
-    #     #     for neighbor in self.superpoint_graph[node]:
-    #     #         superpoint =3
-
 
 
 
@@ -485,122 +277,6 @@ class TreeModel(object):
 
         return beliefs
 
-    # def connect_open_cover(self, cover=None, neighbors=4, max_dist=0.20):
-    #
-    #     if cover is None:
-    #         if self.cover is None:
-    #             cover = self.produce_open_cover(0.10)
-    #             self.cover = cover
-    #         else:
-    #             cover = self.cover
-    #
-    #     self.toggle = (self.toggle + 1) % 2
-    #     if self.toggle:
-    #         print('RUNNING WITH WEIGHTS')
-    #     else:
-    #         print('RUNNING WITHOUT WEIGHTS')
-    #
-    #     reference_nodes = np.array(list(cover.keys()))
-    #     reference_pts = self.points[reference_nodes]
-    #
-    #
-    #     superpoint_graph = skel.construct_mutual_k_neighbors_graph(reference_pts, neighbors, max_dist, leafsize=20, node_index=True)
-    #
-    #     all_frames = {}
-    #     # For reference
-    #     all_scales = {}
-    #     all_normal_frames = {}
-    #     for node in reference_nodes:
-    #         pt_indexes = cover[node]
-    #         pts = self.points[pt_indexes]
-    #         node_pt = self.points[node]
-    #
-    #
-    #         # Compute the TF matrix which brings a point into the frame of the
-    #         u, s, v = svd(pts - pts.mean(axis=0))
-    #         tf = np.identity(4)
-    #         tf[:3, :3] = v
-    #         tf[:3, 3] = -v.dot(node_pt)
-    #
-    #         all_normal_frames[node] = tf.copy()
-    #
-    #         # Penalize distances in non-primary directions
-    #         scale_vals = np.ones(4)
-    #         if self.toggle:
-    #             scale_vals[:3] = s[0] / s
-    #         tf = np.diag(scale_vals).dot(tf)
-    #
-    #         all_frames[node] = tf
-    #         all_scales[node] = scale_vals
-    #
-    #
-    #     superpoint_graph = nx.Graph(nx.to_directed(superpoint_graph))
-    #     dists = {}
-    #     segment_densities = []
-    #     for s, e in superpoint_graph.edges:
-    #
-    #
-    #
-    #         frame_start = all_frames[reference_nodes[s]]
-    #         pt_end = reference_pts[e]
-    #         pt_start = reference_pts[s]
-    #         pt_homog = np.ones(4)
-    #         pt_homog[:3] = pt_end
-    #
-    #         density = self.query_segment_density(pt_start, pt_end)
-    #         segment_densities.append(density)
-    #         if density < 10:
-    #             superpoint_graph.remove_edge(s, e)
-    #             continue
-    #
-    #         diff = pt_end - pt_start
-    #         # Drop the z-component so that only upward movement in the xy plane matters
-    #         diff = diff[:2]
-    #         diff = diff / np.linalg.norm(diff)
-    #
-    #
-    #
-    #
-    #         dot_prod = np.array([0, -1]).dot(diff)
-    #         if dot_prod > 1:
-    #             dot_prod = 1
-    #         elif dot_prod < -1:
-    #             dot_prod = -1
-    #
-    #         angle = np.arccos(dot_prod)
-    #         scaled_multiplier = (angle / np.pi) * (2 if self.toggle else 0) + 1   # Ranges from 1 to 2 - Could be modified
-    #         # print(scaled_multiplier)
-    #
-    #         # normal_frame_pt = all_normal_frames[reference_nodes[s]].dot(pt_homog)[:3]
-    #         scaled_frame_pt = frame_start.dot(pt_homog)[:3]
-    #
-    #         dists[(s, e)] = scaled_multiplier * np.linalg.norm(scaled_frame_pt)
-    #
-    #     nx.set_edge_attributes(superpoint_graph, dists, name='dist')
-    #     # Pick random node to start at and run shortest paths
-    #
-    #
-    #     node_dists = np.linalg.norm(reference_pts - self.trunk_guess, axis=1)
-    #     first_node = np.argmin(node_dists)
-    #
-    #     all_paths = nx.algorithms.single_source_dijkstra(superpoint_graph, first_node, weight='dist')[1]
-    #
-    #     # TODO: There's def a better way to do this
-    #
-    #     final_graph = nx.Graph()
-    #     final_graph.add_nodes_from(superpoint_graph.nodes)
-    #     for _, path in all_paths.items():
-    #         for s, e in zip(path[:-1], path[1:]):
-    #             final_graph.add_edge(s, e)
-    #
-    #     # mst = nx.algorithms.tree.minimum_spanning_tree(superpoint_graph)
-    #     segs = skel.split_graph_into_segments(final_graph)
-    #     self.segments = []
-    #     for seg in segs:
-    #         self.segments.append(Segment(reference_pts[seg]))
-    #
-    #     self.status = Flags.SKELETONIZED    # Hack for testing
-
 
     def get_pt_colors(self):
 
@@ -620,267 +296,6 @@ class TreeModel(object):
             yield (0.2, 0.8, 0.8, 1.0), np.setdiff1d(all_pts, accounted_for_keys)
         raise StopIteration
 
-    # Code for binning
-    def process_bins(self, bin_size, override=False):
-        print('Processing bins...')
-        if not override and self.bin_data:
-            if self.bin_data['bin_size'] != bin_size:
-                print('Warning: Bins have already been processed, and you\'ve asked for a different bin size.')
-                print('Please pass in override=True if you want to reprocess the bins.')
-            return
-
-        self.bin_data = {}
-        self.bin_data['bin_size'] = bin_size
-        self.bin_data['bin_counts'] = defaultdict(lambda: 0)
-        all_bins = self.get_bins(self.points)
-        for row in all_bins:
-            self.bin_data['bin_counts'][tuple(row)] += 1
-
-    def get_bins(self, points):
-        if not isinstance(points, np.ndarray):
-            points = np.array(points)
-
-        bins = np.floor(points / self.bin_data['bin_size'] - 0.5).astype(np.int)
-        return bins
-
-    def query_segment_density(self, start, end):
-
-        dist = np.linalg.norm(start - end)
-        cells_to_traverse = np.floor(dist / self.bin_data['bin_size']).astype(np.int)
-        to_query = np.linspace(0, 1, endpoint=True, num=cells_to_traverse)
-        interpolated_pts = to_query.reshape((-1, 1)).dot((end - start).reshape((1, -1))) + start
-        interpolated_indexes = self.get_bins(interpolated_pts)
-        count = 0
-        for index in interpolated_indexes:
-            count += self.bin_data['bin_counts'].get(tuple(index), 0)
-
-        return count / dist
-
-    #
-    # def do_pca(self):
-    #     from CylinderCover import CylinderCover, MyPointCloud
-    #     my_pcd = MyPointCloud()
-    #     my_pcd.load_point_cloud(self.points)
-    #     cover = CylinderCover(pcd=my_pcd)
-    #     cover.find_good_pca(0.5, 0.20, 0.01, 0.10)
-    #
-    #     set_trace()
-
-    def get_bitmap_histogram(self, axis=1, callback=lambda: None):
-        counts = defaultdict(lambda: 0)
-        for key, val in self.bin_data['bin_counts'].items():
-            counts[key[axis]] += val
-        counts = pd.Series(counts).reindex(np.arange(min(counts), max(counts) + 1)).fillna(0)
-        smoothed = counts.rolling(7).mean().shift(-3)
-        smoothed = smoothed / smoothed.max()
-
-        # plt.plot(smoothed)
-
-        peaks_idx, props = signal.find_peaks(smoothed.values, prominence=0.1)
-        peaks = smoothed.index[peaks_idx]
-        threshold = max(peaks) * self.bin_data['bin_size'] - 0.20       # Hard-coded
-
-
-
-        if self.superpoint_graph is None:
-            self.load_superpoint_graph()
-
-
-        superpoint_graph = self.superpoint_graph.copy()
-        all_superpoints = {node: superpoint_graph.nodes[node]['superpoint'] for node in superpoint_graph}
-        reference_nodes = np.array(list(superpoint_graph.nodes))
-
-        superpoints_to_nix = [index for index, superpoint in all_superpoints.items() if superpoint < threshold]
-
-        # cand_superpoints = {k: sp for k, sp in all_superpoints.items() if sp > threshold and sp.flow_angle < np.pi / 4 and sp.classification['Branch'] > 0.95}
-        cand_superpoints = [k for k, sp in all_superpoints.items() if
-                            sp > threshold and sp.flow_angle < np.pi / 4 and sp.classification['Branch'] > 0.95]
-        # Algo:
-        # Find all connected segments. Order by top-most point
-        # Look for candidate branches in cones. Check which ones are connected
-
-        connected_components = nx.algorithms.connected_components(superpoint_graph.subgraph(cand_superpoints))
-        all_segments = []
-        resolved_nodes = set()
-        for superpoint_refs in connected_components:
-            superpoints = sorted([all_superpoints[idx] for idx in superpoint_refs])
-            subgraph = superpoint_graph.subgraph(superpoint_refs)
-
-            for index, superpt in enumerate(superpoints):
-                expected_degree = 1 if (index == 0 or index == len(superpoints) - 1) else 2
-                actual_degree = subgraph.degree[superpt.ref_index]
-                if actual_degree == expected_degree:
-                    continue
-                # TODO: This is where the tie-breaking logic comes in
-                print('Unexpected degree {} found at index {} of {}'.format(actual_degree, index, len(superpoints) - 1))
-                pass
-
-            all_segments.append(superpoints)
-            resolved_nodes.update(superpoint_refs)
-
-        # Sort by the position of the uppermost segment
-        all_segments = sorted(all_segments, key=lambda seg: seg[-1])
-        start_to_cand_ends_proposals = defaultdict(dict)
-        end_to_cand_starts_proposals = defaultdict(list)
-
-        self.highlighted_points = defaultdict(list)
-        for seg in all_segments:
-            for superpoint in seg:
-                self.highlighted_points[(0.2, 0.2, 0.8, 1.0)].extend(superpoint.neighbor_index)
-
-
-
-        for segment_id, current_segment in enumerate(all_segments):
-
-            for superpoint in current_segment:
-                self.highlighted_points[(0.2, 0.8, 0.2, 1.0)].extend(superpoint.neighbor_index)
-
-            callback()
-
-            # For the current segment, check what other segments have been proposed to connect to it
-            possible_connections = end_to_cand_starts_proposals[segment_id]
-            possible_start_desiredness = {}     # How much does each starting branch want to connect to this segment?
-            start_to_target_desiredness = {}    # For each segment ID, maps segment ID to ranking
-            for possible_connection in possible_connections:
-                proposals = start_to_cand_ends_proposals[possible_connection]
-                all_ranks = pd.Series({cand: -proposals[cand]['directness'] for cand in proposals}).rank(method='min')
-                rank = all_ranks[segment_id]
-
-
-                possible_start_desiredness[possible_connection] = rank
-                start_to_target_desiredness[possible_connection] = all_ranks
-
-            possible_start_desiredness = pd.Series(possible_start_desiredness)
-
-            determined_rank = 0
-            contenders = []
-            for rank in range(1, len(possible_start_desiredness) + 1):
-                contenders = possible_start_desiredness[possible_start_desiredness <= rank].index
-                if len(contenders) <= rank:
-                    determined_rank = rank
-                    break
-            else:
-                if len(contenders):
-                    raise Exception("You shouldn't be here!")
-
-            if len(contenders):
-
-                filter_rank = lambda ser: ser[ser <= determined_rank]
-                best_assignments = None
-                best_directness = 0
-
-                for assignment_set in product_with_throwaways(*[filter_rank(start_to_target_desiredness[seg_id]).index for seg_id in contenders]):
-
-                    for assignments in assignment_set:
-                        if len(set(assignments)) < determined_rank:        # Multiple segments are trying to connect to the same endpoint
-                            continue
-
-                        success = True
-                        directnesses = []
-                        nodes_crossed = set()
-                        for cand, assignment in zip(contenders, assignments):
-                            if assignment is None:
-                                continue
-                            info = start_to_cand_ends_proposals[cand][assignment]
-                            path = info['path']
-                            exp_nodes = len(nodes_crossed) + len(path)
-                            nodes_crossed.update(path)
-                            if len(nodes_crossed) != exp_nodes:
-                                # This set of assignments is invalid because of collisions
-                                success = False
-                                break
-
-                            directnesses.append(info['directness'])
-
-                        if success:
-                            directness = np.mean(directnesses)
-                            if directness > best_directness:
-                                best_directness = directness
-                                best_assignments = assignments
-
-                    # At this point, we check if there was at least one set of assignments which was able to resolve
-                    # If not, we start considering alternatives in which we don't match up starts to ends
-                    if best_assignments is not None:
-                        break
-                else:
-                    raise Exception("You shouldn't be here, at least one candidate should have been able to resolve!")
-
-                if best_assignments is not None:
-                    for cand, assignment in zip(contenders, best_assignments):
-
-
-                        if assignment is not None:
-                            start_segment = all_segments[cand]
-                            end_segment = all_segments[assignment]
-                            path = start_to_cand_ends_proposals[cand][assignment]['path']
-                            assert start_segment[-1].ref_index == path[0] and path[-1] == end_segment[0].ref_index
-
-                            intermediate = [all_superpoints[p] for p in path[1:-1]]
-                            for superpoint in intermediate:
-                                self.highlighted_points[(0.2, 0.2, 0.8, 1.0)].extend(superpoint.neighbor_index)
-
-                            all_segments[assignment] = start_segment + intermediate + end_segment
-                            all_segments[cand] = None
-                            resolved_nodes.update(path)
-
-
-                        all_proposals = start_to_cand_ends_proposals[cand].keys()
-                        for obsolete_proposal in all_proposals:
-                            end_to_cand_starts_proposals[obsolete_proposal].remove(cand)
-                        del start_to_cand_ends_proposals[cand]
-
-                elif best_assignments is None and len(contenders) > 0:
-                    print('!!!!!!!FAILED RESOLUTION!!!!!!!!')
-                    set_trace()
-
-            # =========================================
-            # Find candidates by shooting out in an arc
-            # =========================================
-
-            current_end = current_segment[-1]
-
-            for candidate_id, candidate_segment in enumerate(all_segments[segment_id+1:], start=segment_id+1):
-                candidate_start = candidate_segment[0]
-                if current_end > candidate_start:
-                    continue
-
-                main_dist, planar_dist, angle = current_end.compute_cylindrical_coords(candidate_start)
-                if angle > np.pi / 4:
-                    continue
-
-                # Check if there's a connection which doesn't route through other existing branches
-                valid_nodes = set(reference_nodes).difference(resolved_nodes).difference(superpoints_to_nix).union([candidate_start.ref_index, current_end.ref_index])
-                subgraph = superpoint_graph.subgraph(valid_nodes)
-                try:
-                    dist, path = nx.algorithms.single_source_dijkstra(subgraph, source=current_end.ref_index,
-                                                                      target=candidate_start.ref_index, weight='weight')
-                except nx.NetworkXNoPath:
-                    continue
-
-                directness = np.linalg.norm(candidate_start.ref_point - current_end.ref_point) / dist
-                start_to_cand_ends_proposals[segment_id][candidate_id] = {
-                    'path': path,
-                    'dist': dist,
-                    'directness': directness
-                }
-                end_to_cand_starts_proposals[candidate_id].append(segment_id)
-
-                for superpoint in candidate_segment:
-                    self.highlighted_points[(0.8, 0.2, 0.8, 1.0)].extend(superpoint.neighbor_index)
-
-            callback()
-            yield
-
-            for superpoint in current_segment:
-                self.highlighted_points[(0.8, 0.2, 0.2, 1.0)].extend(superpoint.neighbor_index)
-
-
-            try:
-                del self.highlighted_points[(0.8, 0.2, 0.8, 1.0)]
-            except:
-                pass
-
-        raise StopIteration
 
     def resample(self, cover_radius=None, neighbor_radius=None):
 
@@ -932,46 +347,6 @@ class TreeModel(object):
         print('New graph has {} pts'.format(len(all_pts)))
         return all_pts
 
-
-def product_with_throwaways(*choices):
-    """
-    Gives all permutations, but allows for the the selection of None values.
-    Prioritizes permutations with no None selections.
-
-    E.g. for [1, 2], [a, b] will produce the following blocks:
-    ---
-    [1, a]
-    [1, b]
-    [2, a]
-    [2, b]
-    ---
-    [1, None]
-    [2, None]
-    [None, a]
-    [None, b]
-    :param choices:
-    :return:
-    """
-
-    choices = [list(choice) for choice in choices]
-    indexes = list(range(len(choices)))
-    for n_exclude in range(len(choices)):
-        all_results = []
-        for inds_to_exclude in combinations(indexes, n_exclude):
-            modified_choices = []
-            for index in indexes:
-                if index in inds_to_exclude:
-                    modified_choices.append([None])
-                else:
-                    modified_choices.append(choices[index])
-            all_results.extend(product(*modified_choices))
-
-        yield all_results
-
-
-
-
-    pass
 
 class Superpoint:
 
@@ -1101,10 +476,6 @@ class Superpoint:
             self._tf = tf
 
         return self._tf
-
-
-
-
 
     @property
     def flow_angle(self):

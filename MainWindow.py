@@ -10,8 +10,6 @@ from Cylinder import Cylinder
 from CylinderCover import CylinderCover
 from PyQt5.QtGui import QColor
 
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
 from functools import partial
 import imageio
 import hashlib
@@ -29,6 +27,7 @@ import hashlib
 from functools import partial
 from collections import defaultdict
 from MachineLearningPanel import ML_Panel
+from DataLabelingPanel import DataLabelingPanel
 
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -355,35 +354,13 @@ class PointCloudViewerGUI(QMainWindow):
         ml_button = QPushButton('ML Panel')
         ml_button.clicked.connect(partial(self.toggle_window, self.ml_panel))
 
-        self.figure = Figure()
-        self.display = FigureCanvas(self.figure)
-        self.figure.clear()
-
-        classifying_layout = QVBoxLayout()
-        import tree_model
-        for val in sorted(tree_model.Superpoint.CLASSIFICATIONS):
-            label = tree_model.Superpoint.CLASSIFICATIONS[val]
-            button = QPushButton(label)
-            button.clicked.connect(partial(self.save_image, val))
-            classifying_layout.addWidget(button)
-
-
-        # button_joint = QPushButton('Joint')
-        # button_leader = QPushButton('Branch')
-        # button_other = QPushButton('Other')
-        # button_skip = QPushButton('>')
-        #
-        # classifying_layout.addWidget(button_joint)
-        # classifying_layout.addWidget(button_leader)
-        # classifying_layout.addWidget(button_other)
-        # classifying_layout.addWidget(button_skip)
-        self.guess_label = QLabel()
-        #
-        # button_joint.clicked.connect(partial(self.save_image, 'joint'))
-        # button_leader.clicked.connect(partial(self.save_image, 'branch'))
-        # button_other.clicked.connect(partial(self.save_image, 'other'))
-        # button_skip.clicked.connect(partial(self.save_image, None))
-
+        ml_labeling_callbacks = {
+            'refresh_superpoints': self.reload_superpoint_graph,
+        }
+        self.ml_labeling_panel = DataLabelingPanel(ml_labeling_callbacks, '/home/main/data/tree_edge_data')
+        self.ml_labeling_panel.hide()
+        labeling_button = QPushButton('Labeling Panel')
+        labeling_button.clicked.connect(partial(self.toggle_window, self.ml_labeling_panel))
 
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
@@ -396,12 +373,10 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(compute_skeleton_button)
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
-        resets_layout.addWidget(magic_button)
-        resets_layout.addWidget(self.display)
+        # resets_layout.addWidget(magic_button)
         resets_layout.addWidget(toggle_button)
         resets_layout.addWidget(ml_button)
-        resets_layout.addLayout(classifying_layout)
-        resets_layout.addWidget(self.guess_label)
+        resets_layout.addWidget(labeling_button)
         resets.setLayout(resets_layout)
 
         # For setting the bin size, based on width of narrowest branch
@@ -651,14 +626,8 @@ class PointCloudViewerGUI(QMainWindow):
         for label, val in top_guesses[1:]:
             text += '\n  {:.2f} ({})'.format(val, label)
 
-        self.guess_label.setText(text)
-
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        ax.imshow(im_array)
-        self.display.draw()
-        self.current_superpoint = superpoint
-
+    def reload_superpoint_graph(self):
+        self.glWidget.tree.load_superpoint_graph()
 
     def save_image(self, category=None):
         if category is not None:
@@ -680,31 +649,7 @@ class PointCloudViewerGUI(QMainWindow):
         self.highlight_random()
 
     def magic(self):
-
-
-
-        if self.temp_process is None:
-            def callback():
-                self.glWidget.make_pcd_gl_list()
-                self.glWidget.update()
-                self.repaint()
-            self.temp_process = self.glWidget.tree.get_bitmap_histogram(callback=callback)
-
-        try:
-            next(self.temp_process)
-        except StopIteration:
-            self.temp_process = None
-
-
-        # self.glWidget.make_pcd_gl_list()
-
-        # self.glWidget.tree.do_pca()
-        #
-        # self.glWidget.tree.connect_open_cover()
-        # self.glWidget.initialize_skeleton()
-        # self.glWidget.make_pcd_gl_list()
-        # self.glWidget.update()
-        # self.repaint()
+        print('Nothing to see here!')
 
     def read_pca_cylinders(self):
         fname = self.pca_cylinder_file

@@ -492,7 +492,7 @@ def get_ranking_weight(n):
 if __name__ == '__main__':
     from test_skeletonization_data import generate_points_and_graph
 
-    graph, pts = generate_points_and_graph(classify=False, map_to_points=True)
+    graph, pts = generate_points_and_graph(classify=True, map_to_points=True)
     print('Assigning points...')
     assign_points_to_edges(graph, pts, 0.15, visualize=False)
     print('Done assigning points to edges!')
