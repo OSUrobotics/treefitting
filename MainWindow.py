@@ -134,6 +134,7 @@ class PointCloudViewerGUI(QMainWindow):
         self.setWindowTitle('Point cloud Viewer')
         self.settings = kwargs
         self.config_dir = ''
+        self.current_file = None
         self.current_superpoint = None
         self.net = None
         self.temp_process = None
@@ -329,9 +330,6 @@ class PointCloudViewerGUI(QMainWindow):
         highlight_random_button = QPushButton('Highlight random')
         highlight_random_button.clicked.connect(self.highlight_random)
 
-        compute_skeleton_button = QPushButton('Compute skeleton')
-        compute_skeleton_button.clicked.connect(self.compute_skeleton)
-
         compute_mesh_button = QPushButton('Compute mesh')
         compute_mesh_button.clicked.connect(self.compute_mesh)
 
@@ -356,6 +354,7 @@ class PointCloudViewerGUI(QMainWindow):
 
         ml_labeling_callbacks = {
             'refresh_superpoints': self.reload_superpoint_graph,
+            'highlight_edge': self.highlight_edge
         }
         self.ml_labeling_panel = DataLabelingPanel(ml_labeling_callbacks, '/home/main/data/tree_edge_data')
         self.ml_labeling_panel.hide()
@@ -370,7 +369,6 @@ class PointCloudViewerGUI(QMainWindow):
         # resets_layout.addWidget(recalc_fit_cylinder_button)
         # resets_layout.addWidget(new_id_button)
         resets_layout.addWidget(highlight_random_button)
-        resets_layout.addWidget(compute_skeleton_button)
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
         # resets_layout.addWidget(magic_button)
@@ -524,12 +522,10 @@ class PointCloudViewerGUI(QMainWindow):
 
     def show_skeleton(self):
         self.glWidget.show_skeleton = not self.glWidget.show_skeleton
-
+        self.glWidget.initialize_skeleton()
         self.glWidget.update()
         self.repaint()
 
-    def compute_skeleton(self):
-        self.glWidget.compute_skeleton()
 
     def compute_mesh(self):
         self.glWidget.compute_mesh()
@@ -555,6 +551,7 @@ class PointCloudViewerGUI(QMainWindow):
 
     def read_point_cloud(self):
         fname = self.path_name.text().strip()
+        self.current_file = fname
         file_hash = hashlib.md5(fname.encode('utf-8')).hexdigest()[:16]
         ver = self.version_name.text().strip()
         if ver:
@@ -626,8 +623,37 @@ class PointCloudViewerGUI(QMainWindow):
         for label, val in top_guesses[1:]:
             text += '\n  {:.2f} ({})'.format(val, label)
 
-    def reload_superpoint_graph(self):
-        self.glWidget.tree.load_superpoint_graph()
+    def reload_superpoint_graph(self, radius=0.10):
+        graph = self.glWidget.tree.load_superpoint_graph(radius=radius)
+        data = {
+            'graph': graph,
+            'points': self.glWidget.tree.points,
+            'source_file': self.current_file,
+            'radius': radius,
+        }
+        return data
+
+    def highlight_edge(self, edge):
+
+        pt_indexes = self.glWidget.tree.highlight_edge(edge)
+        pts = self.glWidget.tree.points[list(pt_indexes)]
+        graph = self.glWidget.tree.superpoint_graph
+        start = graph.nodes[edge[0]]['point']
+        end = graph.nodes[edge[1]]['point']
+
+        for edge_c in graph.edges:
+            if edge_c == edge:
+                graph.edges[edge_c]['color'] = (0.1, 0.9, 0.1)
+            else:
+                graph.edges[edge_c].pop('color', None)
+
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.initialize_skeleton()
+        self.glWidget.update()
+        self.repaint()
+
+        return pts, start, end
+
 
     def save_image(self, category=None):
         if category is not None:

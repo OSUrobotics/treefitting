@@ -80,6 +80,7 @@ def construct_mutual_k_neighbors_graph(pc, k, max_dist, eps=0.0, leafsize=10, no
             else:
                 edge_counts[(current_idx, neighbor_idx)] += 1
 
+    nx.set_node_attributes(graph, {idx_to_node_dict[i]: idx_to_point_dict[i] for i in idx_to_node_dict}, name='point')
 
     for (a, b), v in edge_counts.items():
         if v < 2:

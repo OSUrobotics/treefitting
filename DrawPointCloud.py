@@ -573,11 +573,6 @@ class DrawPointCloud(QOpenGLWidget):
     def set_color(self, c):
         GL.glColor4f(c.redF(), c.greenF(), c.blueF(), c.alphaF())
 
-    def compute_skeleton(self):
-
-
-        self.initialize_skeleton()
-
     def compute_mesh(self):
 
         self.tree.assign_branch_radii()
@@ -590,40 +585,37 @@ class DrawPointCloud(QOpenGLWidget):
         self.tree.output_mesh(file_name)
 
 
-    def draw_skeleton(self):
-        if self.skeleton is None:
-            return
-
-        GL.glLineWidth(12)
-        GL.glBegin(GL.GL_LINES)
-
-        np.random.seed(0)
-        for s, e in self.skeleton:
-
-            GL.glColor3f(np.random.uniform(0,1), 0.0, 0.0)
-            GL.glVertex3f(*s)
-            GL.glVertex3f(*e)
-
-        GL.glEnd()
-
     def initialize_skeleton(self):
+
+        if self.tree.superpoint_graph is None:
+            print('Skeleton has not been initialized')
+            return
 
         if self.skeleton_list is None:
             self.skeleton_list = GL.glGenLists(1)
 
         GL.glNewList(self.skeleton_list, GL.GL_COMPILE)
 
-        # GL.glPointSize(2)
-        GL.glLineWidth(12)
-        GL.glBegin(GL.GL_LINES)
 
-        current_color = (0, 0, 0)
-        for (s, e), color in self.tree.iterate_skeleton_segments():
-            if color != current_color:
-                GL.glColor3f(*color)
-                current_color = color
-            GL.glVertex3f(*s)
-            GL.glVertex3f(*e)
+        GL.glPointSize(6)
+        GL.glBegin(GL.GL_POINTS)
+        GL.glColor3f(0.0, 1.0, 0.0)
+        for node in self.tree.superpoint_graph.nodes:
+            GL.glVertex3f(*self.tree.superpoint_graph.nodes[node]['point'])
+        GL.glEnd()
+
+        GL.glLineWidth(2)
+        GL.glBegin(GL.GL_LINES)
+        for edge in self.tree.superpoint_graph.edges:
+            edge_color = self.tree.superpoint_graph.edges[edge].get('color', False)
+            if not edge_color:
+                continue
+
+            start = self.tree.superpoint_graph.nodes[edge[0]]['point']
+            end = self.tree.superpoint_graph.nodes[edge[1]]['point']
+            GL.glColor3f(*edge_color)
+            GL.glVertex3f(*start)
+            GL.glVertex3f(*end)
 
         GL.glEnd()
         GL.glEndList()
