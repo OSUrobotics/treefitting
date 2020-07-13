@@ -136,6 +136,7 @@ class DrawPointCloud(QOpenGLWidget):
         self.show_bins = False
         self.show_isolated = False
         self.show_skeleton = False
+        self.show_points = True
         self.last_cyl = -1
 
         self.tree = None
@@ -354,12 +355,13 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glScaled(2/radius, 2/radius, 2/radius)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
-        if self.show_bins:
-            self.draw_bins()
-        else:
-            GL.glCallList(self.pcd_gl_list)
-            if self.show_isolated is True:
-                GL.glCallList(self.pcd_isolated_gl_list)
+        if self.show_points:
+            if self.show_bins:
+                self.draw_bins()
+            else:
+                GL.glCallList(self.pcd_gl_list)
+                if self.show_isolated is True:
+                    GL.glCallList(self.pcd_isolated_gl_list)
 
         if hasattr(self, "cyl"):
             if len(self.cyl.data.pts_ids) > 0:

@@ -27,6 +27,7 @@ import hashlib
 from functools import partial
 from collections import defaultdict
 from MachineLearningPanel import ML_Panel
+from DataTogglingPanel import DataTogglingPanel
 from DataLabelingPanel import DataLabelingPanel
 
 
@@ -36,95 +37,6 @@ if not os.path.exists(CONFIG):
     os.mkdir(CONFIG)
 
 
-class ToggleDialog(QWidget):
-    def __init__(self, callback=None):
-        super(ToggleDialog, self).__init__()
-
-        self.callback = callback
-
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
-        grid = QGridLayout()
-        layout.addWidget(QLabel('Options'))
-        layout.addLayout(grid)
-
-        bottom = QHBoxLayout()
-        layout.addLayout(bottom)
-
-        commit_button = QPushButton("Commit")
-        commit_button.clicked.connect(self.commit)
-        reset_button = QPushButton("Reset")
-        reset_button.clicked.connect(self.reset)
-        bottom.addWidget(commit_button)
-        bottom.addWidget(reset_button)
-
-        self.checkboxes = {}
-        self.thresholds = {}
-        self.colors = {}
-        self.color_buttons = {}
-        for i, cat in enumerate(sorted(Superpoint.CLASSIFICATIONS)):
-            label = Superpoint.CLASSIFICATIONS[cat]
-            checkbox = QCheckBox()
-            checkbox.setChecked(True)
-            edit = QLineEdit('0.0')
-            self.checkboxes[cat] = checkbox
-            self.thresholds[cat] = edit
-
-            grid.addWidget(QLabel(label), i, 0)
-            grid.addWidget(checkbox, i, 1)
-            grid.addWidget(edit, i, 2)
-
-            only_button = QPushButton('Only')
-            only_button.clicked.connect(partial(self.toggle_only, cat))
-
-            except_button = QPushButton('Except')
-            except_button.clicked.connect(partial(self.toggle_except, cat))
-
-            grid.addWidget(only_button, i, 3)
-            grid.addWidget(except_button, i, 4)
-
-            color_button = QPushButton('Set Color')
-            color_button.clicked.connect(partial(self.change_color, cat))
-            self.color_buttons[cat] = color_button
-            grid.addWidget(color_button, i, 5)
-
-    def toggle_except(self, undesired):
-        for cat in Superpoint.CLASSIFICATIONS:
-            self.checkboxes[cat].setChecked(cat != undesired)
-        self.commit()
-
-    def toggle_only(self, desired):
-        for cat in Superpoint.CLASSIFICATIONS:
-            self.checkboxes[cat].setChecked(cat == desired)
-        self.commit()
-
-    def reset(self):
-        for cat in Superpoint.CLASSIFICATIONS:
-            self.checkboxes[cat].setChecked(True)
-            self.thresholds[cat].setText('0.0')
-            self.color_buttons[cat].setStyleSheet("background-color: rgb(255,255,255)")
-        self.colors = {}
-        self.commit()
-
-    def change_color(self, cat):
-        color = QColorDialog.getColor()
-        r, g, b, _ = color.getRgb()
-        self.color_buttons[cat].setStyleSheet("background-color: rgb({},{},{})".format(r, g, b))
-
-        print(color.getRgbF())
-        self.colors[cat] = color
-
-    def commit(self):
-
-        state = {cat: {'threshold': float(self.thresholds[cat].text()),
-                       'active': self.checkboxes[cat].isChecked(),
-                       'color': self.colors.get(cat, QColor.fromRgb(255, 255, 255)).getRgbF()}
-                 for cat in Superpoint.CLASSIFICATIONS}
-        if self.callback is None:
-            print(state)
-        else:
-            self.callback(state)
 
 
 
@@ -229,6 +141,10 @@ class PointCloudViewerGUI(QMainWindow):
         show_one_button = QCheckBox('Show one')
         show_one_button.clicked.connect(self.show_one)
 
+        self.show_points_button = QCheckBox('Show points')
+        self.show_points_button.setChecked(True)
+        self.show_points_button.clicked.connect(self.show_points)
+
         show_pca_cyl_button = QCheckBox('Show PCA cylinders')
         show_pca_cyl_button.clicked.connect(self.show_pca_cylinders)
 
@@ -269,6 +185,7 @@ class PointCloudViewerGUI(QMainWindow):
         params_camera_layout.addWidget(show_pca_cyl_button)
         params_camera_layout.addWidget(show_fitted_cyl_button)
         params_camera_layout.addWidget(show_skeleton_button)
+        params_camera_layout.addWidget(self.show_points_button)
         params_camera_layout.addWidget(self.zoom)
         params_camera_layout.addWidget(self.turntable)
         params_camera_layout.addWidget(self.up_down)
@@ -338,7 +255,7 @@ class PointCloudViewerGUI(QMainWindow):
         magic_button = QPushButton('Click here for magic')
         magic_button.clicked.connect(self.magic)
 
-        self.toggles = ToggleDialog(callback=self.redraw_by_classification)
+        self.toggles = DataTogglingPanel(callback=self.classify_and_highlight_edges)
         self.toggles.hide()
         toggle_button = QPushButton('Classification toggles')
         toggle_button.clicked.connect(partial(self.toggle_window, self.toggles))
@@ -371,7 +288,7 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(highlight_random_button)
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
-        # resets_layout.addWidget(magic_button)
+        resets_layout.addWidget(magic_button)
         resets_layout.addWidget(toggle_button)
         resets_layout.addWidget(ml_button)
         resets_layout.addWidget(labeling_button)
@@ -517,6 +434,11 @@ class PointCloudViewerGUI(QMainWindow):
 
     def show_isolated(self):
         self.glWidget.show_isolated = not self.glWidget.show_isolated
+        self.glWidget.update()
+        self.repaint()
+
+    def show_points(self):
+        self.glWidget.show_points = self.show_points_button.isChecked()
         self.glWidget.update()
         self.repaint()
 
@@ -674,8 +596,21 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.highlight_random()
 
+    def classify_and_highlight_edges(self, settings_dict):
+        self.glWidget.tree.classify_edges()
+        self.glWidget.tree.assign_edge_colors(settings_dict)
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.initialize_skeleton()
+        self.glWidget.update()
+        self.repaint()
+
     def magic(self):
-        print('Nothing to see here!')
+        self.glWidget.tree.classify_edges()
+        self.glWidget.tree.assign_edge_colors()
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.initialize_skeleton()
+        self.glWidget.update()
+        self.repaint()
 
     def read_pca_cylinders(self):
         fname = self.pca_cylinder_file

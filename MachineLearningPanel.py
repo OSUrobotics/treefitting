@@ -1,33 +1,14 @@
 #!/usr/bin/env python3
 
-# Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 import PyQt5.QtCore as QtCore
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog
 from PyQt5.QtGui import QPainter, QPixmap, QPen
 
-from MyPointCloud import MyPointCloud
-from Cylinder import Cylinder
-from CylinderCover import CylinderCover
-from PyQt5.QtGui import QColor
 
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-from functools import partial
-import imageio
-import hashlib
-import time
-
-import random
 import os
-import sys
-import pickle
 import numpy as np
-from tree_model import Superpoint
-import hashlib
 from functools import partial
-from collections import defaultdict
 from exp_joint_detector import convert_pc_to_grid
 import imageio
 
@@ -303,8 +284,6 @@ class ML_Panel(QWidget):
 
         elif pressed == QtCore.Qt.Key_S:
             self.refresh(commit=False)
-
-
 
 
 # https://stackoverflow.com/questions/53420826/overlay-two-pixmaps-with-alpha-value-using-qpainter

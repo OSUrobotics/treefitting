@@ -5,12 +5,7 @@ from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBo
 import PyQt5.QtCore as QtCore
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog
 from PyQt5.QtGui import QPainter, QPixmap, QPen
-
-from MyPointCloud import MyPointCloud
-from Cylinder import Cylinder
-from CylinderCover import CylinderCover
-from PyQt5.QtGui import QColor
-
+from copy import deepcopy
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
@@ -28,9 +23,7 @@ from tree_model import Superpoint
 import hashlib
 from functools import partial
 from collections import defaultdict
-from exp_joint_detector import project_point_onto_plane, project_points_onto_normal
-import imageio
-from scipy.linalg import svd
+from utils import points_to_grid_svd, rasterize_3d_points
 
 from MachineLearningPanel import LabelAndText
 
@@ -105,22 +98,12 @@ class DataLabelingPanel(QWidget):
             print('No save folder passed in, will not save data')
 
     def refresh(self):
+
         if not self.remaining_edges:
             self.regen_graph()
         edge = self.remaining_edges.pop()
         pts, start, end = self.callbacks['highlight_edge'](edge)
-
-        main_axis = start - end
-        main_axis = main_axis / np.linalg.norm(main_axis)
-        projected = project_points_onto_normal(start, main_axis, pts)
-        secondary_axis = svd(projected - projected.mean())[2][0]
-
-        all_pts = project_point_onto_plane((start + end) / 2, main_axis, secondary_axis, pts)
-        all_pts = all_pts / (np.linalg.norm(start - end) / 2)   # Makes endpoints at (-1, 0), (1, 0)
-        bounds_x = np.linspace(-1.5, 1.5, 32+1)
-        bounds_y = np.linspace(-0.75, 0.75, 16+1)
-
-        grid = np.histogram2d(all_pts[:,0], all_pts[:,1], bins=[bounds_x, bounds_y])[0]
+        grid = points_to_grid_svd(pts, start, end)
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         ax.imshow(grid)
@@ -129,9 +112,7 @@ class DataLabelingPanel(QWidget):
         self.start = start
         self.end = end
         self.current_raster = grid
-
-        self.current_branch_raster = np.histogram2d(pts[:,0], pts[:,1], self.current_tree_raster_bounds)[0]
-        self.current_branch_raster = self.current_branch_raster / self.current_branch_raster.max()
+        self.current_branch_raster, _ = rasterize_3d_points(pts, bounds=self.current_tree_raster_bounds)
 
     def commit(self, val):
 
@@ -178,22 +159,24 @@ class DataLabelingPanel(QWidget):
         pts = data['points']
 
         all_edges = list(graph.edges)
-        random.shuffle(all_edges)
+
+        # Temp
+        def get_horizontalness(k):
+            p1 = graph.nodes[k[0]]['point']
+            p2 = graph.nodes[k[1]]['point']
+            diff = p1 - p2
+            planar = np.linalg.norm(diff[[0,2]])
+            return -np.abs(diff[1] / planar)
+
+        all_edges = sorted(all_edges, key=get_horizontalness)
+
+
+        # random.shuffle(all_edges)
         self.remaining_edges = all_edges
 
         # Get raster info for tree
-        zplane_pts = pts[:,:2]
-        x_max, y_max = zplane_pts.max(axis=0)
-        x_min, y_min = zplane_pts.min(axis=0)
-        scale = max(x_max - x_min, y_max - y_min)
-        x_cen, y_cen = (x_max + x_min) / 2, (y_max + y_min) / 2
+        self.current_tree_raster, self.current_tree_raster_bounds = rasterize_3d_points(pts)
 
-        bounds_x = np.linspace(x_cen - scale/2, x_cen + scale/2, 129)
-        bounds_y = np.linspace(y_cen - scale/2, y_cen + scale/2, 129)
-        self.current_tree_raster_bounds = [bounds_x, bounds_y]
-
-        self.current_tree_raster = np.histogram2d(zplane_pts[:,0], zplane_pts[:,1], self.current_tree_raster_bounds)[0]
-        self.current_tree_raster = self.current_tree_raster / self.current_tree_raster.max()
         self.current_data = data
 
 
@@ -205,8 +188,6 @@ class DataLabelingPanel(QWidget):
             val = int(chr(pressed))
             if val < len(self.ALL_CLASSES):
                 self.commit(val)
-
-
 
 # https://stackoverflow.com/questions/53420826/overlay-two-pixmaps-with-alpha-value-using-qpainter
 def overlay_pixmap(base, overlay):
@@ -221,3 +202,103 @@ def overlay_pixmap(base, overlay):
     painter.end()
 
     return rez
+
+
+
+
+
+
+if __name__ == '__main__':
+
+    import pymesh
+    import tree_model
+
+    # Resample all of the existing data, rebalancing categories if necessary
+    TOTAL_DESIRED = 15000
+    RESAMPLING_RATE = 5
+    RESAMPLING_BOUNDS = [20000, 100000]
+
+    desired_weights = np.array([2, 2, 2, 1, 2, 2.5]) # Last index is for false connections
+
+    base_folder = '/home/main/data/tree_edge_data'
+    new_folder = '/home/main/data/tree_edge_data/auxiliary'
+
+    base_files = [f for f in os.listdir(base_folder) if f.endswith('.tree')]
+
+    to_add = defaultdict(lambda: dict)
+
+
+    # Step 1: Figure out how many of each classification we have
+    current_metadata = defaultdict(list)
+    for file in base_files:
+        with open(os.path.join(base_folder, file), 'rb') as fh:
+            data = pickle.load(fh)
+        data['file'] = file
+        if data['connected'][1]:
+            classification = np.argmax(data['classification'])
+        else:
+            classification = 5
+
+        current_metadata[classification].append(data)
+
+    # Step 2: Count how many classifications we have and how many more we need.
+    # Put them into a file-based queue for processing.
+
+    to_process = defaultdict(list)
+
+    total_files = (TOTAL_DESIRED * desired_weights / desired_weights.sum()).astype(np.int)
+    for classification, desired in enumerate(total_files):
+        existing = len(current_metadata[classification])
+        remaining = max(0, desired - existing)
+        to_choose = np.random.choice(existing, remaining)
+        for i in to_choose:
+            data = current_metadata[classification][i]
+            source = data['source_file']
+            to_process[source].append(deepcopy(data))
+
+    # Step 3: For each tree, load the non-subsampled tree. For each data point, create a new dict that updates the
+    # local image render and the global image render.
+    count = 0
+    counts_by_file = defaultdict(lambda: 0)
+
+    for source_file, queue in to_process.items():
+
+        random.shuffle(queue)
+
+        base_points = pymesh.load_mesh(source_file).vertices
+        base_points = tree_model.preprocess_point_cloud(base_points, downsample=False)
+        base_n = len(base_points)
+        points = None
+        current_render = None
+        bounds = None
+
+        for iter, data in enumerate(queue):
+            if not (count + 1) % 50:
+                print(count + 1)
+
+            if not iter % RESAMPLING_RATE:
+                num_points = np.random.randint(RESAMPLING_BOUNDS[0], min(RESAMPLING_BOUNDS[1], base_n))
+                points = base_points[np.random.choice(base_n, num_points, replace=False)]
+
+                # Redo the raster stuff - copy and pasted
+                current_render, bounds = rasterize_3d_points(points)
+
+            near_start = np.linalg.norm(points - data['start'], axis=1) < data['radius']
+            near_end = np.linalg.norm(points - data['end'], axis=1) < data['radius']
+            subpoints = points[near_start | near_end]
+
+            if len(subpoints) < 8:
+                print('Dropped')
+                continue
+
+            grid = points_to_grid_svd(subpoints, data['start'], data['end'])
+            global_branch_render, _ = rasterize_3d_points(subpoints, bounds)
+
+            data['global_image'] = np.stack([current_render, global_branch_render], axis=2)
+            data['local_image'] = grid
+
+            file = data['file']
+            with open(os.path.join(new_folder, '{}_{:03d}.tree'.format(file, counts_by_file[file])), 'wb') as fh:
+                pickle.dump(data, fh)
+            count += 1
+            counts_by_file[file] += 1

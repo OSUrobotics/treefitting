@@ -16,6 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from copy import deepcopy
 import random
+from utils import rasterize_3d_points, points_to_grid_svd
 from ipdb import set_trace
 
 color_wheel = (np.array([
@@ -58,7 +59,10 @@ class TreeModel(object):
         self.net = None
         self.trunk_guess = None
         self.raster = None
+        self.raster_bounds = None
         self.raster_info = None
+        self.edges_rendered = False
+        self.is_classified = False
 
         self.superpoint_graph = None
 
@@ -124,6 +128,140 @@ class TreeModel(object):
             'raster_location': rasterized_point
         }
 
+    def rasterize_tree(self):
+        if self.raster is not None:
+            return
+
+        self.raster, self.raster_bounds = rasterize_3d_points(self.points)
+
+    def assign_edge_renders(self):
+
+        if self.edges_rendered:
+            return
+
+        self.rasterize_tree()
+
+        for s, e in self.superpoint_graph.edges:
+            s_n = self.superpoint_graph.nodes[s]
+            e_n = self.superpoint_graph.nodes[e]
+
+            point_indexes = list(set(s_n['superpoint'].neighbor_index).union(e_n['superpoint'].neighbor_index))
+            points = self.points[point_indexes]
+            local_render = points_to_grid_svd(points, s_n['point'], e_n['point'])
+            global_render = rasterize_3d_points(points, bounds=self.raster_bounds)[0]
+
+            self.superpoint_graph.edges[s, e]['global_image'] = np.stack([self.raster, global_render], axis=2)
+            self.superpoint_graph.edges[s, e]['local_image'] = local_render
+
+        self.edges_rendered = True
+
+
+    def thin_skeleton(self, lower_threshold, upper_threshold):
+
+        self.classify_edges()
+        graph = self.superpoint_graph.copy()
+        all_edges = [(e, graph.edges[e]['prediction']['connected_values'][1]) for e in graph.edges]
+        all_edges.sort(key=lambda v: v[1])
+        to_return = []
+
+        # Assign bridges
+        bridges = set(nx.algorithms.bridges(graph))
+        graph.remove_edges_from(bridges)
+
+        for edge, val in all_edges:
+            if val < lower_threshold:
+                graph.remove_edge(*edge)
+                continue
+            if val > upper_threshold or edge in bridges:
+                to_return.append(edge)
+                continue
+            # Final case: We're in the middle threshold and dealing with a non-bridge edge
+            # Remove it and recompute the bridges from one of the edge nodes
+            graph.remove_edge(*edge)
+            bridges.update(nx.algorithms.bridges(graph, root=edge[0]))
+
+        print('Reduced edges from {} to {}'.format(len(all_edges), len(to_return)))
+
+        return to_return
+
+
+    def assign_edge_colors(self, settings_dict):
+
+        self.classify_edges()
+
+        to_show = self.superpoint_graph.edges
+        if settings_dict['thinning'] is not None:
+            to_show = self.thin_skeleton(*settings_dict['thinning'])
+
+        for edge in self.superpoint_graph.edges:
+            if edge not in to_show:
+                self.superpoint_graph.edges[edge]['color'] = False
+                continue
+
+            pred = self.superpoint_graph.edges[edge]['prediction']
+
+            connection_col = 1 if settings_dict['show_connected'] else 0
+            is_visible = pred['connected_values'][connection_col] > settings_dict['connection_threshold']
+
+            if not is_visible:
+                self.superpoint_graph.edges[edge]['color'] = False
+                continue
+
+            if settings_dict['multi_classify']:
+                raise NotImplementedError
+            else:
+                # Single - Even if a branch doesn't have a category as its primary
+                # classification, show it
+                val = pred['classification_values'][settings_dict['data']['category']]
+                if val < settings_dict['data']['threshold']:
+                    color = False
+                else:
+                    color = (1.0, 1.0, 1.0)
+
+            self.superpoint_graph.edges[edge]['color'] = color
+
+        #
+        # COLORS = {
+        #     0: (0.6, 0.4, 0.05),    # Brown
+        #     1: (0.15, 0.6, 0.3),    # Green
+        #     2: (0.5, 0.6, 0.9),     # Light Blue
+        #     3: (0.9, 0.6, 0.6),     # Light Red
+        #     4: (0.85, 0.2, 0.85),   # Hot Pink
+        # }
+        #
+        # for edge in self.superpoint_graph.edges:
+        #     pred = self.superpoint_graph.edges[edge]['prediction']
+        #     if pred['connected']:
+        #         color = COLORS[pred['classification']]
+        #     else:
+        #         color = False
+        #     self.superpoint_graph.edges[edge]['color'] = color
+
+    def classify_edges(self):
+
+        if self.is_classified:
+            return
+
+        from test_skeletonization_network_2 import TreeDataset, RealTreeClassifier, torch_data
+        net = RealTreeClassifier(point_dim=0).double()
+        net.load()
+
+        self.assign_edge_renders()
+        dataset = TreeDataset.from_superpoint_graph(self.superpoint_graph)
+        dataloader = torch_data.DataLoader(dataset, batch_size=10, shuffle=False, num_workers=0)
+        predictions = net.guess_all(dataloader)
+
+        for edge, pred in zip(dataset.ids, predictions):
+            info = {
+                'classification_values': pred[:5],
+                'connected_values': pred[5:],
+                'classification': np.argmax(pred[:5]),
+                'connected': np.argmax(pred[5:]),
+            }
+
+            self.superpoint_graph.edges[edge]['prediction'] = info
+        self.is_classified = True
+
     def assign_branch_radii(self):
 
         raise NotImplementedError('Temporarily disabled.')
@@ -180,45 +318,56 @@ class TreeModel(object):
         self.highlighted_points[(0.8, 0.2, 0.2, 1.0)] = superpoint.neighbor_index
 
 
+    def highlight_edge(self, edge):
+        self.highlighted_points = defaultdict(list)
+        start = self.superpoint_graph.nodes[edge[0]]['superpoint']
+        end = self.superpoint_graph.nodes[edge[1]]['superpoint']
+
+        pt_indexes = set(start.neighbor_index).union(end.neighbor_index)
+        self.highlighted_points[(0.2, 0.2, 0.8, 1.0)] = pt_indexes
+
+        return pt_indexes
+
+
     def produce_open_cover(self, radius, min_points=8, neighbor_radius=None):
         to_assign = np.arange(0, self.points.shape[0])
         np.random.shuffle(to_assign)
-        output = {}
+        output = []
         while len(to_assign):
             idx = to_assign[0]
-            all_pts_idx, _ = self.query_neighborhood(radius, pt_index=idx)
+            candidate_neighbors, _ = self.query_neighborhood(radius, pt_index=idx)
+            real_center = np.median(self.points[candidate_neighbors], axis=0)
+            all_pts_idx = self.kd_tree.query_ball_point(real_center, radius)
             to_assign = np.setdiff1d(to_assign, all_pts_idx, assume_unique=True)
             if neighbor_radius is not None:
                 all_pts_idx, _ = self.query_neighborhood(neighbor_radius, pt_index=idx)
 
-            output[idx] = all_pts_idx
-
-        output = {k: output[k] for k in output if len(output[k]) >= min_points}
+            if len(all_pts_idx) >= min_points:
+                output.append([real_center, all_pts_idx])
 
         return output
 
     def load_superpoint_graph(self, radius=0.10, min_points=8, max_neighbors=10, neighbor_radius=None):
 
         cover = self.produce_open_cover(radius, min_points, neighbor_radius=neighbor_radius)
-        reference_nodes = np.array(list(cover.keys()))
-        pts = np.array([self.points[k] for k in reference_nodes])
+        cover_centers = np.array([p[0] for p in cover])
+        nodes = list(range(len(cover)))
 
-        superpoint_graph = skel.construct_mutual_k_neighbors_graph(pts, max_neighbors, radius * 1.5, node_index=reference_nodes)
+        superpoint_graph = skel.construct_mutual_k_neighbors_graph(cover_centers, max_neighbors, radius * 2, node_index=nodes)
         self.superpoint_graph = superpoint_graph
 
         all_superpoints = {}
-        for node, assoc_indexes in cover.items():
-            superpoint = Superpoint(node, assoc_indexes, self.points, radius, flow_axis=1, reverse_axis=True,
-                                    global_ref=np.median(self.points, axis=0), raster_info=self.get_raster_dict(self.points[node]))
+        for node, (ref_pt, assoc_indexes) in enumerate(cover):
+            superpoint = Superpoint(ref_pt, assoc_indexes, self.points, radius, flow_axis=1, reverse_axis=True,
+                                    global_ref=np.median(self.points, axis=0), raster_info=self.get_raster_dict(ref_pt))
             all_superpoints[node] = superpoint
 
         for node, superpoint in all_superpoints.items():
             superpoint.set_neighbor_superpoints([all_superpoints[n] for n in self.superpoint_graph[node]])
 
-
         nx.set_node_attributes(self.superpoint_graph, all_superpoints, name='superpoint')
 
-
+        return superpoint_graph
 
 
     def query_ball_type(self, point_indexes, reference_point_index):
@@ -374,10 +523,10 @@ class Superpoint:
 
     IMAGE_FEATURE = 'neighbor_image_array'
 
-    def __init__(self, ref_index, neighbor_index, pc, radius, flow_axis=0, reverse_axis=False, global_ref=None, raster_info=None):
-        self.ref_index = ref_index
+    def __init__(self, ref_pt, neighbor_index, pc, radius, flow_axis=0, reverse_axis=False, global_ref=None, raster_info=None):
+        self.ref_point = ref_pt
         self.neighbor_index = neighbor_index
-        self.ref_point = pc[ref_index]
+
         self.points = pc[neighbor_index]
         self.pc = pc
         self.flow_axis = flow_axis      # What is the positive direction? Used for defining leading/terminal points

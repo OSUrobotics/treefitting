@@ -13,6 +13,7 @@ from torch.autograd import Variable
 from collections import defaultdict
 import pickle
 from copy import deepcopy
+from utils import project_point_onto_plane, project_points_onto_normal
 
 def convert_pc_to_grid(pc, reference_point, grid_size=16, v=None, return_scale=False):
     """
@@ -46,23 +47,6 @@ def convert_pc_to_grid(pc, reference_point, grid_size=16, v=None, return_scale=F
         return output
 
 
-
-def project_points_onto_normal(plane_origin, plane_normal, points):
-    plane_normal = plane_normal / np.linalg.norm(plane_normal)
-    dist = np.dot(points - plane_origin, plane_normal)
-    proj_3d = (points - np.reshape(dist, (-1, 1)).dot(np.reshape(plane_normal, (1, -1)))) - plane_origin
-
-    return proj_3d
-
-def project_point_onto_plane(plane_origin, x_axis, y_axis, points):
-
-    plane_normal = np.cross(x_axis, y_axis)
-    proj_3d = project_points_onto_normal(plane_origin, plane_normal, points)
-
-    proj_2d = np.zeros((points.shape[0], 2))
-    proj_2d[:, 0] = np.dot(proj_3d, x_axis)
-    proj_2d[:, 1] = np.dot(proj_3d, y_axis)
-    return proj_2d
 
 class NewCloudClassifier(nn.Module):
 
