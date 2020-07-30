@@ -601,8 +601,11 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glPointSize(6)
         GL.glBegin(GL.GL_POINTS)
-        GL.glColor3f(0.0, 1.0, 0.0)
         for node in self.tree.superpoint_graph.nodes:
+            color = self.tree.superpoint_graph.nodes[node].get('color', (0.0, 1.0, 0.0))
+            if not color:
+                continue
+            GL.glColor3f(*color)
             GL.glVertex3f(*self.tree.superpoint_graph.nodes[node]['point'])
         GL.glEnd()
 

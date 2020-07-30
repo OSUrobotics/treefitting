@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.linalg import svd
 
-def points_to_grid_svd(pts, start, end):
+def points_to_grid_svd(pts, start, end, normalize=True):
     main_axis = start - end
     main_axis = main_axis / np.linalg.norm(main_axis)
     projected = project_points_onto_normal(start, main_axis, pts)
@@ -13,6 +13,8 @@ def points_to_grid_svd(pts, start, end):
     bounds_y = np.linspace(-0.75, 0.75, 16 + 1)
 
     grid = np.histogram2d(all_pts[:, 0], all_pts[:, 1], bins=[bounds_x, bounds_y])[0]
+    if normalize:
+        grid = grid / grid.max()
     return grid
 
 

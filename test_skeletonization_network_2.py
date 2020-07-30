@@ -14,82 +14,120 @@ from collections import defaultdict
 import pickle
 from numbers import Number
 from copy import deepcopy
-
+import hashlib
 
 
 class RealTreeClassifier(nn.Module):
 
-    def __init__(self, data_params=None, raster_vec_size=6, local_vec_size=6, point_dim=3):
-        if data_params is None:
-            data_params = {}
+    def __init__(self, data_params=None):
+
+        defaults = {
+            'point_dim': 0,
+
+            'raster_size': (128, 128),
+            # 'raster_convs': (4, 'bn', -4, 8, 'bn', -4, 16, 'bn'),
+            'raster_convs': (16, 16, 'bn', -2, 16, 16, 'bn', -2, 32, 32, 'bn', -2, 32, 32, 'bn', -2, 64, 64),
+            'raster_fc': (64,),
+            'raster_vec_size': 6,
+
+            'local_size': (32, 16),
+            # 'local_convs': (2, 'bn', -2, 4, 'bn', -2, 8, 'bn'),
+            'local_convs': (16, 16, 'bn', -2, 32, 32, 'bn', -2, 64, 64),
+            'local_fc': (64,),
+            'local_vec_size': 6,
+
+            'final_fc': (128, 0.25, 128, 0.25),
+            'num_classes': 5,
+        }
+
+        settings = defaults.copy()
+        self.settings = settings
+        self.num_classes = settings['num_classes']
+        if data_params is not None:
+            settings.update(data_params)
 
         super(RealTreeClassifier, self).__init__()
 
-        self.name = 'real_tree_classifier_raster_{}_local_{}_{}d'.format(raster_vec_size, local_vec_size, point_dim)
-        self.point_dim = point_dim
+        self.full_name = '__'.join(['{}_{}'.format(k,settings[k]) for k in sorted(settings)])
+        self.name = hashlib.md5(self.full_name.encode()).hexdigest()
 
-        self.pool = nn.MaxPool2d(2, 2)
-        self.pool_4 = nn.MaxPool2d(4, 4)
+        # Create Conv and FC layers for global raster
+        self.raster_conv, raster_shrinkage, final_channels = self.process_conv_structure(settings['raster_convs'], 2)
+        self.raster_flat_size = np.prod(settings['raster_size']) // raster_shrinkage ** 2 * final_channels
+        self.raster_fc = self.process_fc_structure(settings['raster_fc'], self.raster_flat_size, settings['raster_vec_size'])
 
-        # Convert raster to a 6-vec
-        self.raster_conv_1 = nn.Sequential(nn.Conv2d(2, 4, 3, padding=1), nn.BatchNorm2d(4))
-        self.raster_conv_2 = nn.Sequential(nn.Conv2d(4, 8, 3, padding=1), nn.BatchNorm2d(8))
-        self.raster_conv_3 = nn.Sequential(nn.Conv2d(8, 16, 3, padding=1), nn.BatchNorm2d(16))
-        self.flat_raster_size = (data_params.get('raster_grid_size', 128) // 16) ** 2 * 16
-        self.raster_fc = nn.Linear(self.flat_raster_size, 64)
-        self.raster_vec = nn.Linear(64, raster_vec_size)
+        # Create Conv and FC layers for local raster
+        self.local_conv, local_shrinkage, final_channels = self.process_conv_structure(settings['local_convs'], 1)
+        self.local_flat_size = np.prod(settings['local_size']) // local_shrinkage ** 2 * final_channels
+        self.local_fc = self.process_fc_structure(settings['local_fc'], self.local_flat_size, settings['local_vec_size'])
 
-        # Convert edge info to a 6-vec
-        self.local_conv_1 = nn.Sequential(nn.Conv2d(1, 2, 3, padding=1), nn.BatchNorm2d(2))
-        self.local_conv_2 = nn.Sequential(nn.Conv2d(2, 4, 3, padding=1), nn.BatchNorm2d(4))
-        self.local_conv_3 = nn.Sequential(nn.Conv2d(4, 8, 3, padding=1), nn.BatchNorm2d(8))
-        self.flat_local_size = (32 * 16 // 16) * 8
-        self.local_fc = nn.Linear(self.flat_local_size, 64)
-        self.local_vec = nn.Linear(64, local_vec_size)
+        # Create FC which connects layers together plus adding in point dimensions if necessary
+        linear_start = settings['local_vec_size'] + settings['raster_vec_size'] + settings['point_dim'] * 2
+        linear_end = settings['num_classes'] + 2
+        self.final_fc = self.process_fc_structure(settings['final_fc'], linear_start, linear_end)
 
-        # Combine both along with linear info, start/ends
-        self.combination_fc = nn.Linear(local_vec_size + raster_vec_size + point_dim * 2, 128)
-        self.dropout = nn.Dropout(p=0.5)
-        self.num_classes = data_params.get('num_classes', 5)
-        self.output = nn.Linear(128, self.num_classes + 2)     # The 2 represents the connectedness
+    @classmethod
+    def process_conv_structure(cls, conv_tuple, starting_channels):
+
+        all_modules = []
+        last_channels = starting_channels
+        shrinkage = 1
+        for val in conv_tuple:
+            if val == 'bn':
+                all_modules.append(nn.BatchNorm2d(last_channels))
+            elif val > 0:
+                all_modules.append(nn.Conv2d(last_channels, val, 3, padding=1))
+                all_modules.append(nn.ReLU())
+                last_channels = val
+            else:   # Maxpooling indicated by negative
+                val = abs(val)
+                all_modules.append(nn.MaxPool2d(val, val))
+                shrinkage *= val
+        return nn.Sequential(*all_modules), shrinkage, last_channels
+
+    @classmethod
+    def process_fc_structure(cls, fc_tuple, starting_vals, ending_vals):
+        all_modules = []
+        last_layer = starting_vals
+        for val in fc_tuple:
+            if isinstance(val, float):
+                all_modules.append(nn.Dropout(val))
+            else:
+                all_modules.append(nn.Linear(last_layer, val))
+                all_modules.append(nn.ReLU())
+                last_layer = val
+        all_modules.append(nn.Linear(last_layer, ending_vals))
+        return nn.Sequential(*all_modules)
+
 
     def forward(self, x):
 
         # Get edge classification
         local = x['local_image']
         local = local.view(-1, 1, *local.shape[-2:])
-        local = self.pool(nn_func.relu(self.local_conv_1(local)))
-        local = self.pool(nn_func.relu(self.local_conv_2(local)))
-        local = nn_func.relu(self.local_conv_3(local)).view(-1, self.flat_local_size)
-        local = nn_func.relu(self.local_fc(local))
-        local = self.local_vec(local)
+        local = self.local_conv(local).view(local.shape[0], -1)
+        local = self.local_fc(local)
 
         rast = x['global_image'].permute(0, 3, 1, 2)
-        rast = self.pool_4(nn_func.relu(self.raster_conv_1(rast)))
-        rast = self.pool_4(nn_func.relu(self.raster_conv_2(rast)))
-        rast = nn_func.relu(self.raster_conv_3(rast))
-        flattened_rast = rast.view(-1, self.flat_raster_size)
-        rast = nn_func.relu(self.raster_fc(flattened_rast))
-        rast = self.raster_vec(rast)
+        rast = self.raster_conv(rast).view(rast.shape[0], -1)
+        rast = self.raster_fc(rast)
 
         # Combine into final
-        if self.point_dim:
+        if self.settings['point_dim']:
             final = torch.cat([local, rast, x['start'], x['end']], 1)
         else:
             final = torch.cat([local, rast], 1)
-        final = self.dropout(nn_func.relu(self.combination_fc(final)))
-        final = self.output(final)
-
+        final = self.final_fc(final)
         return final
 
     def load(self, suffix=''):
-        full_name = '{}{}.model'.format(self.name, '_{}'.format(suffix) if suffix else '')
+        full_name = 'models/{}{}.model'.format(self.name, '_{}'.format(suffix) if suffix else '')
         with open(full_name, 'rb') as fh:
             state_dict = torch.load(fh)
         self.load_state_dict(state_dict)
 
     def save(self, suffix=''):
-        full_name = '{}{}.model'.format(self.name, '_{}'.format(suffix) if suffix else '')
+        full_name = 'models/{}{}.model'.format(self.name, '_{}'.format(suffix) if suffix else '')
         torch.save(self.state_dict(), full_name)
         print('Saved model to {}'.format(full_name))
 
@@ -103,24 +141,6 @@ class RealTreeClassifier(nn.Module):
                 all_rez.append(rez.numpy())
 
         return np.concatenate(all_rez)
-
-
-    # def guess_from_export_dataset(self, dataset):
-    #
-    #     val_loader = torch_data.DataLoader(dataset, batch_size=10, shuffle=False, num_workers=0)
-    #     edge_indexes = []
-    #     numpy_rez = []
-    #     self.eval()
-    #
-    #     for data in val_loader:
-    #         rez = self.forward(data)
-    #         edge_indexes.extend(data['edge_id'].numpy())
-    #         numpy_rez.append(torch.sigmoid(rez).detach().numpy())
-    #
-    #     self.train()
-    #
-    #     return np.concatenate(numpy_rez), edge_indexes
-
 
 
 class TreeDataset(torch.utils.data.Dataset):
@@ -244,13 +264,15 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
     :param no_improve_threshold: If the validation error does not get better after X epochs, stop the training
     :return:
     """
+    net = RealTreeClassifier().double()
+
     train_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0, 0.8])
     train_loader = torch_data.DataLoader(train_data, batch_size=10, shuffle=True, num_workers=0)
 
     val_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0.8, 1.0])
     val_loader = torch_data.DataLoader(val_data, batch_size=10, shuffle=False, num_workers=0)
 
-    net = RealTreeClassifier(point_dim=0).double()
+
 
     if load:
         try:
@@ -291,6 +313,9 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
             is_connected = data['connected'][:,1].bool()
             num_connected = is_connected.sum()
             if num_connected:
+                # TODO: Try changing the subsetting to a torch.where and see if that fixes the training? Though not necessary now
+
+
                 category_loss = criterion_cat(category_prediction[is_connected], category_true[is_connected]) / num_connected
                 connected_loss.backward(retain_graph=True)
                 category_loss.backward()
@@ -391,5 +416,5 @@ def eval_net(net, dataloader):
 
 if __name__ == '__main__':
 
-    train_net(500, 500, load=True)
+    train_net(500, 500, lr=1e-4, load=False)
 

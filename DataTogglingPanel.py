@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Get OpenGL
-from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QFrame
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog, QSlider, QRadioButton, QComboBox
 from PyQt5.QtGui import QColor
@@ -81,13 +81,15 @@ class DataTogglingPanel(QWidget):
         self.radio_single = QRadioButton('Single Category')
         toggle_layout.addWidget(self.radio_multi)
         toggle_layout.addWidget(self.radio_single)
+        self.radio_multi.setChecked(True)
         self.radio_multi.toggled.connect(partial(self.toggle_category, True))
-        self.radio_multi.toggled.connect(partial(self.toggle_category, True))
+        self.radio_single.toggled.connect(partial(self.toggle_category, False))
 
 
         layout.addLayout(toggle_layout)
         # Single category toggle
 
+        self.single_widget = QFrame()
         single_layout = QHBoxLayout()
         self.single_category_menu = QComboBox()
         for cat in DataLabelingPanel.ALL_CLASSES[:-1]:
@@ -95,8 +97,35 @@ class DataTogglingPanel(QWidget):
         self.single_category_threshold = FloatSlider(0, 1, 1000)
         single_layout.addWidget(self.single_category_menu)
         single_layout.addWidget(self.single_category_threshold)
-        layout.addLayout(single_layout)
+        self.single_widget.setLayout(single_layout)
+        layout.addWidget(self.single_widget)
 
+        # For multi category toggle - consider only the maximum values
+        self.multi_widget = QFrame()
+        multi_layout = QGridLayout()
+        self.multi_vals = {}
+        for i, cat in enumerate(DataLabelingPanel.ALL_CLASSES[:-1]):
+
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)
+
+            color_button = QPushButton('Set Color')
+            color_button.clicked.connect(partial(self.change_color, i, None))
+
+            tol_slider = FloatSlider(0, 1, 1000)
+
+            multi_layout.addWidget(QLabel(cat), i, 0)
+            multi_layout.addWidget(checkbox, i, 1)
+            multi_layout.addWidget(tol_slider, i, 2)
+            multi_layout.addWidget(color_button, i, 3)
+            self.multi_vals[i] = {
+                'checkbox': checkbox,
+                'color_button': color_button,
+                'color': False,
+                'threshold': tol_slider
+            }
+        self.multi_widget.setLayout(multi_layout)
+        layout.addWidget(self.multi_widget)
 
         # For running the skeleton thinning algorithm
         thinning_layout = QHBoxLayout()
@@ -110,62 +139,49 @@ class DataTogglingPanel(QWidget):
             thinning_layout.addWidget(widget)
         layout.addLayout(thinning_layout)
 
+        # For iteratively running the skeleton correction algorithm
+        correction_layout = QGridLayout()
+        self.correction_checkbox = QCheckBox()
+        self.correction_checkbox.setChecked(False)
+        self.foundation_checkbox = QCheckBox()
+        self.foundation_checkbox.setChecked(False)
+
+        to_add = [('Run Correction', self.correction_checkbox),
+                                   ('Show Foundation', self.foundation_checkbox)]
+
+        for i, (label_text, widget) in enumerate(to_add):
+            correction_layout.addWidget(QLabel(label_text), i, 0)
+            correction_layout.addWidget(widget, i, 1)
+        layout.addLayout(correction_layout)
+
         show_button = QPushButton('Show')
         show_button.clicked.connect(self.commit)
         layout.addWidget(show_button)
 
+        # Setup
+        self.toggle_category(True)
+        default_colors = [
+            (0.6, 0.55, 0.4),
+            (0.95, 0.4, 0.6),
+            (0.4, 0.6, 0.9),
+            (0.9, 0.9, 0.0),
+            (0.4, 0.7, 0.7),
+
+        ]
+        for i, color in enumerate(default_colors):
+            self.change_color(i, color)
 
 
-        #
-        # grid = QGridLayout()
-        # layout.addWidget(QLabel('Options'))
-        # layout.addLayout(grid)
-        #
-        # bottom = QHBoxLayout()
-        # layout.addLayout(bottom)
-        #
-        # commit_button = QPushButton("Commit")
-        # commit_button.clicked.connect(self.commit)
-        # reset_button = QPushButton("Reset")
-        # reset_button.clicked.connect(self.reset)
-        # bottom.addWidget(commit_button)
-        # bottom.addWidget(reset_button)
-        #
-        # self.checkboxes = {}
-        # self.thresholds = {}
-        # self.colors = {}
-        # self.color_buttons = {}
-        # for i, cat in enumerate(DataLabelingPanel.ALL_CLASSES):
-        #     label = cat
-        #     checkbox = QCheckBox()
-        #     checkbox.setChecked(True)
-        #     edit = FloatSlider(0.0, 1.0, 1000)
-        #     self.checkboxes[cat] = checkbox
-        #     self.thresholds[cat] = edit
-        #
-        #     grid.addWidget(QLabel(label), i, 0)
-        #     grid.addWidget(checkbox, i, 1)
-        #     grid.addWidget(edit, i, 2)
-        #
-        #     only_button = QPushButton('Only')
-        #     only_button.clicked.connect(partial(self.toggle_only, cat))
-        #
-        #     except_button = QPushButton('Except')
-        #     except_button.clicked.connect(partial(self.toggle_except, cat))
-        #
-        #     grid.addWidget(only_button, i, 3)
-        #     grid.addWidget(except_button, i, 4)
-        #
-        #     color_button = QPushButton('Set Color')
-        #     color_button.clicked.connect(partial(self.change_color, cat))
-        #     self.color_buttons[cat] = color_button
-        #     grid.addWidget(color_button, i, 5)
     def commit(self):
 
         # Format the data differently depending on if we want a single category value or a multi class
         is_multi = self.radio_multi.isChecked()
         if is_multi:
-            raise NotImplementedError
+            data = {}
+            for i, vals in self.multi_vals.items():
+                color = vals['color'] if vals['checkbox'].isChecked() else False
+                threshold = vals['threshold'].value()
+                data[i] = {'color': color, 'threshold': threshold}
         else:
             data = {
                 'category': self.single_category_menu.currentIndex(),
@@ -180,6 +196,8 @@ class DataTogglingPanel(QWidget):
         data = {
             'show_connected': self.connected_menu.currentIndex() == 0,
             'thinning': thinning_params,
+            'correction': self.correction_checkbox.isChecked(),
+            'show_foundation': self.foundation_checkbox.isChecked(),
             'connection_threshold': self.connected_threshold.value(),
             'multi_classify': is_multi,
             'data': data
@@ -193,35 +211,27 @@ class DataTogglingPanel(QWidget):
         self.thinning_upper.textbox.setDisabled(not is_checked)
 
     def toggle_category(self, is_multi):
-        pass
-    #
-    # def toggle_except(self, undesired):
-    #
-    #
-    #     for cat in DataLabelingPanel.ALL_CLASSES:
-    #         self.checkboxes[cat].setChecked(cat != undesired)
-    #     self.commit()
-    #
-    # def toggle_only(self, desired):
-    #     for cat in DataLabelingPanel.ALL_CLASSES:
-    #         self.checkboxes[cat].setChecked(cat == desired)
-    #     self.commit()
-    #
-    # def reset(self):
-    #     for cat in DataLabelingPanel.ALL_CLASSES:
-    #         self.checkboxes[cat].setChecked(True)
-    #         self.thresholds[cat].reset()
-    #         self.color_buttons[cat].setStyleSheet("background-color: rgb(255,255,255)")
-    #     self.colors = {}
-    #     self.commit()
-    #
-    # def change_color(self, cat):
-    #     color = QColorDialog.getColor()
-    #     r, g, b, _ = color.getRgb()
-    #     self.color_buttons[cat].setStyleSheet("background-color: rgb({},{},{})".format(r, g, b))
-    #
-    #     print(color.getRgbF())
-    #     self.colors[cat] = color
+        if is_multi:
+            self.single_widget.hide()
+            self.multi_widget.show()
+        else:
+            self.single_widget.show()
+            self.multi_widget.hide()
+
+    def change_color(self, cat, color=None):
+        if color is None:
+            color = QColorDialog.getColor()
+            r, g, b, _ = color.getRgb()
+            rf, gf, bf, _ = color.getRgbF()
+        else:
+            rf, gf, bf = color
+            r = int(color[0] * 256)
+            g = int(color[1] * 256)
+            b = int(color[2] * 256)
+
+
+        self.multi_vals[cat]['color_button'].setStyleSheet("background-color: rgb({},{},{})".format(r, g, b))
+        self.multi_vals[cat]['color'] = (rf, gf, bf)
     #
     # def commit(self):
     #
