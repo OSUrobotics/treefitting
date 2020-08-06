@@ -1,6 +1,28 @@
 import numpy as np
 from scipy.linalg import svd
 
+class PriorityQueue:
+
+    def __init__(self):
+        self.items = []
+        self.levels = []
+
+    def add(self, item, level):
+        self.items.append(item)
+        self.levels.append(level)
+
+    def pop(self):
+        min_idx = self.levels.index(min(self.levels))
+        item = self.items[min_idx]
+        level = self.levels[min_idx]
+        del self.items[min_idx]
+        del self.levels[min_idx]
+
+        return item, level
+
+    def __bool__(self):
+        return len(self.items) > 0
+
 def points_to_grid_svd(pts, start, end, normalize=True):
     main_axis = start - end
     main_axis = main_axis / np.linalg.norm(main_axis)
@@ -50,3 +72,6 @@ def rasterize_3d_points(pts, bounds=None, size=128):
     raster = np.histogram2d(zplane_pts[:, 0], zplane_pts[:, 1], bins=bounds)[0]
     raster = raster / np.max(raster)
     return raster, bounds
+
+def edges(points):
+    return zip(points[:-1], points[1:])
