@@ -3,7 +3,7 @@
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog, QComboBox
 from PyQt5.QtCore import QRect
 from MyPointCloud import MyPointCloud
 from Cylinder import Cylinder
@@ -278,6 +278,8 @@ class PointCloudViewerGUI(QMainWindow):
         labeling_button = QPushButton('Labeling Panel')
         labeling_button.clicked.connect(partial(self.toggle_window, self.ml_labeling_panel))
 
+
+
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
         # resets_layout.addWidget(recalc_neighbors_button)
@@ -293,6 +295,30 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(ml_button)
         resets_layout.addWidget(labeling_button)
         resets.setLayout(resets_layout)
+
+        # Repairs - For running repairs on the tree
+        repair_layout = QVBoxLayout()
+
+        def value_update(*_, **__):
+            self.glWidget.repair_value = self.repair_value.currentData()
+
+        def repair_func():
+            self.glWidget.repair_mode = self.repair_button.isChecked()
+            self.repair_value.setDisabled(not self.repair_button.isChecked())
+            value_update()
+
+        self.repair_button = QCheckBox('Repair Mode')
+        self.repair_button.setChecked(False)
+        self.repair_button.clicked.connect(repair_func)
+        self.repair_value = QComboBox()
+        for val, label in [(0, 'Trunk'), (1, 'Support'), (2, 'Leader')]:
+            self.repair_value.addItem(label, val)
+        self.repair_value.currentIndexChanged.connect(value_update)
+        self.repair_value.setDisabled(True)
+
+        repair_layout.addWidget(self.repair_button)
+        repair_layout.addWidget(self.repair_value)
+
 
         # For setting the bin size, based on width of narrowest branch
         self.smallest_branch_width = SliderFloatDisplay('Width small branch', 0.01, 0.1, 0.015)
@@ -321,6 +347,7 @@ class PointCloudViewerGUI(QMainWindow):
         right_side_layout = QVBoxLayout()
 
         right_side_layout.addWidget(resets)
+        right_side_layout.addLayout(repair_layout)
         right_side_layout.addStretch()
         right_side_layout.addWidget(params_neighbors)
         right_side_layout.addWidget(params_labels)
@@ -605,12 +632,13 @@ class PointCloudViewerGUI(QMainWindow):
         self.repaint()
 
     def magic(self):
-        self.glWidget.tree.classify_edges()
-        self.glWidget.tree.assign_edge_colors()
-        self.glWidget.make_pcd_gl_list()
-        self.glWidget.initialize_skeleton()
-        self.glWidget.update()
-        self.repaint()
+        self.glWidget.magic()
+        # self.glWidget.tree.classify_edges()
+        # self.glWidget.tree.assign_edge_colors()
+        # self.glWidget.make_pcd_gl_list()
+        # self.glWidget.initialize_skeleton()
+        # self.glWidget.update()
+        # self.repaint()
 
     def read_pca_cylinders(self):
         fname = self.pca_cylinder_file

@@ -37,6 +37,7 @@ class TreeModel(object):
 
 
         self.superpoint_graph = None
+        self.edge_settings = None
 
         # For color output
         self.highlighted_points = defaultdict(list)
@@ -125,7 +126,12 @@ class TreeModel(object):
 
 
 
-    def assign_edge_colors(self, settings_dict):
+    def assign_edge_colors(self, settings_dict=None, iterate=True):
+
+        if settings_dict is None:
+            settings_dict = self.edge_settings
+        else:
+            self.edge_settings = settings_dict
 
         self.classify_edges()
 
@@ -133,10 +139,15 @@ class TreeModel(object):
 
             if self.thinned_tree is None:
                 self.initialize_final_tree()
-            else:
+            elif iterate:
                 self.thinned_tree.iterate()
 
-            all_chosen_edges = self.thinned_tree.current_graph.edges
+            if self.thinned_tree.repair_info is None:
+                current_graph = self.thinned_tree.current_graph
+            else:
+                current_graph = self.thinned_tree.repair_info['tree']
+
+            all_chosen_edges = current_graph.edges
             for edge in self.superpoint_graph.edges:
 
                 if edge in all_chosen_edges or edge[::-1] in all_chosen_edges:
@@ -144,8 +155,8 @@ class TreeModel(object):
                         edge = edge[::-1]
 
                     if settings_dict['multi_classify']:
-                        default_color = settings_dict['data'][self.thinned_tree.current_graph.edges[edge]['classification']]['color']
-                        color = self.thinned_tree.current_graph.edges[edge].get('override_color', default_color)
+                        default_color = settings_dict['data'][current_graph.edges[edge]['classification']]['color']
+                        color = current_graph.edges[edge].get('override_color', default_color)
                     else:
                         color = (1.0, 1.0, 1.0)
 
@@ -155,14 +166,21 @@ class TreeModel(object):
                     color = False
                 self.superpoint_graph.edges[edge]['color'] = color
 
+            if self.thinned_tree.repair_info is not None:
+
+                for edge in edges(self.thinned_tree.repair_info['nodes']):
+                    if edge not in self.superpoint_graph.edges:
+                        self.superpoint_graph.add_edge(*edge)
+                    self.superpoint_graph.edges[edge]['color'] = (0.9, 0.1, 0.9)
+
             for node in self.superpoint_graph.nodes:
 
-                in_main = node in self.thinned_tree.current_graph and self.thinned_tree.current_graph.out_degree(node) > 0
+                in_main = node in current_graph and current_graph.out_degree(node) > 0
                 in_foundation = node in self.thinned_tree.foundation_graph and self.thinned_tree.foundation_graph.degree(node) > 0
 
                 if in_main or in_foundation:
 
-                    override_color = self.thinned_tree.current_graph.nodes[node].get('override_color', False)
+                    override_color = current_graph.nodes[node].get('override_color', False)
                     if override_color:
                         color = override_color
                     elif node == self.thinned_tree.trunk_node:
@@ -170,7 +188,7 @@ class TreeModel(object):
                     elif node in self.thinned_tree.tip_nodes:
                         color = (0.1, 0.9, 0.9)
                     elif in_main:
-                        if self.thinned_tree.current_graph.nodes[node].get('violation', False):
+                        if current_graph.nodes[node].get('violation', False):
                             color = (0.9, 0.1, 0.1)
                         else:
                             color = (0.1, 0.9, 0.1)
@@ -183,8 +201,11 @@ class TreeModel(object):
             return
 
         to_show = set(self.superpoint_graph.subgraph(max(nx.connected_components(self.superpoint_graph))).edges)
-        if settings_dict['thinning'] is not None:
-            to_show.intersection_update(self.thin_skeleton(*settings_dict['thinning']))
+
+        #
+        #
+        # if settings_dict['thinning'] is not None:
+        #     to_show.intersection_update(self.thin_skeleton(*settings_dict['thinning']))
 
         for edge in self.superpoint_graph.edges:
             if edge not in to_show:
@@ -242,36 +263,21 @@ class TreeModel(object):
                 'connected': np.argmax(pred[5:]),
             }
 
+            negative_belief, positive_belief = info['connected_values']
+
             self.superpoint_graph.edges[edge]['prediction'] = info
+            self.superpoint_graph.edges[edge]['unlikeliness'] = (negative_belief - positive_belief + 1) / 2
         self.is_classified = True
 
-    def thin_skeleton(self, lower_threshold, upper_threshold):
+    def thin_skeleton(self):
+
+        """
+        Produces a minimum spanning tree where the weights are the unlikeliness of the edge being valid, normalized from 0 to 1.
+        :return:
+        """
 
         self.classify_edges()
-        graph = self.superpoint_graph.copy()
-        all_edges = [(e, graph.edges[e]['prediction']['connected_values'][1]) for e in graph.edges]
-        all_edges.sort(key=lambda v: v[1])
-        to_return = []
-
-        # Assign bridges
-        bridges = set(nx.algorithms.bridges(graph))
-
-        for edge, val in all_edges:
-            if val < lower_threshold:
-                graph.remove_edge(*edge)
-                continue
-            if val > upper_threshold or edge in bridges:
-                to_return.append(edge)
-                continue
-            # Final case: We're in the middle threshold and dealing with a non-bridge edge
-            # Remove it and recompute the bridges from one of the edge nodes
-            # TODO: This part is rather inefficient. Figure out way to speed it up/avoid redundant bridge computes
-            graph.remove_edge(*edge)
-            bridges.update(nx.algorithms.bridges(graph, root=edge[0]))
-
-        print('Reduced edges from {} to {}'.format(len(all_edges), len(to_return)))
-
-        return to_return
+        return nx.algorithms.minimum_spanning_edges(self.superpoint_graph, weight='unlikeliness', data=False)
 
 
     def initialize_final_tree(self):
@@ -279,7 +285,7 @@ class TreeModel(object):
         :return:
         """
         self.classify_edges()
-        edges_to_keep = self.thin_skeleton(0.1, 1.0)
+        edges_to_keep = self.thin_skeleton()
         subgraph = self.superpoint_graph.edge_subgraph(edges_to_keep)
         self.thinned_tree = ThinnedTree(self.superpoint_graph, subgraph)
 
@@ -556,6 +562,9 @@ class ThinnedTree:
         # self.determine_node_violations()
 
         self.active_iterator = None
+
+        # For repairing
+        self.repair_info = None
 
         # For debugging
         score = self.score_tree()
@@ -1447,6 +1456,87 @@ class ThinnedTree:
             dot = -1.0
 
         return np.arccos(dot)
+
+
+    def handle_repair(self, node, assignment):
+
+        if self.repair_info is None:
+            self.initialize_repair(node)
+            return
+
+        if node == self.repair_info['nodes'][0]:
+            # Double-clicking on a node means to toss out anything above the current node
+            for edge in list(self.current_graph.in_edges(node)):
+                self.current_graph.remove_edge(*edge)
+            main_comp = {self.trunk_node}
+            for comp in nx.weakly_connected_components(self.current_graph):
+                if self.trunk_node in comp:
+                    main_comp = comp
+                    break
+
+            subgraph = self.current_graph.subgraph(main_comp)
+            for edge in list(self.current_graph.edges):
+                if edge not in subgraph.edges:
+                    self.current_graph.remove_edge(*edge)
+
+            self.determine_all_violations(commit=True)
+            self.repair_info = None
+
+        elif node in self.repair_info['all_components'] and not node in self.repair_info['main_component']:
+            print("You cannot select this node, as this would cause a loop in the tree!")
+        else:
+            # Clicked on a node that isn't in part of any component
+            # Add the node and assignment and move along
+            self.repair_info['nodes'].append(node)
+            self.repair_info['assignments'].append(assignment)
+
+            if not node in self.repair_info['main_component']:
+                return
+
+            # At this point, the node is in the main component
+            # Commit all edges and assignments to the temporary tree, then replace the current tree and recompute
+            for edge, assignment in zip(edges(self.repair_info['nodes']), self.repair_info['assignments']):
+                self.repair_info['tree'].add_edge(*edge, classification=assignment)
+
+            self.current_graph = self.repair_info['tree']
+            self.determine_all_violations(commit=True)
+            self.repair_info = None
+
+    def initialize_repair(self, node):
+        self.repair_info = {}
+        self.repair_info['nodes'] = [node]
+        self.repair_info['assignments'] = []
+
+        # Create a temporary copy of the tree with the downhill segment removed
+        tree_to_assign = self.current_graph.copy()
+        edges_to_remove = []
+        current_node = node
+
+        while True:
+            try:
+                next_node = list(self.current_graph.out_edges(current_node))[0][1]
+            except IndexError:
+                break
+            edges_to_remove.append((current_node, next_node))
+            if self.current_graph.in_degree(next_node) > 1 or next_node == self.trunk_node:
+                break
+            current_node = next_node
+        tree_to_assign.remove_edges_from(edges_to_remove)
+
+        # Figure out which segment is the main section, and record which nodes are part of some connected component
+        main_comp = {self.trunk_node}
+        all_comp_nodes = set()
+        for comp in nx.weakly_connected_components(tree_to_assign):
+            if self.trunk_node in comp:
+                main_comp = comp
+            if len(comp) > 1:
+                all_comp_nodes.update(comp)
+
+        self.repair_info['main_component'] = main_comp
+        self.repair_info['all_components'] = all_comp_nodes
+        self.repair_info['tree'] = tree_to_assign
+
+
 
 
 class Superpoint:

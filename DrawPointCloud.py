@@ -145,6 +145,10 @@ class DrawPointCloud(QOpenGLWidget):
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
 
+        self.last_tf_data = None
+        self.repair_mode = False
+        self.repair_value = None
+
     def reset_model(self, pc=None):
         if pc is None:
             pc = self.my_pcd.points.copy()
@@ -355,6 +359,10 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glScaled(2/radius, 2/radius, 2/radius)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
+        modelview_matrix = GL.glGetFloatv(GL.GL_MODELVIEW_MATRIX).T
+        proj_matrix = GL.glGetFloatv(GL.GL_PROJECTION_MATRIX).T
+        self.last_tf_data = (modelview_matrix, proj_matrix)
+
         if self.show_points:
             if self.show_bins:
                 self.draw_bins()
@@ -434,8 +442,64 @@ class DrawPointCloud(QOpenGLWidget):
 
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
+        if not self.repair_mode or self.tree.thinned_tree is None:
+            return
+
+        click_x = self.lastPos.x()
+        click_y = self.lastPos.y()
+
+        modelview_matrix, proj_matrix = self.last_tf_data
+        all_nodes = list(self.tree.superpoint_graph.nodes)
+        all_pts = np.array([self.tree.superpoint_graph.nodes[n]['point'] for n in all_nodes])
+
+        all_pts_homog = np.ones((len(all_pts), 4))
+        all_pts_homog[:, :3] = all_pts
+
+        clip_space_pts = proj_matrix @ modelview_matrix @ all_pts_homog.T
+        ndc = (clip_space_pts / clip_space_pts[3]).T[:, :3]
+        # ndc = ndc[(np.abs(ndc[:,:2]) <= 1).all(axis=1)]
+
+        # Transformation to screen space
+        x, y, w, h = GL.glGetInteger(GL.GL_VIEWPORT)
+        # n, f = GL.glGetFloatv(GL.GL_DEPTH_RANGE)
+
+        screen_xy = ndc[:,:2] * np.array([w/2, h/2]) + np.array([x + w/2, y + h/2])
+        # Need to flip y coordinate due to pixel coordinates being defined from the top-left
+        screen_xy[:,1] = h - screen_xy[:,1]
+
+        # Convert the clicked point in PyQt land to the OpenGL viewport land
+        geom = self.frameGeometry()
+        pyqt_w = geom.width()
+        pyqt_h = geom.height()
+
+        click_x_vp = click_x * w / pyqt_w
+        click_y_vp = click_y * h / pyqt_h
+
+        click_vp = np.array([click_x_vp, click_y_vp])
+
+        all_dists = np.linalg.norm(screen_xy - click_vp, axis=1)
+        min_node_idx = all_dists.argmin()
+        chosen_node = all_nodes[min_node_idx]
+        min_dist = all_dists[min_node_idx]
+
+        if min_dist > 10:
+            print('No nearby node detected')
+            return
+
+        print('Clicked node {}'.format(chosen_node))
+        self.tree.thinned_tree.handle_repair(chosen_node, self.repair_value)
+        self.tree.assign_edge_colors(iterate=False)
+        self.make_pcd_gl_list()
+        self.initialize_skeleton()
+        self.update()
+
+        #
+        # print('Closest node was {} ({:.2f} pixels away)'.format(chosen_node, min_dist))
 
     def mouseMoveEvent(self, event):
+        if self.repair_mode:
+            return
+
         dx = event.x() - self.lastPos.x()
         dy = event.y() - self.lastPos.y()
 
@@ -648,6 +712,13 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glEnd()
         GL.glEndList()
+
+    def magic(self):
+        import ipdb
+        ipdb.set_trace()
+
+        pass
+
 
     # def update_highlighted_points(self, points):
     #     # Should be express as a set of indexes

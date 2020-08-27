@@ -127,24 +127,12 @@ class DataTogglingPanel(QWidget):
         self.multi_widget.setLayout(multi_layout)
         layout.addWidget(self.multi_widget)
 
-        # For running the skeleton thinning algorithm
-        thinning_layout = QHBoxLayout()
-        self.thinning_checkbox = QCheckBox()
-        self.thinning_checkbox.setChecked(False)
-        self.thinning_lower = LabelAndText('Low', '0.1')
-        self.thinning_upper = LabelAndText('High', '0.5')
-        self.thinning_checkbox.toggled.connect(self.thinning_toggle)
-        self.thinning_toggle()
-        for widget in [QLabel('Run Thinning'), self.thinning_checkbox, self.thinning_lower, self.thinning_upper]:
-            thinning_layout.addWidget(widget)
-        layout.addLayout(thinning_layout)
-
         # For iteratively running the skeleton correction algorithm
         correction_layout = QGridLayout()
         self.correction_checkbox = QCheckBox()
-        self.correction_checkbox.setChecked(False)
+        self.correction_checkbox.setChecked(True)
         self.foundation_checkbox = QCheckBox()
-        self.foundation_checkbox.setChecked(False)
+        self.foundation_checkbox.setChecked(True)
 
         to_add = [('Run Correction', self.correction_checkbox),
                                    ('Show Foundation', self.foundation_checkbox)]
@@ -188,14 +176,8 @@ class DataTogglingPanel(QWidget):
                 'threshold': self.single_category_threshold.value()
             }
 
-        # For running thinning algo
-        thinning_params = None
-        if self.thinning_checkbox.isChecked():
-            thinning_params = (self.thinning_lower.value(), self.thinning_upper.value())
-
         data = {
             'show_connected': self.connected_menu.currentIndex() == 0,
-            'thinning': thinning_params,
             'correction': self.correction_checkbox.isChecked(),
             'show_foundation': self.foundation_checkbox.isChecked(),
             'connection_threshold': self.connected_threshold.value(),
@@ -232,14 +214,3 @@ class DataTogglingPanel(QWidget):
 
         self.multi_vals[cat]['color_button'].setStyleSheet("background-color: rgb({},{},{})".format(r, g, b))
         self.multi_vals[cat]['color'] = (rf, gf, bf)
-    #
-    # def commit(self):
-    #
-    #     state = {cat: {'threshold': self.thresholds[cat].value(),
-    #                    'active': self.checkboxes[cat].isChecked(),
-    #                    'color': self.colors.get(cat, QColor.fromRgb(255, 255, 255)).getRgbF()}
-    #              for cat in DataLabelingPanel.ALL_CLASSES}
-    #     if self.callback is None:
-    #         print(state)
-    #     else:
-    #         self.callback(state)
