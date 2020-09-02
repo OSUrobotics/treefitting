@@ -266,7 +266,10 @@ class TreeModel(object):
             negative_belief, positive_belief = info['connected_values']
 
             self.superpoint_graph.edges[edge]['prediction'] = info
-            self.superpoint_graph.edges[edge]['unlikeliness'] = (negative_belief - positive_belief + 1) / 2
+            unlikeliness = (negative_belief - positive_belief + 1) / 2
+            self.superpoint_graph.edges[edge]['unlikeliness'] = unlikeliness
+            self.superpoint_graph.edges[edge]['likeliness'] = 1 - unlikeliness
+
         self.is_classified = True
 
     def thin_skeleton(self):
@@ -286,7 +289,14 @@ class TreeModel(object):
         """
         self.classify_edges()
         edges_to_keep = self.thin_skeleton()
-        subgraph = self.superpoint_graph.edge_subgraph(edges_to_keep)
+        subgraph = self.superpoint_graph.edge_subgraph(edges_to_keep).copy()
+        # print('[FIX LATER] Creating edge-point associations')
+        # skel.create_edge_point_associations(subgraph, self.points, node_attribute='point', in_place=True)
+        # print('Done creating edge-point associations')
+        #
+        # for edge in subgraph.edges:
+        #     assoc_pts = subgraph.edges[edge].get('associations', set())
+        #     subgraph.edges[edge]['coverage'] = len(assoc_pts) / len(self.points)
         self.thinned_tree = ThinnedTree(self.superpoint_graph, subgraph)
 
     def assign_branch_radii(self):
@@ -581,11 +591,17 @@ class ThinnedTree:
         pts = np.array([self.foundation_graph.nodes[node]['point'] for node in nodes])
         estimated_trunk = nodes[np.argmax(pts[:,1])]
 
-        #
-        # est = np.median(pts, axis=0)
-        # est[1] = pts[:,1].max()
-        # estimated_trunk = nodes[np.argmin(np.linalg.norm(pts - est, axis=1))]
+        # estimated_trunk = nodes[np.argmax(pts[:,1])]
+        THRESHOLD = 0.50
 
+        est = np.median(pts, axis=0)
+        est[1] = pts[:,1].max()
+        est_dist = np.linalg.norm(pts - est, axis=1)
+        valid = est_dist < THRESHOLD
+        valid_indices = np.where(valid)[0]
+
+        min_close_pt_idx = np.argmax(pts[valid][:,1])
+        estimated_trunk = nodes[valid_indices[min_close_pt_idx]]
         self.trunk_node = estimated_trunk
 
     def estimate_tips(self):
@@ -1258,14 +1274,7 @@ class ThinnedTree:
                 # Add the neighbor to the path and compute any new angular/edge violations
                 new_path = path + (neighbor, )
                 new_assignments = assignments + (next_assignment, )
-
-
-                try:
-                    new_violation_cost = self.assess_edge_violation(node, neighbor, next_assignment) + violations
-                except KeyError:
-                    print('WTF')
-                    set_trace()
-                    new_violation_cost = 0
+                new_violation_cost = self.assess_edge_violation(node, neighbor, next_assignment) + violations
 
                 if len(new_path) >= 3:
                     new_violation_cost += self.assess_angular_violation(node, neighbor, next_assignment, new_path[-3], last_assignment)
