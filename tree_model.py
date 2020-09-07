@@ -613,7 +613,7 @@ class ThinnedTree:
     def estimate_tips(self):
         # Scans the tree for anything which looks "tippy".
         # This can be refined, just want something for now
-        SCAN_ZONE = 0.5
+        SCAN_ZONE = 0.6
 
 
         all_node_points = np.array([self.base_graph.nodes[n]['point'] for n in self.foundation_graph.nodes])
@@ -626,10 +626,31 @@ class ThinnedTree:
 
         valid_nodes = [n for n in self.foundation_graph.nodes
                        if y_start <= self.foundation_graph.nodes[n]['point'][1] <= y_end]
-        subgraph = self.foundation_graph.subgraph(valid_nodes)
+
+        subgraph = self.foundation_graph.subgraph(valid_nodes).copy()
+
+        # Throw out horizontal looking branches
+        THRESHOLD = np.radians(45)
+        to_remove = []
+        for edge in subgraph.edges:
+            start = self.base_graph.nodes[edge[0]]['point']
+            end = self.base_graph.nodes[edge[1]]['point']
+
+            diff = np.abs(start - end)
+            xy_angle = np.arctan2(diff[1], diff[0])
+            if xy_angle < THRESHOLD:
+                to_remove.append(edge)
+        subgraph.remove_edges_from(to_remove)
+        subgraph = subgraph.edge_subgraph(subgraph.edges)
+
         # For each connected component in the graph, get the node with the most tip-like value
         tips = []
         for comp_nodes in nx.algorithms.components.connected_components(subgraph):
+
+            # Should be redundant
+            if len(comp_nodes) <= 1:
+                continue
+
             best_node = min(comp_nodes, key=lambda x: self.base_graph.nodes[x]['point'][1])
             if nx.algorithms.has_path(self.base_graph, best_node, self.trunk_node):
                 tips.append(best_node)
