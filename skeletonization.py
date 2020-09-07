@@ -288,7 +288,7 @@ def redistribute_branch_nodes(node_list, min_branch_len):
 
 
 
-def create_edge_point_associations(graph, point_cloud_array, in_place=False):
+def create_edge_point_associations(graph, point_cloud_array, node_attribute=None, in_place=False):
     """
     Given a graph and a point cloud, assigns each edge a set of points in the point cloud
     :param graph: A NetworkX graph object
@@ -307,6 +307,11 @@ def create_edge_point_associations(graph, point_cloud_array, in_place=False):
         edges.append(edge)
 
         start, end = edge
+        if node_attribute is not None:
+            start = graph.nodes[start][node_attribute]
+            end = graph.nodes[end][node_attribute]
+
+
         start = np.array(start)
         end = np.array(end)
         midpoint = (start + end) / 2

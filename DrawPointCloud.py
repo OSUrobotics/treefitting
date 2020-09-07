@@ -486,7 +486,6 @@ class DrawPointCloud(QOpenGLWidget):
             print('No nearby node detected')
             return
 
-        print('Clicked node {}'.format(chosen_node))
         self.tree.thinned_tree.handle_repair(chosen_node, self.repair_value)
         self.tree.assign_edge_colors(iterate=False)
         self.make_pcd_gl_list()

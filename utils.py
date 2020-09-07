@@ -3,20 +3,24 @@ from scipy.linalg import svd
 
 class PriorityQueue:
 
-    def __init__(self):
+    def __init__(self, minimize=True):
         self.items = []
         self.levels = []
-
+        if minimize:
+            self.select_func = min
+        else:
+            self.select_func = max
+            
     def add(self, item, level):
         self.items.append(item)
         self.levels.append(level)
 
     def pop(self):
-        min_idx = self.levels.index(min(self.levels))
-        item = self.items[min_idx]
-        level = self.levels[min_idx]
-        del self.items[min_idx]
-        del self.levels[min_idx]
+        item_idx = self.levels.index(self.select_func(self.levels))
+        item = self.items[item_idx]
+        level = self.levels[item_idx]
+        del self.items[item_idx]
+        del self.levels[item_idx]
 
         return item, level
 
@@ -72,6 +76,12 @@ def rasterize_3d_points(pts, bounds=None, size=128):
     raster = np.histogram2d(zplane_pts[:, 0], zplane_pts[:, 1], bins=bounds)[0]
     raster = raster / np.max(raster)
     return raster, bounds
+
+def expand_node_subset(nodes, graph):
+    final = set()
+    for node in nodes:
+        final.update(graph[node])
+    return final
 
 def edges(points):
     return zip(points[:-1], points[1:])

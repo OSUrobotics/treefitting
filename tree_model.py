@@ -16,7 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from copy import deepcopy
 import random
-from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges
+from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
 from ipdb import set_trace
 
 class TreeModel(object):
@@ -269,6 +269,12 @@ class TreeModel(object):
             unlikeliness = (negative_belief - positive_belief + 1) / 2
             self.superpoint_graph.edges[edge]['unlikeliness'] = unlikeliness
             self.superpoint_graph.edges[edge]['likeliness'] = 1 - unlikeliness
+
+            print('WARNING: Normalized likeliness has radius of 0.10 hardcoded in! Fix later!')
+            p1 = self.superpoint_graph.nodes[edge[0]]['point']
+            p2 = self.superpoint_graph.nodes[edge[1]]['point']
+            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - unlikeliness) * np.linalg.norm(p2 - p1) / 0.20
+
 
         self.is_classified = True
 
@@ -625,7 +631,8 @@ class ThinnedTree:
         tips = []
         for comp_nodes in nx.algorithms.components.connected_components(subgraph):
             best_node = min(comp_nodes, key=lambda x: self.base_graph.nodes[x]['point'][1])
-            tips.append(best_node)
+            if nx.algorithms.has_path(self.base_graph, best_node, self.trunk_node):
+                tips.append(best_node)
 
         self.tip_nodes = tips
 
@@ -785,8 +792,6 @@ class ThinnedTree:
 
         return 0
 
-
-
     def score_tree(self, tree=None, recompute_violations=True):
 
         if tree is None:
@@ -810,8 +815,12 @@ class ThinnedTree:
             new_path = []
             new_assignments = []
 
-        for edge, assignment in zip(edges(new_path), new_assignments):
-            tree.add_edge(*edge, classification=assignment)
+        try:
+            for edge, assignment in zip(edges(new_path), new_assignments):
+                tree.add_edge(*edge, classification=assignment)
+        except KeyError:
+            print('KeyError')
+            set_trace()
 
         # If removing the edge induces a disconnect, throw out the part that doesn't have the trunk
         final_node_subset = set()
@@ -863,7 +872,8 @@ class ThinnedTree:
 
         if disconnect_at is not None:
             predecessors = set(nx.algorithms.dfs_preorder_nodes(tree.reverse(), disconnect_at))
-            tree = tree.subgraph(predecessors).copy()
+            subgraph = tree.subgraph(predecessors)
+            tree.remove_edges_from(set(tree.edges).difference(subgraph.edges))
 
         self.determine_all_violations(tree)
 
@@ -962,14 +972,14 @@ class ThinnedTree:
                     self.current_graph.edges[edge]['override_color'] = (1.0, 0.0, 0.0)
                 yield
 
-                solution, _, new_score = self.segment_fix_search(segment)
+                solution, branch_score = self.segment_fix_search(segment)
                 if solution is None:
                     print('No better solution was found than simply excluding the given segment')
                     self.reassign_tree(segment)
 
                 else:
                     (new_path, new_assignments) = solution
-                    print('Found tree with new score of {}'.format(new_score))
+                    print('Improved branch score to {}'.format(branch_score))
                     self.reassign_tree(segment, new_path, new_assignments)
 
                     if new_path[-1] != segment[-1]:
@@ -1112,7 +1122,7 @@ class ThinnedTree:
         return actions + [node]
 
 
-    def segment_fix_search(self, segment, max_allowable_violation=10):
+    def segment_fix_search(self, segment):
         """
         Pick a segment that you want to fix.
         You want to find a rerouting of that segment that increases the overall score of the tree.
@@ -1157,15 +1167,6 @@ class ThinnedTree:
             if self.trunk_node in detached_component:
                 main_component, detached_component = detached_component, main_component
 
-        # Evaluate the tree condition when you only evaluate the main component
-
-        # Evaluate the current state of the tree
-
-        # Evaluate the local evaluation of the existing segment
-
-        # Set the violation threshold to be the maximum [?]
-
-
         # Get the min and max class assignment
         in_edges = list(self.current_graph.in_edges(segment[0]))
         if not in_edges:
@@ -1179,54 +1180,59 @@ class ThinnedTree:
         else:
             min_class = self.current_graph.edges[out_edges[0]]['classification']
 
+        # Set up queue, where the state is a tuple of (path, assignments)
+        # The level is a tuple of (heuristic value, actual value)
 
-
-
-        # Set up queue, where the state is a tuple of (path, assignments, has_skipped)
-        # The val should be the number of incurred violations
-
-        queue = PriorityQueue()
+        targets = self.get_heuristic_target_points_from_segment_removal(segment)
+        queue = PriorityQueue(minimize=False)
         current_node = segment[0]
         start_path = (current_node, )
-        start_state = (start_path, (), False)
-        queue.add(start_state, 0)
+        start_state = (start_path, ())
+        queue.add(start_state, (np.inf, 0))
 
-        # TODO: Evaluate initial solution and make sure the returned solution is better than it
+        # Evaluate the initial segment score
+        # TODO: Probably should move this out
+        best_branch_score = 0
+        segment_modified = segment[:]
+        out_nodes = list(self.current_graph.successors(segment[-1]))
+        if out_edges:
+            final_node_successor = out_nodes[0]
+            segment_modified.append(final_node_successor)
+            out_class = self.current_graph.edges[segment[-1], final_node_successor]['classification']
+        else:
+            out_class = 0
 
-        best_solution = None
-        best_tree_score = self.score_tree(self.current_graph.subgraph(main_component))
-        best_violation_count = None
+        for i, edge in enumerate(edges(segment)):
+            assignment = self.current_graph.edges[edge]['classification']
+            best_branch_score += self.base_graph.edges[edge]['normalized_likeliness']
+            best_branch_score -= self.assess_edge_violation(*edge, assignment)
 
+            try:
+                successor_node = segment_modified[i+2]
+            except IndexError:
+                continue
+            successor_assignment = self.current_graph.edges[edge[1], successor_node]['classification']
+            self.assess_angular_violation(edge[1], successor_node, successor_assignment, edge[0], assignment)
 
-        # TODO: Need to count violations from start due to branching? Will do later.
+        in_edges = set(self.current_graph.in_edges(segment[-1]))
+        in_classes = [self.current_graph.edges[e]['classification'] for e in in_edges]
+        best_branch_score -= self.assess_topology_split_violation(out_class, in_classes)
+        best_solution = (segment, tuple([self.current_graph.edges[e]['classification'] for e in edges(segment)]))
+
+        print('Starting branch score is {}'.format(best_branch_score))
+
+        # Start the main loop
         count = 0
         while queue:
             count += 1
-            # if count > 2000:
-            #     print('Infinite loop detected!')
-            #     self.debug_next = True
-            #     set_trace()
 
-
-
-            (path, assignments, has_skipped), violations = queue.pop()
-            node = path[-1]
-
-            if violations > max_allowable_violation:
-                print('Exhausted all possible paths with a sufficiently low violation count')
+            (path, assignments), (heuristic_score, branch_score) = queue.pop()
+            if heuristic_score < best_branch_score:
                 break
 
-            if self.debug_next:
-                print('Current path: {}\nWith assignments: {}'.format(path, assignments))
-                print('Currently {} violations'.format(violations))
-                set_trace()
+            node = path[-1]
 
-
-            # If you've skipped once, you have to follow the foundation graph
-            if has_skipped:
-                neighbors = set(self.foundation_graph[node])
-            else:
-                neighbors = set(self.base_graph[node])
+            neighbors = set(self.base_graph[node])
 
             if assignments:
                 last_assignment = assignments[-1]
@@ -1235,14 +1241,7 @@ class ThinnedTree:
 
             possible_assignments = list(range(min_class, last_assignment + 1))
 
-
-            if self.debug_next:
-                print('Processing neighbors...')
-
             for neighbor, next_assignment in product(neighbors, possible_assignments):
-
-                if self.debug_next:
-                    print('\tProcessing {} as {}'.format(neighbor, next_assignment))
 
                 # Case 1: The neighbor is in the path already, ignore it.
                 if neighbor in path:
@@ -1253,89 +1252,66 @@ class ThinnedTree:
                 if (neighbor, node) in current_graph_subset.edges:
                     continue
 
-                # Case 3: The path is already worse than a found solution, ignore it.
-                if best_violation_count is not None and violations > best_violation_count:
-                    continue
-
-                # Case 4: If the neighbor is in the disconnected component, it means you're self-looping. Avoid this.
+                # Case 3: If the neighbor is in the disconnected component, it means you're self-looping. Avoid this.
                 if neighbor in detached_component:
                     continue
 
-                # Case 5 (HACK): If the neighbor doesn't exist in the foundation graph, ignore it.
+                # Case 4 (HACK): If the neighbor doesn't exist in the foundation graph, ignore it.
                 # (Happens due to the edge subgraph func throwing out some nodes)
                 if neighbor not in self.foundation_graph:
                     continue
 
-                # Check to see if this counts as a skip connection
-                is_skip_connection = (node, neighbor) not in self.foundation_graph.edges
-                if has_skipped:
-                    assert not is_skip_connection
-
                 # Add the neighbor to the path and compute any new angular/edge violations
                 new_path = path + (neighbor, )
                 new_assignments = assignments + (next_assignment, )
-                new_violation_cost = self.assess_edge_violation(node, neighbor, next_assignment) + violations
+                new_score = branch_score + self.base_graph.edges[node, neighbor]['normalized_likeliness']
+                new_score -= self.assess_edge_violation(node, neighbor, next_assignment)
 
                 if len(new_path) >= 3:
-                    new_violation_cost += self.assess_angular_violation(node, neighbor, next_assignment, new_path[-3], last_assignment)
+                    new_score -= self.assess_angular_violation(node, neighbor, next_assignment, new_path[-3], last_assignment)
 
                 # If you land on part of the original graph, "terminate" the search and assess the final angular violation
                 if neighbor in main_component:
-                    if self.debug_next:
-                        print('\tNode {} is in main component'.format(neighbor))
 
-                    out_edges = list(current_graph_subset.out_edges(neighbor))
-                    if out_edges or neighbor == self.trunk_node:
+                    neighbor_in_edges = list(current_graph_subset.in_edges(neighbor))
+                    neighbor_in_classes = [current_graph_subset.edges[edge]['classification'] for edge in neighbor_in_edges]
+                    neighbor_out_edges = list(current_graph_subset.out_edges(neighbor))
 
-                        # set_trace()
-                        # Search termination - Evaluate final score and update best
-                        if out_edges:
-                            next_next_node = out_edges[0][1]
-                            next_next_class = current_graph_subset.edges[neighbor, next_next_node]['classification']
+                    if not neighbor_out_edges:
+                        assert neighbor == self.trunk_node
+                        neighbor_out_class = 0
+                    else:
+                        neighbor_successor_node = neighbor_out_edges[0][1]
+                        neighbor_out_class = current_graph_subset.edges[neighbor, neighbor_successor_node]['classification']
 
-                            # Topological violation - Cannot progress upwards in class, must go 2->1->0
-                            if next_next_class > next_assignment:
-                                if self.debug_next:
-                                    print('\t\tThrown out since next class is {} but assignment is {}'.format(next_next_class, next_assignment))
-                                continue
-
-                            new_violation_cost += self.assess_angular_violation(neighbor, next_next_node, next_next_class, node, next_assignment)
-
-                        # TODO: Think about a better condition for when to stop considering a path
-                        if best_violation_count is None or new_violation_cost <= best_violation_count:
-                            # Evaluate the tree and see if it's better than the thing
-                            tree_score = self.score_tree_with_reassignments(segment, new_path, new_assignments)
-
-                            if self.debug_next:
-                                print('\t\tViolation of {} beats current best of {}. Checking if reassignment leads to better score...'.format(new_violation_cost, best_violation_count))
-
-                            if best_tree_score is None or tree_score > best_tree_score:
-                                if self.debug_next:
-                                    print(
-                                        '\t\tNew tree score of {} is better than previous {}! Setting new solution'.format(
-                                            tree_score, best_tree_score))
-
-                                best_tree_score = tree_score
-                                best_violation_count = new_violation_cost
-                                best_solution = (new_path, new_assignments)
-
-                            else:
-
-                                if self.debug_next:
-                                    print(
-                                        '\t\tNew tree score of {} is WORSE than previous {}! DIscarding solution and continuing...'.format(
-                                            tree_score, best_tree_score))
-                                continue
-                        else:
-                            if self.debug_next:
-                                print('\t\tViolation cost of {} was worse than the current best violation count {}'.format(new_violation_cost, best_violation_count))
+                    # Two violations to check: 1 is the angular with the neighbor's successor, and 1 is the topology split
+                    if neighbor_out_edges:
+                        if neighbor_out_class > next_assignment:
                             continue
+                        new_score -= self.assess_angular_violation(neighbor, neighbor_successor_node, neighbor_out_class, node, next_assignment)
 
-                # If you don't land on part of the original graph, add it to the queue, but only if it's not worse than the existing solution
-                new_state = (new_path, new_assignments, is_skip_connection)
-                queue.add(new_state, new_violation_cost)
+                    if neighbor_in_edges:
+                        new_score -= self.assess_topology_split_violation(neighbor_out_class, neighbor_in_classes + [next_assignment])
 
-        return best_solution, best_violation_count, best_tree_score
+                    if new_score > best_branch_score:
+                        best_solution = (new_path, new_assignments)
+                        best_branch_score = new_score
+
+                    continue
+
+                # If you don't land on part of the original graph, add it to the queue
+                # Compute the heuristic value
+                new_state = (new_path, new_assignments)
+
+                node_pt = self.base_graph.nodes[node]['point']
+                next_pt = self.base_graph.nodes[neighbor]['point']
+
+                dist = self.get_cone_max_dist(targets, node_pt, next_pt - node_pt)
+                # TODO: UN-HARDCODE THE DISTANCE HERE
+                heuristic = dist / (2 * 0.10)
+                queue.add(new_state, (new_score + heuristic, new_score))
+
+        return best_solution, best_branch_score
 
     def reassess_segment_classifications(self, joint_node, segment_graph=None, start_score=0, downstream_class=None):
         """ Algorithm description:
@@ -1545,6 +1521,59 @@ class ThinnedTree:
         self.repair_info['all_components'] = all_comp_nodes
         self.repair_info['tree'] = tree_to_assign
 
+    def get_heuristic_target_points_from_segment_removal(self, segment, existing_structure=None):
+
+        modified_graph = self.base_graph.copy()
+        if existing_structure is None:
+            existing_structure = self.current_graph
+        existing_structure = nx.to_undirected(existing_structure).copy()
+        existing_structure.remove_edges_from(edges(segment))
+        existing_structure = nx.edge_subgraph(existing_structure, existing_structure.edges)
+        attached_nodes = existing_structure.nodes
+        if len(segment) == 1 or segment[0] in self.tip_nodes:
+            target_sets = [{segment[0]}, attached_nodes]
+        elif segment[-1] == self.trunk_node:
+            target_sets = [attached_nodes, {self.trunk_node}]
+        else:
+            target_sets = []
+            for comp in nx.algorithms.connected_components(existing_structure):
+                if segment[0] in comp or segment[-1] in comp:
+                    target_sets.append(comp)
+            if not len(target_sets) == 2:
+                print('Wrong target set length!')
+                set_trace()
+            assert len(target_sets) == 2
+
+        # Then we remove those "walls" from the base graph and look at all the remaining connected components
+        nodes_for_hull = set()
+        modified_graph.remove_nodes_from(attached_nodes)
+        for comp in nx.algorithms.connected_components(modified_graph):
+            expanded_comp = expand_node_subset(comp, self.base_graph)
+            for target_set in target_sets:
+                if not expanded_comp.intersection(target_set):
+                    break
+            else:
+                nodes_for_hull.update(expanded_comp)
+
+        all_pts = np.array([self.base_graph.nodes[n]['point'] for n in nodes_for_hull])
+        return all_pts
+
+    def get_cone_max_dist(self, targets, start, direction):
+        INTRA_VIOLATION = np.radians(45)
+        max_dist = 0
+        direction = direction / np.linalg.norm(direction)
+
+        # Part 1: Check all the hull points and consider the distance to those which
+        for target in targets:
+            vec = target - start
+            vec = vec / np.linalg.norm(vec)
+
+            if np.arccos(vec.dot(direction)) < INTRA_VIOLATION:
+                dist = np.linalg.norm(target - start)
+                if max_dist is None or dist > max_dist:
+                    max_dist = dist
+
+        return max_dist
 
 
 
