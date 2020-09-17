@@ -19,6 +19,9 @@ import random
 from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
 from ipdb import set_trace
 import time
+from line_profiler import LineProfiler
+
+profiler = LineProfiler()
 
 class TreeModel(object):
 
@@ -35,7 +38,7 @@ class TreeModel(object):
         self.raster_info = None
         self.edges_rendered = False
         self.is_classified = False
-
+        self.tree_population = None
 
         self.superpoint_graph = None
         self.edge_settings = None
@@ -138,24 +141,27 @@ class TreeModel(object):
 
         if settings_dict['correction']:
 
-            if self.thinned_tree is None:
-                self.initialize_final_tree()
+            if self.tree_population is None:
+                template_tree = self.initialize_final_tree()
+                self.tree_population = TreeManager(template_tree, population_size=50)
+                profiler.print_stats()
             elif iterate:
-                self.thinned_tree.iterate()
+                self.tree_population.iterate_once()
+            #
+            # if self.thinned_tree.repair_info is None:
+            #     current_graph = self.thinned_tree.current_graph
+            # else:
+            #     current_graph = self.thinned_tree.repair_info['tree']
 
-            if self.thinned_tree.repair_info is None:
-                current_graph = self.thinned_tree.current_graph
-            else:
-                current_graph = self.thinned_tree.repair_info['tree']
-
+            best_tree = self.tree_population.best_tree
+            current_graph = best_tree.current_graph
             all_chosen_edges = current_graph.edges
+
             for edge in self.superpoint_graph.edges:
 
                 if edge in all_chosen_edges or edge[::-1] in all_chosen_edges:
                     if edge not in all_chosen_edges:
                         edge = edge[::-1]
-
-
 
                     if settings_dict['multi_classify']:
 
@@ -168,32 +174,32 @@ class TreeModel(object):
                     else:
                         color = (1.0, 1.0, 1.0)
 
-                elif settings_dict['show_foundation'] and edge in self.thinned_tree.foundation_graph.edges:
-                    color = (0.2, 0.2, 0.2)
+                # elif settings_dict['show_foundation'] and edge in self.thinned_tree.foundation_graph.edges:
+                #     color = (0.2, 0.2, 0.2)
                 else:
                     color = False
                 self.superpoint_graph.edges[edge]['color'] = color
 
-            if self.thinned_tree.repair_info is not None:
-
-                for edge in edges(self.thinned_tree.repair_info['nodes']):
-                    if edge not in self.superpoint_graph.edges:
-                        self.superpoint_graph.add_edge(*edge)
-                    self.superpoint_graph.edges[edge]['color'] = (0.9, 0.1, 0.9)
+            # if self.thinned_tree.repair_info is not None:
+            #
+            #     for edge in edges(self.thinned_tree.repair_info['nodes']):
+            #         if edge not in self.superpoint_graph.edges:
+            #             self.superpoint_graph.add_edge(*edge)
+            #         self.superpoint_graph.edges[edge]['color'] = (0.9, 0.1, 0.9)
 
             for node in self.superpoint_graph.nodes:
 
                 in_main = node in current_graph and current_graph.out_degree(node) > 0
-                in_foundation = node in self.thinned_tree.foundation_graph and self.thinned_tree.foundation_graph.degree(node) > 0
+                in_foundation = node in best_tree.foundation_graph.nodes and best_tree.foundation_graph.degree(node) > 0
 
                 if in_main or in_foundation:
 
                     override_color = current_graph.nodes[node].get('override_color', False)
                     if override_color:
                         color = override_color
-                    elif node == self.thinned_tree.trunk_node:
+                    elif node == best_tree.trunk_node:
                         color = (0.1, 0.1, 0.9)
-                    elif node in self.thinned_tree.tip_nodes:
+                    elif node in best_tree.tip_nodes:
                         color = (0.1, 0.9, 0.9)
                     elif in_main:
                         if current_graph.nodes[node].get('violation', False):
@@ -304,14 +310,7 @@ class TreeModel(object):
         self.classify_edges()
         edges_to_keep = self.thin_skeleton()
         subgraph = self.superpoint_graph.edge_subgraph(edges_to_keep).copy()
-        # print('[FIX LATER] Creating edge-point associations')
-        # skel.create_edge_point_associations(subgraph, self.points, node_attribute='point', in_place=True)
-        # print('Done creating edge-point associations')
-        #
-        # for edge in subgraph.edges:
-        #     assoc_pts = subgraph.edges[edge].get('associations', set())
-        #     subgraph.edges[edge]['coverage'] = len(assoc_pts) / len(self.points)
-        self.thinned_tree = GrownTree(self.superpoint_graph, subgraph, curvature_penalty=0.1)
+        return GrownTree(self.superpoint_graph, subgraph, curvature_penalty=0.1)
 
     def assign_branch_radii(self):
 
@@ -585,24 +584,24 @@ class ThinnedTree:
 
         self.estimate_trunk_node()
         self.estimate_tips()
-        try:
-            self.estimate_tree_from_tips()
-        except Exception as e:
-            print(e)
-
-        self.determine_all_violations(commit=True)
-        # self.determine_node_violations()
-
-        self.active_iterator = None
-
-        # For repairing
-        self.repair_info = None
-
-        # For debugging
-        score = self.score_tree()
-        print('Starting score is: {}'.format(score))
-        print('Base graph has {} nodes'.format(len(self.base_graph.nodes)))
-        print('Foundation graph has {} nodes'.format(len(self.foundation_graph.nodes)))
+        # try:
+        #     self.estimate_tree_from_tips()
+        # except Exception as e:
+        #     print(e)
+        #
+        # self.determine_all_violations(commit=True)
+        # # self.determine_node_violations()
+        #
+        # self.active_iterator = None
+        #
+        # # For repairing
+        # self.repair_info = None
+        #
+        # # For debugging
+        # score = self.score_tree()
+        # print('Starting score is: {}'.format(score))
+        # print('Base graph has {} nodes'.format(len(self.base_graph.nodes)))
+        # print('Foundation graph has {} nodes'.format(len(self.foundation_graph.nodes)))
 
         self.segment_to_fix = None
         self.edges_to_queue_removal = None
@@ -1620,11 +1619,14 @@ class TreeManager:
         self.last_scores = np.zeros(population_size)
         self.is_first = True
 
+        self.iteration = 0
+
     @property
     def best_tree(self):
         return self.population[np.argmax(self.last_scores)]
 
     def iterate_once(self):
+        self.iteration += 1
         start = time.time()
         if not self.is_first:
             self.resample()
@@ -1632,10 +1634,12 @@ class TreeManager:
             self.is_first = False
         self.grow_all()
         self.score_all()
-        print('Best-scoring tree is now {:.2f}'.format(self.last_scores.max()))
+
         end = time.time()
 
-        print('Iteration took {:.1}s'.format(end-start))
+        print('-'*40)
+        print('Iteration {} took {:.1f}s'.format(self.iteration, end-start))
+        print('Best-scoring tree is now {:.2f}'.format(self.last_scores.max()))
 
     def grow_all(self):
         for tree in self.population:
@@ -1704,9 +1708,9 @@ class GrownTree(ThinnedTree):
         self.current_iterator = None
 
         if precomputed_info:
-            self.dijkstra_maps = deepcopy(precomputed_info['dijkstra_maps'])
+            self.dijkstra_maps = precomputed_info['dijkstra_maps'].copy()
             self.current_graph = precomputed_info['current_graph'].copy()
-            self.tip_nodes = deepcopy(precomputed_info['tip_nodes'])
+            self.tip_nodes = precomputed_info['tip_nodes'].copy()
         else:
             print('Running all dijkstras from tips...')
             self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
@@ -1715,13 +1719,18 @@ class GrownTree(ThinnedTree):
             self.current_graph.add_nodes_from(self.base_graph.nodes)
             self.update_node_eligibility(self.trunk_node)
 
+    @profiler
     def copy(self):
         precomputed_info = {
             'dijkstra_maps': self.dijkstra_maps,
             'current_graph': self.current_graph,
             'tip_nodes': self.tip_nodes
         }
-        return GrownTree(self.base_graph.copy(), self.foundation_graph.copy(), curvature_penalty=self.curvature_penalty,
+
+        new_base = self.base_graph.copy()
+        new_foundation = self.foundation_graph.copy()
+
+        return GrownTree(new_base, new_foundation, curvature_penalty=self.curvature_penalty,
                          score_key=self.score_key, cost_key=self.cost_key, score_decay=self.score_decay,
                          precomputed_info=precomputed_info, debug=self.debug)
 
@@ -1737,7 +1746,8 @@ class GrownTree(ThinnedTree):
 
     def iterator(self):
 
-        print('-' * 40 + '\n')
+        if self.debug:
+            print('-' * 40 + '\n')
 
         if not self.tip_nodes:
             print('All done!')
@@ -1749,11 +1759,13 @@ class GrownTree(ThinnedTree):
         path_to_optimize = self.select_path_to_tip(tip_node, weighted_choice=True)
 
         if path_to_optimize is None:
-            print('Node {} is now disconnected from the tree. Removing from list...')
+            print('Node {} is now disconnected from the tree. Removing from list...'.format(tip_node))
             self.tip_nodes.remove(tip_node)
+            del self.dijkstra_maps[tip_node]
             raise StopIteration
 
-        print('Chose edge ({}, {}) to optimize'.format(path_to_optimize[0], path_to_optimize[1]))
+        if self.debug:
+            print('Chose edge ({}, {}) to optimize'.format(path_to_optimize[0], path_to_optimize[1]))
         growth_node = path_to_optimize[0]
 
         if self.debug:
@@ -1767,12 +1779,10 @@ class GrownTree(ThinnedTree):
             self.current_graph = orig_graph
 
         edge_assignment = self.pick_assignment_for_path(path_to_optimize, self.current_graph.nodes[growth_node]['eligible'],
-                                                        weighted_choice=True, allow_null_assignment=True)
+                                                        weighted_choice=True, allow_null_assignment=False)
 
-        print('Chosen edge assignment:\n{}'.format(edge_assignment))
-
-        if edge_assignment is None:
-            print('Assigned null!')
+        if self.debug:
+            print('Chosen edge assignment:\n{}'.format(edge_assignment))
 
         self.current_graph.add_edge(path_to_optimize[1], growth_node, classification=edge_assignment)
         self.update_node_eligibility(growth_node)
@@ -1797,6 +1807,8 @@ class GrownTree(ThinnedTree):
                 print('Remaining potential score is:   {:.2f}'.format(remaining_potential_score))
                 print('Evaluation score is:            {:.2f}'.format(eval_score))
 
+        return eval_score
+
 
     def run_dijkstras_exhaust(self, source_node):
         target_nodes = set(self.base_graph.nodes).difference({source_node})
@@ -1820,6 +1832,8 @@ class GrownTree(ThinnedTree):
             target_nodes = [target_nodes]
 
         if source_node in target_nodes:
+            print('Source in target set?')
+            set_trace()
             raise ValueError("Please make sure your source isn't in the target set.")
 
         # Construct the set of incoming edges for each of the target nodes
@@ -1946,9 +1960,10 @@ class GrownTree(ThinnedTree):
             weights = np.exp(self.score_decay * scores)
             weights = weights / weights.sum()
 
-            print('Looking at class assignment weights for the chosen path...')
-            for assignment, weight in zip(eligible_classes, weights):
-                print('\t{}: {:.3f}'.format(assignment, weight))
+            if self.debug:
+                print('Looking at class assignment weights for the chosen path...')
+                for assignment, weight in zip(eligible_classes, weights):
+                    print('\t{}: {:.3f}'.format(assignment, weight))
 
             return eligible_classes[np.random.choice(len(eligible_classes), p=weights)]
         else:
@@ -2150,9 +2165,10 @@ class GrownTree(ThinnedTree):
             weights = np.exp(self.score_decay * rewards)
             weights = weights / weights.sum()
 
-            print('Examining edge weights for path choice...')
-            for edge, weight, reward in zip(edges_to_check, weights, rewards):
-                print('\tEdge {}: {:.3f} (reward {:.2f})'.format(edge, weight, reward))
+            if self.debug:
+                print('Examining edge weights for path choice...')
+                for edge, weight, reward in zip(edges_to_check, weights, rewards):
+                    print('\tEdge {}: {:.3f} (reward {:.2f})'.format(edge, weight, reward))
 
 
             edge_to_optimize = edges_to_check[np.random.choice(len(edges_to_check), p=weights)]
