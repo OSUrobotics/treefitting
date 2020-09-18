@@ -19,9 +19,6 @@ import random
 from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
 from ipdb import set_trace
 import time
-from line_profiler import LineProfiler
-
-profiler = LineProfiler()
 
 class TreeModel(object):
 
@@ -141,12 +138,18 @@ class TreeModel(object):
 
         if settings_dict['correction']:
 
-            if self.tree_population is None:
-                template_tree = self.initialize_final_tree()
-                self.tree_population = TreeManager(template_tree, population_size=50)
-            elif iterate:
-                self.tree_population.iterate_once()
-                profiler.print_stats()
+            HALF_LENGTH = 0.10
+            score_decay = np.log(2) / HALF_LENGTH
+
+            template_tree = GrownTree(self.superpoint_graph, curvature_penalty=0.02, score_decay=score_decay)
+            self.tree_population = TreeManager(template_tree, population_size=50, selection_decay=score_decay,
+                                               best_repopulate=5, show_current_best=False)
+
+            print('Skeletonizing tree...')
+
+            self.tree_population.iterate_to_completion()
+            self.tree_population.best_tree.run_quick_analysis()
+
             #
             # if self.thinned_tree.repair_info is None:
             #     current_graph = self.thinned_tree.current_graph
@@ -174,8 +177,6 @@ class TreeModel(object):
                     else:
                         color = (1.0, 1.0, 1.0)
 
-                # elif settings_dict['show_foundation'] and edge in self.thinned_tree.foundation_graph.edges:
-                #     color = (0.2, 0.2, 0.2)
                 else:
                     color = False
                 self.superpoint_graph.edges[edge]['color'] = color
@@ -189,27 +190,16 @@ class TreeModel(object):
 
             for node in self.superpoint_graph.nodes:
 
-                in_main = node in current_graph and current_graph.out_degree(node) > 0
-                in_foundation = node in best_tree.foundation_graph.nodes and best_tree.foundation_graph.degree(node) > 0
-
-                if in_main or in_foundation:
-
-                    override_color = current_graph.nodes[node].get('override_color', False)
-                    if override_color:
-                        color = override_color
-                    elif node == best_tree.trunk_node:
-                        color = (0.1, 0.1, 0.9)
-                    elif node in best_tree.tip_nodes:
-                        color = (0.1, 0.9, 0.9)
-                    elif in_main:
-                        if current_graph.nodes[node].get('violation', False):
-                            color = (0.9, 0.1, 0.1)
-                        else:
-                            color = (0.1, 0.9, 0.1)
-                    else:
-                        color = (0.4, 0.4, 0.4)
+                override_color = current_graph.nodes[node].get('override_color', False)
+                if override_color:
+                    color = override_color
+                elif node == best_tree.trunk_node:
+                    color = (0.1, 0.1, 0.9)
+                elif node in best_tree.tip_nodes:
+                    color = (0.1, 0.9, 0.9)
                 else:
-                    color = False
+                    color = (0.4, 0.4, 0.4)
+
                 self.superpoint_graph.nodes[node]['color'] = color
 
             return
@@ -284,33 +274,12 @@ class TreeModel(object):
             self.superpoint_graph.edges[edge]['unlikeliness'] = unlikeliness
             self.superpoint_graph.edges[edge]['likeliness'] = 1 - unlikeliness
 
-            print('WARNING: Normalized likeliness has radius of 0.10 hardcoded in! Fix later!')
             p1 = self.superpoint_graph.nodes[edge[0]]['point']
             p2 = self.superpoint_graph.nodes[edge[1]]['point']
-            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - unlikeliness) * np.linalg.norm(p2 - p1) / 0.20
-            self.superpoint_graph.edges[edge]['normalized_unlikeliness'] = unlikeliness * np.linalg.norm(p2 - p1) / 0.20
+            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - unlikeliness) * np.linalg.norm(p2 - p1)
+            self.superpoint_graph.edges[edge]['normalized_unlikeliness'] = unlikeliness * np.linalg.norm(p2 - p1)
 
         self.is_classified = True
-
-    def thin_skeleton(self):
-
-        """
-        Produces a minimum spanning tree where the weights are the unlikeliness of the edge being valid, normalized from 0 to 1.
-        :return:
-        """
-
-        self.classify_edges()
-        return nx.algorithms.minimum_spanning_edges(self.superpoint_graph, weight='unlikeliness', data=False)
-
-
-    def initialize_final_tree(self):
-        """
-        :return:
-        """
-        self.classify_edges()
-        edges_to_keep = self.thin_skeleton()
-        subgraph = self.superpoint_graph.edge_subgraph(edges_to_keep).copy()
-        return GrownTree(self.superpoint_graph, subgraph, curvature_penalty=0.1)
 
     def assign_branch_radii(self):
 
@@ -547,16 +516,16 @@ class TreeModel(object):
         return all_pts
 
 
-class ThinnedTree:
+class GrownTree:
 
     VIOLATION_COSTS = {
-        'angle': 5,
-        'direction': 2,
-        'trunk_wrong_direction': 5,
+        'angle': 0.4,
+        'direction': 0.1,
         'topology':
-            {0: 1000,
-             1: 10,
-             2: 5
+            {0: np.inf,     # Should never happen in the first place
+             1: 10,         # This also should never happen
+             2: 100         # This says "assuming we have a leader split in two, what's the minimum length that both
+                            # branches should be to keep both around?
              }
     }
 
@@ -567,158 +536,228 @@ class ThinnedTree:
     SUPPORT_VIOLATION = np.radians(60)
     LEADER_VIOLATION = np.radians(30)
 
+    SUPPORT_SPLIT_VIOLATION = np.radians(90)
+
     """
     INITIALIZATION FUNCTIONS
     """
 
-    @profiler
-    def __init__(self, base_graph, foundation_graph, score_key='normalized_likeliness'):
+    def __init__(self, base_graph, score_key='normalized_likeliness', cost_key='normalized_unlikeliness',
+                 curvature_penalty=0.0, score_decay=1.0, potential_constant=0.0,
+                 precomputed_info=None, debug=False):
 
         self.base_graph = base_graph
-        self.foundation_graph = foundation_graph
+        self.current_graph = None
+
+        self.debug = debug
         self.score_key = score_key
-        self.current_graph = nx.DiGraph()
-        self.current_graph.add_nodes_from(self.base_graph.nodes)
+        self.cost_key = cost_key
+
+        # Parameters
+        self.curvature_penalty = curvature_penalty
+        self.score_decay = score_decay
+        self.potential_constant = potential_constant
+
+        # Information which is automatically computed about the tree
         self.trunk_node = None
-        self.tip_nodes = None
-        self.disconnected_tips = []
+        self.tip_nodes = []
 
-        self.estimate_trunk_node()
-        self.estimate_tips()
-        # try:
-        #     self.estimate_tree_from_tips()
-        # except Exception as e:
-        #     print(e)
-        #
-        # self.determine_all_violations(commit=True)
-        # # self.determine_node_violations()
-        #
-        # self.active_iterator = None
-        #
-        # # For repairing
-        # self.repair_info = None
-        #
-        # # For debugging
-        # score = self.score_tree()
-        # print('Starting score is: {}'.format(score))
-        # print('Base graph has {} nodes'.format(len(self.base_graph.nodes)))
-        # print('Foundation graph has {} nodes'.format(len(self.foundation_graph.nodes)))
-
+        # Stuff to keep track of progress/repairs
+        self.base_score = 0
+        self.current_iterator = None
         self.segment_to_fix = None
         self.edges_to_queue_removal = None
         self.debug_next = False
 
-    def estimate_trunk_node(self):
-        nodes = list(max(nx.connected_components(self.foundation_graph), key=len))
-        pts = np.array([self.foundation_graph.nodes[node]['point'] for node in nodes])
-        estimated_trunk = nodes[np.argmax(pts[:,1])]
+        if precomputed_info:
+            self.current_graph = precomputed_info['current_graph'].copy()
+            self.trunk_node = precomputed_info['trunk_node']
+            self.tip_nodes = precomputed_info['tip_nodes'].copy()
+            self.dijkstra_maps = precomputed_info['dijkstra_maps'].copy()
+            self.base_score = precomputed_info['base_score']
+        else:
+            # Initialize information such as the trunk nodes, tip nodes, etc.
+            self.current_graph = nx.DiGraph()
+            self.current_graph.add_nodes_from(self.base_graph.nodes)
 
-        # estimated_trunk = nodes[np.argmax(pts[:,1])]
-        THRESHOLD = 0.50
+            self.estimate_trunk_and_tips()
+            self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
+            self.update_node_eligibility(self.trunk_node)
+
+    def copy(self):
+        precomputed_info = {
+            'dijkstra_maps': self.dijkstra_maps,
+            'current_graph': self.current_graph,
+            'tip_nodes': self.tip_nodes,
+            'trunk_node': self.trunk_node,
+            'base_score': self.base_score,
+        }
+
+        return GrownTree(self.base_graph, cost_key=self.cost_key, score_key=self.score_key,
+                         curvature_penalty=self.curvature_penalty, score_decay=self.score_decay,
+                         precomputed_info=precomputed_info, debug=self.debug)
+
+
+    def iterate(self):
+        if self.current_iterator is None:
+            self.current_iterator = self.iterator()
+
+        try:
+            next(self.current_iterator)
+        except StopIteration:
+            self.current_iterator = self.iterator()
+
+
+    def iterator(self):
+
+        if self.debug:
+            print('-' * 40 + '\n')
+
+        if not self.tip_nodes:
+            print('All done!')
+            raise StopIteration
+
+        # Pick a tip at random
+
+        tip_node = random.choice(self.tip_nodes)
+        path_to_optimize = self.select_path_to_tip(tip_node, weighted_choice=True)
+
+        if path_to_optimize is None:
+            print('Node {} is now disconnected from the tree. Removing from list...'.format(tip_node))
+            self.tip_nodes.remove(tip_node)
+            del self.dijkstra_maps[tip_node]
+            raise StopIteration
+
+        if self.debug:
+            print('Chose edge ({}, {}) to optimize'.format(path_to_optimize[0], path_to_optimize[1]))
+        growth_node = path_to_optimize[0]
+
+        if self.debug:
+            # ====== For display purposes only - Can delete ===== #
+            orig_graph = self.current_graph
+            display_graph = self.current_graph.copy()
+            for e in edges(path_to_optimize):
+                display_graph.add_edge(*e, classification=2, override_color=(1.0, 0.0, 1.0))
+                self.current_graph = display_graph
+            yield
+            self.current_graph = orig_graph
+
+        edge_assignment = self.pick_assignment_for_path(path_to_optimize, self.current_graph.nodes[growth_node]['eligible'],
+                                                        weighted_choice=True, allow_null_assignment=False)
+
+        if self.debug:
+            print('Chosen edge assignment:\n{}'.format(edge_assignment))
+
+        self.commit_edge((path_to_optimize[1], growth_node), edge_assignment, validate=False)
+
+        if path_to_optimize[1] in self.tip_nodes:
+            self.tip_nodes.remove(path_to_optimize[1])
+
+
+    def estimate_trunk_and_tips(self):
+
+        TRUNK_SEARCH_THRESHOLD = 0.50
+        TIP_SCAN_THRESHOLD = 0.60
+        ANGLE_THRESHOLD = np.radians(45)
+
+        # Preprocessing - Find the maximal connected component, which will serve as our base tree
+
+        max_nodes = list(max(nx.connected_components(self.base_graph), key=len))
+        pts = np.array([self.base_graph.nodes[node]['point'] for node in max_nodes])
+
+        # PART 1 - Find the trunk node by estimating where you think the node should be, then searching
+        # within a threshold to find the minimal connected component in that radius
+        # We look for the point in the middle of the X/Z dimensions, with a Y coordinate closest to the ground
 
         est = np.median(pts, axis=0)
         est[1] = pts[:,1].max()
         est_dist = np.linalg.norm(pts - est, axis=1)
-        valid = est_dist < THRESHOLD
+        valid = est_dist < TRUNK_SEARCH_THRESHOLD
         valid_indices = np.where(valid)[0]
+        if not len(valid_indices):
+            raise Exception("Couldn't find any point within {:.2f}m of the estimate!".format(TRUNK_SEARCH_THRESHOLD))
 
         min_close_pt_idx = np.argmax(pts[valid][:,1])
-        estimated_trunk = nodes[valid_indices[min_close_pt_idx]]
+        estimated_trunk = max_nodes[valid_indices[min_close_pt_idx]]
         self.trunk_node = estimated_trunk
 
-    def estimate_tips(self):
-        # Scans the tree for anything which looks "tippy".
-        # This can be refined, just want something for now
-        SCAN_ZONE = 0.6
+        # PART 2 - Estimate tips
+        # First, run minimum spanning tree to maximize the normalized likeliness
+        # Then remove all edges which are sufficiently horizontal, then iterating through the
+        # remaining subcomponents and finding the maximally located node
+        mst = nx.algorithms.minimum_spanning_tree(self.base_graph.subgraph(max_nodes), weight=self.cost_key)
 
-
-        all_node_points = np.array([self.base_graph.nodes[n]['point'] for n in self.foundation_graph.nodes])
-        y_points = all_node_points[:,1]
+        y_points = pts[:,1]
         y_min = y_points.min()
         y_max = y_points.max()
 
         y_start = y_min
-        y_end = y_min + (y_max - y_min) * SCAN_ZONE
-
-        valid_nodes = [n for n in self.foundation_graph.nodes
-                       if y_start <= self.foundation_graph.nodes[n]['point'][1] <= y_end]
-
-        subgraph = self.foundation_graph.subgraph(valid_nodes).copy()
+        y_end = y_min + (y_max - y_min) * TIP_SCAN_THRESHOLD
+        in_scan = (y_start <= y_points) & (y_points <= y_end)
+        valid_nodes = [n for n, i in zip(max_nodes, in_scan) if i]
+        subgraph = mst.subgraph(valid_nodes).copy()
 
         # Throw out horizontal looking branches
-        THRESHOLD = np.radians(45)
-        to_remove = []
-        for edge in subgraph.edges:
-            start = self.base_graph.nodes[edge[0]]['point']
-            end = self.base_graph.nodes[edge[1]]['point']
-
-            diff = np.abs(start - end)
-            xy_angle = np.arctan2(diff[1], diff[0])
-            if xy_angle < THRESHOLD:
-                to_remove.append(edge)
-        subgraph.remove_edges_from(to_remove)
+        subgraph.remove_edges_from([e for e in subgraph.edges if self.get_edge_elevation(*e) <= ANGLE_THRESHOLD])
         subgraph = subgraph.edge_subgraph(subgraph.edges)
 
         # For each connected component in the graph, get the node with the most tip-like value
         tips = []
         for comp_nodes in nx.algorithms.components.connected_components(subgraph):
-
-            # Should be redundant
-            if len(comp_nodes) <= 1:
-                continue
-
             best_node = min(comp_nodes, key=lambda x: self.base_graph.nodes[x]['point'][1])
-            if nx.algorithms.has_path(self.base_graph, best_node, self.trunk_node):
-                tips.append(best_node)
+            tips.append(best_node)
 
         self.tip_nodes = tips
 
-        # FOR FUTURE REFERENCE
-        # For each node, check if there's an edge that crosses the scan border.
-        # If so, take that node and see if there's any chains it can connect to above.
-        # If not, start a tip chain.
-
-    def estimate_tree_from_tips(self):
-
-        for tip_node in self.tip_nodes:
-            try:
-                to_trunk = nx.algorithms.shortest_paths.dijkstra_path(self.foundation_graph, tip_node, self.trunk_node)
-                for s, e in zip(to_trunk[:-1], to_trunk[1:]):
-                    try:
-                        edge_dict = self.current_graph.edges[s, e]
-                        edge_dict['count'] += 1
-                    except KeyError:
-                        self.current_graph.add_edge(s, e, count=1)
-
-            except nx.NetworkXNoPath:
-                self.disconnected_tips.append(tip_node)
-
-        # Initialize assignments
-        # Anything with just 1 path is a leader, everything else
-        # Also assign trunk by looking at split
-        for edge in self.current_graph.edges:
-            edge_dict = self.current_graph.edges[edge]
-            if edge_dict['count'] > 1:
-                edge_dict['classification'] = 1
-            else:
-                edge_dict['classification'] = 2
-
-        for edge in nx.algorithms.bfs_edges(self.current_graph, source=self.trunk_node, reverse=True):
-            end, start = edge
-            if self.current_graph.in_degree[end] > 1:
-                break
-            else:
-                self.current_graph.edges[start, end]['classification'] = 0
-
-        else:
-            raise Exception("Couldn't find trunk split? Highly unlikely")
 
     """
     FUNCTIONS FOR DETERMINING VIOLATIONS AND ASSESSING THE TREE QUALITY
-    
-    To do list:
-    - Maybe change search strategy to be top-down? Start at a tip. As you assign segments, check if previous encountered segments should be changed as well.
     """
+
+    def commit_edge(self, edge, assignment, validate=True):
+        """
+        Adds edge to the current branch and also incrementally updates the tree score.
+        :param edge:
+        :param assignment:
+        :return:
+        """
+
+        if validate:
+            active = self.current_graph.edge_subgraph(self.current_graph.edges).nodes
+            if edge[0] in active:
+                raise ValueError("Cannot add an edge which starts in an existing part of the tree!")
+            if edge[1] not in active:
+                raise ValueError("Edge must end in an existing part of the tree!")
+
+        self.current_graph.add_edge(*edge, classification=assignment)
+
+        # Assess violations
+
+        score_change = self.base_graph.edges[edge][self.score_key]
+        score_change -= self.assess_edge_violation(*edge, assignment)
+        out_edge = list(self.current_graph.out_edges(edge[1]))
+        if not out_edge:
+            out_class = 0
+        else:
+            out_edge = out_edge[0]
+            out_class = self.current_graph.edges[out_edge]['classification']
+            score_change -= self.assess_angular_violation(out_edge[0], out_edge[1], out_class, edge[0], assignment)
+        in_classes = [self.current_graph.edges[e]['classification'] for e in self.current_graph.in_edges(edge[1])]
+        previous_topology_violation = self.current_graph.nodes[edge[1]].get('topology_violation', 0)
+        current_topology_violation = self.assess_topology_split_violation(out_class, in_classes)
+        self.current_graph.nodes[edge[1]]['topology_violation'] = current_topology_violation
+        score_change -= (current_topology_violation - previous_topology_violation)
+
+        # TEMP HACK TO AVOID WEIRD SUPPORT ISSUES
+        if out_class == 0 and assignment == 1 and in_classes.count(1) == 2:
+            edge_1, edge_2 = [e for e in self.current_graph.in_edges(edge[1]) if self.current_graph.edges[e]['classification'] == 1]
+            if self.get_node_turn_angle(edge_1[0], edge_1[1], edge_2[0]) > self.SUPPORT_SPLIT_VIOLATION:
+                score_change -= 1000
+
+        self.base_score += score_change
+        self.update_node_eligibility(edge[0])
+        self.update_node_eligibility(edge[1])
+
 
     def determine_all_violations(self, graph=None, commit=True):
         if graph is None:
@@ -781,8 +820,7 @@ class ThinnedTree:
 
         return 0
 
-    def assess_edge_violation(self, node, next_node, classification, include_trunk_angle=False):
-
+    def assess_edge_violation(self, node, next_node, classification):
 
         violation = 0
 
@@ -794,12 +832,6 @@ class ThinnedTree:
             violation += self.VIOLATION_COSTS['direction']
         elif classification == 0 and xy_angle < self.TRUNK_VIOLATION:
             violation += self.VIOLATION_COSTS['direction']
-
-        if include_trunk_angle:
-
-            trunk_angle = self.get_node_turn_angle(node, next_node, self.trunk_node)
-            if trunk_angle > self.TRUNK_VIOLATION:
-                violation += self.VIOLATION_COSTS['trunk_wrong_direction']
 
         return violation
 
@@ -822,7 +854,23 @@ class ThinnedTree:
 
         return 0
 
-    def score_tree(self, tree=None, recompute_violations=True):
+
+    @property
+    def complete(self):
+        return not self.tip_nodes
+
+    @property
+    def score(self):
+
+        if not self.potential_constant:
+            return self.base_score
+
+        return self.base_score + self.potential_constant * self.score_remaining_branches()
+
+
+    def rescore_tree(self, tree=None, recompute_violations=True):
+
+        raise NotImplementedError("This needs to be checked for consistency with the incremental approach!")
 
         if tree is None:
             tree = self.current_graph
@@ -837,37 +885,10 @@ class ThinnedTree:
         pos_contrib = sum([self.base_graph.edges[e][self.score_key] for e in tree.edges])
         return pos_contrib - total_violations
 
-    def reassign_tree(self, old_path, new_path=None, new_assignments=None, tree=None):
-        if tree is None:
-            tree = self.current_graph
-
-        for edge in edges(old_path):
-            tree.remove_edge(*edge)
-
-        if new_path is None or new_assignments is None:
-            new_path = []
-            new_assignments = []
-
-        try:
-            for edge, assignment in zip(edges(new_path), new_assignments):
-                tree.add_edge(*edge, classification=assignment)
-        except KeyError:
-            print('KeyError')
-            set_trace()
-
-        # If removing the edge induces a disconnect, throw out the part that doesn't have the trunk
-        final_node_subset = set()
-        for comp in nx.weakly_connected_components(tree):
-            if self.trunk_node in comp:
-                final_node_subset = comp
-                break
-
-        subcomp = tree.subgraph(final_node_subset)
-        tree.remove_edges_from([e for e in tree.edges if e not in subcomp.edges])
-
-        self.determine_all_violations()
-
     def score_segment(self, segment, assignments):
+
+        raise NotImplementedError("Do you need this for something?")
+
         # Total violations
         if isinstance(assignments, int):
             assignments = [assignments] * (len(segment) - 1)
@@ -893,9 +914,9 @@ class ThinnedTree:
 
 
     def get_node_turn_angle(self, a, b, c):
-        pt_a = self.foundation_graph.nodes[a]['point']
-        pt_b = self.foundation_graph.nodes[b]['point']
-        pt_c = self.foundation_graph.nodes[c]['point']
+        pt_a = self.base_graph.nodes[a]['point']
+        pt_b = self.base_graph.nodes[b]['point']
+        pt_c = self.base_graph.nodes[c]['point']
 
         diff_1 = pt_b - pt_a
         diff_2 = pt_c - pt_b
@@ -910,290 +931,6 @@ class ThinnedTree:
             dot = -1.0
 
         return np.arccos(dot)
-
-
-    def handle_repair(self, node, assignment):
-
-        if self.repair_info is None:
-            self.initialize_repair(node)
-            return
-
-        if node == self.repair_info['nodes'][0]:
-            # Double-clicking on a node means to toss out anything above the current node
-            for edge in list(self.current_graph.in_edges(node)):
-                self.current_graph.remove_edge(*edge)
-            main_comp = {self.trunk_node}
-            for comp in nx.weakly_connected_components(self.current_graph):
-                if self.trunk_node in comp:
-                    main_comp = comp
-                    break
-
-            subgraph = self.current_graph.subgraph(main_comp)
-            for edge in list(self.current_graph.edges):
-                if edge not in subgraph.edges:
-                    self.current_graph.remove_edge(*edge)
-
-            self.determine_all_violations(commit=True)
-            self.repair_info = None
-
-        elif node in self.repair_info['all_components'] and not node in self.repair_info['main_component']:
-            print("You cannot select this node, as this would cause a loop in the tree!")
-        else:
-            # Clicked on a node that isn't in part of any component
-            # Add the node and assignment and move along
-            self.repair_info['nodes'].append(node)
-            self.repair_info['assignments'].append(assignment)
-
-            if not node in self.repair_info['main_component']:
-                return
-
-            # At this point, the node is in the main component
-            # Commit all edges and assignments to the temporary tree, then replace the current tree and recompute
-            for edge, assignment in zip(edges(self.repair_info['nodes']), self.repair_info['assignments']):
-                self.repair_info['tree'].add_edge(*edge, classification=assignment)
-
-            self.current_graph = self.repair_info['tree']
-            self.determine_all_violations(commit=True)
-            self.repair_info = None
-
-    def initialize_repair(self, node):
-        self.repair_info = {}
-        self.repair_info['nodes'] = [node]
-        self.repair_info['assignments'] = []
-
-        # Create a temporary copy of the tree with the downhill segment removed
-        tree_to_assign = self.current_graph.copy()
-        edges_to_remove = []
-        current_node = node
-
-        while True:
-            try:
-                next_node = list(self.current_graph.out_edges(current_node))[0][1]
-            except IndexError:
-                break
-            edges_to_remove.append((current_node, next_node))
-            if self.current_graph.in_degree(next_node) > 1 or next_node == self.trunk_node:
-                break
-            current_node = next_node
-        tree_to_assign.remove_edges_from(edges_to_remove)
-
-        # Figure out which segment is the main section, and record which nodes are part of some connected component
-        main_comp = {self.trunk_node}
-        all_comp_nodes = set()
-        for comp in nx.weakly_connected_components(tree_to_assign):
-            if self.trunk_node in comp:
-                main_comp = comp
-            if len(comp) > 1:
-                all_comp_nodes.update(comp)
-
-        self.repair_info['main_component'] = main_comp
-        self.repair_info['all_components'] = all_comp_nodes
-        self.repair_info['tree'] = tree_to_assign
-
-
-class TreeManager:
-
-    def __init__(self, template_tree, population_size=10, selection_decay=0.5**0.2, potential_constant=0.0):
-
-        self.selection_decay = selection_decay
-        self.potential_constant = potential_constant
-
-        self.population = []
-        for _ in range(population_size):
-            self.population.append(template_tree.copy())
-
-        self.last_scores = np.zeros(population_size)
-        self.is_first = True
-
-        self.iteration = 0
-
-    @property
-    def best_tree(self):
-        return self.population[np.argmax(self.last_scores)]
-
-    @profiler
-    def iterate_once(self):
-        self.iteration += 1
-        start = time.time()
-        if not self.is_first:
-            self.resample()
-        else:
-            self.is_first = False
-        self.grow_all()
-        self.score_all()
-
-        end = time.time()
-
-        print('-'*40)
-        print('Iteration {} took {:.1f}s'.format(self.iteration, end-start))
-        print('Best-scoring tree is now {:.2f}'.format(self.last_scores.max()))
-
-    def grow_all(self):
-        for tree in self.population:
-            tree.iterate()
-
-    def score_all(self):
-        self.last_scores = np.array([tree.score(self.potential_constant) for tree in self.population])
-
-    def resample(self):
-
-        weights = np.exp(self.selection_decay * (self.last_scores - self.last_scores.max()))
-        weights = weights / weights.sum()
-        n = len(self.population)
-        choices = np.random.choice(n, n, replace=True, p=weights)
-        new_population = [self.population[i].copy() for i in choices]
-
-        self.population = new_population
-
-
-
-
-class GrownTree(ThinnedTree):
-
-    @staticmethod
-    def extract_path_from_dijkstras_dict(results_dict, start, start_is_edge_pair=False, target_to_source=False):
-
-        if not start_is_edge_pair:
-            start = results_dict[start]['previous_edge']
-
-        path = [start[1], start[0]]
-        try:
-            metadata = results_dict[start]
-        except KeyError:
-            return {
-                'path': None,
-                'reward': -np.inf,
-                'cost': np.inf,
-            }
-
-        current_edge = metadata['previous_edge']
-        while current_edge[0] is not None:
-            path.append(current_edge[0])
-            current_edge = results_dict[current_edge]['previous_edge']
-
-        # At this point, the path travels from target to source in a backwards fashion. Flip if necessary
-        if not target_to_source:
-            path = path[::-1]
-
-        return {
-            'path': path,
-            'reward': metadata['reward'],
-            'cost': metadata['running_cost']
-        }
-
-
-    def __init__(self, base_graph, foundation_graph, curvature_penalty=0.0, score_key='normalized_likeliness',
-                 cost_key='normalized_unlikeliness', score_decay=0.5**0.2, precomputed_info=None, debug=False):
-
-        super(GrownTree, self).__init__(base_graph, foundation_graph, score_key=score_key)
-        self.curvature_penalty = curvature_penalty
-        self.score_decay = score_decay
-
-        self.cost_key = cost_key
-        self.debug = debug
-        self.current_iterator = None
-
-        if precomputed_info:
-            self.dijkstra_maps = precomputed_info['dijkstra_maps'].copy()
-            self.current_graph = precomputed_info['current_graph'].copy()
-            self.tip_nodes = precomputed_info['tip_nodes'].copy()
-        else:
-            print('Running all dijkstras from tips...')
-            self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
-            print('Done!')
-            self.current_graph = nx.DiGraph()
-            self.current_graph.add_nodes_from(self.base_graph.nodes)
-            self.update_node_eligibility(self.trunk_node)
-
-
-    def copy(self):
-        precomputed_info = {
-            'dijkstra_maps': self.dijkstra_maps,
-            'current_graph': self.current_graph,
-            'tip_nodes': self.tip_nodes
-        }
-
-        new_base = self.base_graph.copy()
-        new_foundation = self.foundation_graph  #.copy()
-
-        return GrownTree(new_base, new_foundation, curvature_penalty=self.curvature_penalty,
-                         score_key=self.score_key, cost_key=self.cost_key, score_decay=self.score_decay,
-                         precomputed_info=precomputed_info, debug=self.debug)
-
-    def iterate(self):
-        if self.current_iterator is None:
-            self.current_iterator = self.iterator()
-
-        try:
-            next(self.current_iterator)
-        except StopIteration:
-            self.current_iterator = self.iterator()
-
-
-    def iterator(self):
-
-        if self.debug:
-            print('-' * 40 + '\n')
-
-        if not self.tip_nodes:
-            print('All done!')
-            raise StopIteration
-
-        # Pick a tip at random
-
-        tip_node = random.choice(self.tip_nodes)
-        path_to_optimize = self.select_path_to_tip(tip_node, weighted_choice=True)
-
-        if path_to_optimize is None:
-            print('Node {} is now disconnected from the tree. Removing from list...'.format(tip_node))
-            self.tip_nodes.remove(tip_node)
-            del self.dijkstra_maps[tip_node]
-            raise StopIteration
-
-        if self.debug:
-            print('Chose edge ({}, {}) to optimize'.format(path_to_optimize[0], path_to_optimize[1]))
-        growth_node = path_to_optimize[0]
-
-        if self.debug:
-            # ====== For display purposes only - Can delete ===== #
-            orig_graph = self.current_graph
-            display_graph = self.current_graph.copy()
-            for e in edges(path_to_optimize):
-                display_graph.add_edge(*e, classification=2, override_color=(1.0, 0.0, 1.0))
-                self.current_graph = display_graph
-            yield
-            self.current_graph = orig_graph
-
-        edge_assignment = self.pick_assignment_for_path(path_to_optimize, self.current_graph.nodes[growth_node]['eligible'],
-                                                        weighted_choice=True, allow_null_assignment=False)
-
-        if self.debug:
-            print('Chosen edge assignment:\n{}'.format(edge_assignment))
-
-        self.current_graph.add_edge(path_to_optimize[1], growth_node, classification=edge_assignment)
-        self.update_node_eligibility(growth_node)
-        self.update_node_eligibility(path_to_optimize[1])
-
-        if path_to_optimize[1] == tip_node:
-            self.tip_nodes.remove(tip_node)
-
-    def score(self, potential_constant=0.0):
-        current_tree_score = self.score_tree()
-
-        if potential_constant:
-            remaining_potential_score = self.score_remaining_branches()
-        else:
-            remaining_potential_score = 0
-
-        eval_score = current_tree_score + potential_constant * remaining_potential_score
-
-        if self.debug:
-            print('Currently built tree score is:  {:.2f}'.format(current_tree_score))
-            if potential_constant:
-                print('Remaining potential score is:   {:.2f}'.format(remaining_potential_score))
-                print('Evaluation score is:            {:.2f}'.format(eval_score))
-
-        return eval_score
 
 
     def run_dijkstras_exhaust(self, source_node):
@@ -1218,8 +955,6 @@ class GrownTree(ThinnedTree):
             target_nodes = [target_nodes]
 
         if source_node in target_nodes:
-            print('Source in target set?')
-            set_trace()
             raise ValueError("Please make sure your source isn't in the target set.")
 
         # Construct the set of incoming edges for each of the target nodes
@@ -1595,48 +1330,232 @@ class GrownTree(ThinnedTree):
 
 
 
+    def handle_repair(self, node, assignment):
+
+        if self.repair_info is None:
+            self.initialize_repair(node)
+            return
+
+        if node == self.repair_info['nodes'][0]:
+            # Double-clicking on a node means to toss out anything above the current node
+            for edge in list(self.current_graph.in_edges(node)):
+                self.current_graph.remove_edge(*edge)
+            main_comp = {self.trunk_node}
+            for comp in nx.weakly_connected_components(self.current_graph):
+                if self.trunk_node in comp:
+                    main_comp = comp
+                    break
+
+            subgraph = self.current_graph.subgraph(main_comp)
+            for edge in list(self.current_graph.edges):
+                if edge not in subgraph.edges:
+                    self.current_graph.remove_edge(*edge)
+
+            self.determine_all_violations(commit=True)
+            self.repair_info = None
+
+        elif node in self.repair_info['all_components'] and not node in self.repair_info['main_component']:
+            print("You cannot select this node, as this would cause a loop in the tree!")
+        else:
+            # Clicked on a node that isn't in part of any component
+            # Add the node and assignment and move along
+            self.repair_info['nodes'].append(node)
+            self.repair_info['assignments'].append(assignment)
+
+            if not node in self.repair_info['main_component']:
+                return
+
+            # At this point, the node is in the main component
+            # Commit all edges and assignments to the temporary tree, then replace the current tree and recompute
+            for edge, assignment in zip(edges(self.repair_info['nodes']), self.repair_info['assignments']):
+                self.repair_info['tree'].add_edge(*edge, classification=assignment)
+
+            self.current_graph = self.repair_info['tree']
+            self.determine_all_violations(commit=True)
+            self.repair_info = None
+
+    def initialize_repair(self, node):
+        self.repair_info = {}
+        self.repair_info['nodes'] = [node]
+        self.repair_info['assignments'] = []
+
+        # Create a temporary copy of the tree with the downhill segment removed
+        tree_to_assign = self.current_graph.copy()
+        edges_to_remove = []
+        current_node = node
+
+        while True:
+            try:
+                next_node = list(self.current_graph.out_edges(current_node))[0][1]
+            except IndexError:
+                break
+            edges_to_remove.append((current_node, next_node))
+            if self.current_graph.in_degree(next_node) > 1 or next_node == self.trunk_node:
+                break
+            current_node = next_node
+        tree_to_assign.remove_edges_from(edges_to_remove)
+
+        # Figure out which segment is the main section, and record which nodes are part of some connected component
+        main_comp = {self.trunk_node}
+        all_comp_nodes = set()
+        for comp in nx.weakly_connected_components(tree_to_assign):
+            if self.trunk_node in comp:
+                main_comp = comp
+            if len(comp) > 1:
+                all_comp_nodes.update(comp)
+
+        self.repair_info['main_component'] = main_comp
+        self.repair_info['all_components'] = all_comp_nodes
+        self.repair_info['tree'] = tree_to_assign
 
 
+    def run_quick_analysis(self):
+        all_tips = sorted([n for n in self.current_graph.nodes if self.current_graph.out_degree(n) == 1 and not self.current_graph.in_degree(n)],
+                          key=lambda x: self.base_graph.nodes[x]['point'][0])
+        for tip in all_tips:
+            print('For Tip {} located at ({:.2f}, {:.2f}, {:.2f}):'.format(tip, *self.base_graph.nodes[tip]['point']))
+            path = [tip]
+            # Build up the list of nodes associated with the tip
+            while True:
+                next_node = list(self.current_graph.successors(path[-1]))[0]
+                if self.current_graph.edges[path[-1], next_node]['classification'] != 2:
+                    break
+                path.append(next_node)
+
+            total_len = 0
+            total_reward = 0
+
+            for edge in edges(path):
+                start = self.base_graph.nodes[edge[0]]['point']
+                end = self.base_graph.nodes[edge[1]]['point']
+                length = np.linalg.norm(start-end)
+                reward = self.base_graph.edges[edge][self.score_key]
+
+                total_len += length
+                total_reward += reward
+
+            print('\tTotal length was: {:.2f}m'.format(total_len))
+            print('\tTotal reward was: {:.2f}'.format(total_reward))
 
 
+    @staticmethod
+    def extract_path_from_dijkstras_dict(results_dict, start, start_is_edge_pair=False, target_to_source=False):
+
+        if not start_is_edge_pair:
+            start = results_dict[start]['previous_edge']
+
+        path = [start[1], start[0]]
+        try:
+            metadata = results_dict[start]
+        except KeyError:
+            return {
+                'path': None,
+                'reward': -np.inf,
+                'cost': np.inf,
+            }
+
+        current_edge = metadata['previous_edge']
+        while current_edge[0] is not None:
+            path.append(current_edge[0])
+            current_edge = results_dict[current_edge]['previous_edge']
+
+        # At this point, the path travels from target to source in a backwards fashion. Flip if necessary
+        if not target_to_source:
+            path = path[::-1]
+
+        return {
+            'path': path,
+            'reward': metadata['reward'],
+            'cost': metadata['running_cost']
+        }
 
 
+class TreeManager:
+
+    def __init__(self, template_tree, population_size=10, selection_decay=1.0, best_repopulate=0,
+                 show_current_best=False):
 
 
+        # The half lengths says: A tree with total reward (i.e. normalized length) this much less than another tree
+        # should be half as likely to be picked during the resampling phase
+        self.selection_decay = selection_decay
+        self.show_current_best = show_current_best
+        self.best_repopulate = best_repopulate
+
+        self.population = []
+        for _ in range(population_size):
+            self.population.append(template_tree.copy())
+
+        self.last_scores = np.zeros(population_size)
+        self.is_first = True
+        self.iteration = 0
+
+        self.global_best_score = 0
+        self.global_best_tree = self.population[0]
 
 
+    def iterate_to_completion(self):
+        while not self.complete:
+            self.iterate_once()
 
+    def iterate_once(self):
+        self.iteration += 1
+        start = time.time()
+        if not self.is_first:
+            self.resample()
+        else:
+            self.is_first = False
+        self.grow_all()
+        self.score_all()
 
+        end = time.time()
 
+        current_max_idx = np.argmax(self.last_scores)
+        current_max = self.last_scores[current_max_idx]
+        if current_max > self.global_best_score:
+            print('Best tree changed from having a score of {:.2f} to {:.2f}'.format(self.global_best_score, current_max))
+            self.global_best_score = current_max
+            self.global_best_tree = self.population[current_max_idx]
+        else:
+            print('Score of best tree did not change. (Best was {:.2f} but current max is {:.2f})'.format(self.global_best_score, current_max))
 
+        print('-'*40)
+        print('Iteration {} took {:.1f}s'.format(self.iteration, end-start))
+        print('Best-scoring tree is now {:.2f}'.format(self.last_scores.max()))
 
+    @property
+    def best_tree(self):
+        if self.show_current_best:
+            return self.population[np.argmax(self.last_scores)]
+        else:
+            return self.global_best_tree
 
+    @property
+    def complete(self):
+        return all((tree.complete for tree in self.population))
 
+    def grow_all(self):
+        for tree in self.population:
+            tree.iterate()
 
+    def score_all(self):
+        self.last_scores = np.array([tree.score for tree in self.population])
 
+    def resample(self):
 
+        weights = np.exp(self.selection_decay * (self.last_scores - self.last_scores.max()))
+        weights = weights / weights.sum()
+        n = len(self.population)
+        n_random = n - self.best_repopulate
 
+        # Repopulate automatically with a certain number of best weights
+        best_index = np.argmax(self.last_scores)
 
+        choices = np.random.choice(n, n_random, replace=True, p=weights)
+        new_population = [self.population[best_index].copy() for _ in range(self.best_repopulate)] + \
+                         [self.population[i].copy() for i in choices]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        self.population = new_population
 
 class Superpoint:
 
