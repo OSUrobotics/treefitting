@@ -124,6 +124,9 @@ class DrawPointCloud(QOpenGLWidget):
         if cover_file:
             with open(cover_file, "r") as fid:
                 self.cyl_cover.read(fid)
+
+        # This serves as the original version of the point cloud
+        # Will be filtered later
         self.my_pcd = self.cyl_cover.my_pcd
         self.bin_mapping = self.set_bin_mapping()
 
@@ -140,21 +143,75 @@ class DrawPointCloud(QOpenGLWidget):
         self.last_cyl = -1
 
         self.tree = None
-        self.skeleton = None
         self.mesh = np.zeros((0,3))
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
+
+        self.show_tree_points = False
+        self.visual_downsampling = 10000
+        self.downsampled_points = np.zeros((0, 3))
+        self.axis_filters = {
+            'x': (-np.inf, np.inf),
+            'y': (-np.inf, np.inf),
+            'z': (-np.inf, np.inf),
+        }
+        self.polygon_filters = []
+        self.visual_filter = np.ones(len(self.my_pcd.points), dtype=np.bool)
+        self.refresh_downsampled_points()
+
+
+
+
 
         self.last_tf_data = None
         self.repair_mode = False
         self.repair_value = None
 
-    def reset_model(self, pc=None):
+
+
+    def refresh_downsampled_points(self):
+        if self.show_tree_points:
+            pts = self.tree.points
+        else:
+            pts = self.my_pcd.points
+
+        self.downsampled_points = pts
+        if len(pts) > self.visual_downsampling:
+            self.downsampled_points = pts[np.random.choice(len(pts), self.visual_downsampling, replace=False)]
+
+        self.refresh_filters()
+
+    def compute_filter(self, pc):
+        x_low = pc[:, 0] >= self.axis_filters['x'][0]
+        x_hi = pc[:, 0] <= self.axis_filters['x'][1]
+        y_low = pc[:, 1] >= self.axis_filters['y'][0]
+        y_hi = pc[:, 1] <= self.axis_filters['y'][1]
+        z_low = pc[:, 2] >= self.axis_filters['z'][0]
+        z_hi = pc[:, 2] <= self.axis_filters['z'][1]
+
+        axis_filter = x_low & x_hi & y_low & y_hi & z_low & z_hi
+        # TODO: Implement polygon filters
+
+        return axis_filter
+
+
+    def refresh_filters(self):
+        self.visual_filter = self.compute_filter(self.downsampled_points)
+
+
+    def create_new_tree(self, num_points=50000):
+        pc = self.my_pcd.points[self.compute_filter(self.my_pcd.points)]
+        if len(pc) > num_points:
+            pc = pc[np.random.choice(len(pc), num_points, replace=False)]
+        self.tree = TreeModel.from_point_cloud(pc.copy())
+        self.tree.load_superpoint_graph()
+
+
+    def reset_model(self, pc=None, apply_filters=False):
         if pc is None:
             pc = self.my_pcd.points.copy()
-        self.tree = TreeModel.from_point_cloud(pc)
-        self.tree.load_superpoint_graph()
-        self.skeleton = None
+        # self.tree = TreeModel.from_point_cloud(pc)
+        # self.tree.load_superpoint_graph()
         self.mesh = np.zeros((0, 3))
 
     def set_bin_mapping(self):
@@ -532,13 +589,9 @@ class DrawPointCloud(QOpenGLWidget):
 
         n_neigh = 20
 
-        if self.tree is None:
-            GL.glColor4d(0.0, 0.0, 0.0, 0.0)
-            GL.glVertex3d(0.0, 0.0, 0.0)
-        else:
 
+        if self.show_tree_points and self.tree is not None:
             for (r, g, b, a), point_indexes in self.tree.get_pt_colors():
-                print(r, g, b, a)
                 if a < 0.3:
                     continue
 
@@ -547,6 +600,12 @@ class DrawPointCloud(QOpenGLWidget):
                     if pt_index in self.ignore_points:
                         continue
                     GL.glVertex3d(*self.tree.points[pt_index])
+        else:
+            GL.glColor4d(0.9, 0.9, 0.9, 1.0)
+            pts = self.downsampled_points[self.visual_filter]
+            for pt_index in range(len(pts)):
+                GL.glVertex3d(*pts[pt_index])
+
 
         #
         #

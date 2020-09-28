@@ -29,6 +29,7 @@ from collections import defaultdict
 from MachineLearningPanel import ML_Panel
 from DataTogglingPanel import DataTogglingPanel
 from DataLabelingPanel import DataLabelingPanel
+from PointCloudManagementPanel import PointCloudManagementPanel
 
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -99,6 +100,15 @@ class PointCloudViewerGUI(QMainWindow):
         read_point_cloud_button = QPushButton('Read point cloud')
         read_point_cloud_button.clicked.connect(self.read_point_cloud)
 
+        pc_management_callbacks = {
+            'update_pc': self.update_pc,
+            'create_new_tree': self.create_new_tree,
+            'save_config': self.save_config,
+        }
+        self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
+        self.pc_management_panel.hide()
+        pc_management_button = QPushButton('PC Management Panel')
+        pc_management_button.clicked.connect(partial(self.toggle_window, self.pc_management_panel))
 
 
         #
@@ -112,6 +122,7 @@ class PointCloudViewerGUI(QMainWindow):
         file_io_layout = QVBoxLayout()
         file_io_layout.addWidget(path_names)
         file_io_layout.addWidget(read_point_cloud_button)
+        file_io_layout.addWidget(pc_management_button)
         # file_io_layout.addWidget(read_cylinders_pca_button)
         # file_io_layout.addWidget(read_cylinders_fit_button)
         file_io.setLayout(file_io_layout)
@@ -518,10 +529,22 @@ class PointCloudViewerGUI(QMainWindow):
                 print('Couldn\'t find file!')
                 return
 
+            self.pc_management_panel.set_bounds_from_pc(self.glWidget.my_pcd.points)
+
             if not os.path.exists(config_dir):
                 os.mkdir(config_dir)
+            config_file = os.path.join(self.config_dir, 'config.pickle')
+            try:
+                with open(config_file, 'rb') as fh:
+                    config_dict = pickle.load(fh)
+                self.pc_management_panel.load_config(config_dict)
+                print('Loaded settings from config!')
+            except IOError:
+                pass
 
-            self.glWidget.reset_model()
+            self.glWidget.refresh_downsampled_points()
+
+            # self.glWidget.reset_model()
             self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
             self.glWidget.make_pcd_gl_list()
             self.glWidget.cyl_cover = CylinderCover(self.glWidget.my_pcd)
@@ -677,6 +700,19 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
         self.repaint()
+
+    def update_pc(self, axis_filters_dict):
+        self.glWidget.axis_filters = axis_filters_dict
+        self.glWidget.refresh_filters()
+        self.glWidget.make_pcd_gl_list()
+        self.redraw_self()
+
+    def create_new_tree(self, num_points):
+        return self.glWidget.create_new_tree(num_points)
+
+    def save_config(self, config):
+        with open(os.path.join(self.config_dir, 'config.pickle'), 'wb') as fh:
+            pickle.dump(config, fh)
 
 
 if __name__ == '__main__':

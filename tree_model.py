@@ -46,22 +46,19 @@ class TreeModel(object):
 
 
     @classmethod
-    def from_point_cloud(cls, pc, process=False, kd_tree_pts = 100, bin_width=0.01):
+    def from_point_cloud(cls, pc, num_points=50000, config=None, kd_tree_pts = 100):
         new_model = cls()
         new_model.base_points = pc
-        if process:
-            pc = preprocess_point_cloud(pc)
-
         new_model.points = pc
         new_model.kd_tree = KDTree(pc, kd_tree_pts)
 
         return new_model
 
     @classmethod
-    def from_file_name(cls, file_name, process=False):
+    def from_file_name(cls, file_name):
         import pymesh
         pc = pymesh.load_mesh(file_name).vertices
-        return cls.from_point_cloud(pc, process=process)
+        return cls.from_point_cloud(pc)
 
     def rasterize(self, grid_size = 128, override=False):
         if self.raster is not None and self.raster.shape == (grid_size, grid_size) and not override:
@@ -1495,8 +1492,11 @@ class TreeManager:
 
 
     def iterate_to_completion(self):
+        start = time.time()
         while not self.complete:
             self.iterate_once()
+        end = time.time()
+        return end - start
 
     def iterate_once(self):
         self.iteration += 1
@@ -1554,6 +1554,11 @@ class TreeManager:
         choices = np.random.choice(n, n_random, replace=True, p=weights)
         new_population = [self.population[best_index].copy() for _ in range(self.best_repopulate)] + \
                          [self.population[i].copy() for i in choices]
+
+        import pandas as pd
+        choices = pd.Series(choices)
+        print('Resampling stats:')
+        print(choices.groupby(choices).count())
 
         self.population = new_population
 
