@@ -27,7 +27,6 @@ import hashlib
 from functools import partial
 from collections import defaultdict
 from MachineLearningPanel import ML_Panel
-from DataTogglingPanel import DataTogglingPanel
 from DataLabelingPanel import DataLabelingPanel
 from PointCloudManagementPanel import PointCloudManagementPanel
 
@@ -104,6 +103,9 @@ class PointCloudViewerGUI(QMainWindow):
             'update_pc': self.update_pc,
             'create_new_tree': self.create_new_tree,
             'save_config': self.save_config,
+            'skeletonize': self.skeletonize,
+            'save_skeleton': self.save_active_skeleton,
+            'update_repair_mode': self.update_repair_mode
         }
         self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
         self.pc_management_panel.hide()
@@ -266,11 +268,6 @@ class PointCloudViewerGUI(QMainWindow):
         magic_button = QPushButton('Click here for magic')
         magic_button.clicked.connect(self.magic)
 
-        self.toggles = DataTogglingPanel(callback=self.classify_and_highlight_edges)
-        self.toggles.hide()
-        toggle_button = QPushButton('Classification toggles')
-        toggle_button.clicked.connect(partial(self.toggle_window, self.toggles))
-
         ml_callbacks = {
             'random_point': self.highlight_random_radius,
             'resample': self.resample,
@@ -302,33 +299,11 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
         resets_layout.addWidget(magic_button)
-        resets_layout.addWidget(toggle_button)
         resets_layout.addWidget(ml_button)
         resets_layout.addWidget(labeling_button)
         resets.setLayout(resets_layout)
 
-        # Repairs - For running repairs on the tree
-        repair_layout = QVBoxLayout()
 
-        def value_update(*_, **__):
-            self.glWidget.repair_value = self.repair_value.currentData()
-
-        def repair_func():
-            self.glWidget.repair_mode = self.repair_button.isChecked()
-            self.repair_value.setDisabled(not self.repair_button.isChecked())
-            value_update()
-
-        self.repair_button = QCheckBox('Repair Mode')
-        self.repair_button.setChecked(False)
-        self.repair_button.clicked.connect(repair_func)
-        self.repair_value = QComboBox()
-        for val, label in [(0, 'Trunk'), (1, 'Support'), (2, 'Leader')]:
-            self.repair_value.addItem(label, val)
-        self.repair_value.currentIndexChanged.connect(value_update)
-        self.repair_value.setDisabled(True)
-
-        repair_layout.addWidget(self.repair_button)
-        repair_layout.addWidget(self.repair_value)
 
 
         # For setting the bin size, based on width of narrowest branch
@@ -358,7 +333,6 @@ class PointCloudViewerGUI(QMainWindow):
         right_side_layout = QVBoxLayout()
 
         right_side_layout.addWidget(resets)
-        right_side_layout.addLayout(repair_layout)
         right_side_layout.addStretch()
         right_side_layout.addWidget(params_neighbors)
         right_side_layout.addWidget(params_labels)
@@ -646,9 +620,9 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.highlight_random()
 
-    def classify_and_highlight_edges(self, settings_dict):
-        self.glWidget.tree.classify_edges()
-        self.glWidget.tree.assign_edge_colors(settings_dict)
+    def classify_and_highlight_edges(self):
+
+        self.glWidget.tree.assign_edge_colors()
         self.glWidget.make_pcd_gl_list()
         self.glWidget.initialize_skeleton()
         self.glWidget.update()
@@ -708,11 +682,54 @@ class PointCloudViewerGUI(QMainWindow):
         self.redraw_self()
 
     def create_new_tree(self, num_points):
-        return self.glWidget.create_new_tree(num_points)
+        self.glWidget.create_new_tree(num_points)
+        self.glWidget.tree.classify_edges()
 
     def save_config(self, config):
-        with open(os.path.join(self.config_dir, 'config.pickle'), 'wb') as fh:
+        config_path = os.path.join(self.config_dir, 'config.pickle')
+        with open(config_path, 'wb') as fh:
             pickle.dump(config, fh)
+        print('Saved config to: {}'.format(config_path))
+
+    def skeletonize(self, params=None):
+        if self.glWidget.tree is None:
+            print('Please initialize a tree before you can run skeletonization!')
+            return
+        self.glWidget.tree.skeletonize()
+        self.classify_and_highlight_edges()
+
+        return self.get_current_graph()
+
+    def save_active_skeleton(self, base_skeleton):
+        to_save = {
+            'base': base_skeleton,
+            'repaired': self.get_current_graph()
+        }
+
+        all_files = os.listdir(self.config_dir)
+        counter = 0
+        file_template = 'tree_{}.pickle'
+        while True:
+            file_name = file_template.format(counter)
+            if file_name in all_files:
+                counter += 1
+                continue
+
+            file_path = os.path.join(self.config_dir, file_name)
+            with open(file_path, 'wb') as fh:
+                pickle.dump(to_save, fh)
+            print('Saved trees to: {}'.format(file_path))
+
+            break
+
+    def get_current_graph(self):
+        return self.glWidget.tree.thinned_tree.current_graph
+
+    def update_repair_mode(self, enable, value):
+        # Repairs - For running repairs on the tree
+
+        self.glWidget.repair_mode = enable
+        self.glWidget.repair_value = value
 
 
 if __name__ == '__main__':

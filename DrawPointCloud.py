@@ -159,10 +159,6 @@ class DrawPointCloud(QOpenGLWidget):
         self.visual_filter = np.ones(len(self.my_pcd.points), dtype=np.bool)
         self.refresh_downsampled_points()
 
-
-
-
-
         self.last_tf_data = None
         self.repair_mode = False
         self.repair_value = None
@@ -544,7 +540,7 @@ class DrawPointCloud(QOpenGLWidget):
             return
 
         self.tree.thinned_tree.handle_repair(chosen_node, self.repair_value)
-        self.tree.assign_edge_colors(iterate=False)
+        self.tree.assign_edge_colors()
         self.make_pcd_gl_list()
         self.initialize_skeleton()
         self.update()

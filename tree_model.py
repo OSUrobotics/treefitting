@@ -35,6 +35,7 @@ class TreeModel(object):
         self.raster_info = None
         self.edges_rendered = False
         self.is_classified = False
+        self.template_tree = None
         self.tree_population = None
 
         self.superpoint_graph = None
@@ -43,7 +44,6 @@ class TreeModel(object):
         # For color output
         self.highlighted_points = defaultdict(list)
         self.point_beliefs = None
-
 
     @classmethod
     def from_point_cloud(cls, pc, num_points=50000, config=None, kd_tree_pts = 100):
@@ -59,6 +59,11 @@ class TreeModel(object):
         import pymesh
         pc = pymesh.load_mesh(file_name).vertices
         return cls.from_point_cloud(pc)
+
+    def initialize_template_tree(self):
+        HALF_LENGTH = 0.10
+        score_decay = np.log(2) / HALF_LENGTH
+        self.template_tree = GrownTree(self.superpoint_graph, curvature_penalty=0.02, score_decay=score_decay)
 
     def rasterize(self, grid_size = 128, override=False):
         if self.raster is not None and self.raster.shape == (grid_size, grid_size) and not override:
@@ -121,126 +126,118 @@ class TreeModel(object):
         self.edges_rendered = True
 
 
+    def skeletonize(self):
+
+        if self.template_tree is None:
+            self.initialize_template_tree()
+
+        self.tree_population = TreeManager(self.template_tree, population_size=50, selection_decay=self.template_tree.score_decay,
+                                           best_repopulate=5, show_current_best=False)
+
+        print('Skeletonizing tree...')
+
+        self.tree_population.iterate_to_completion()
+        self.tree_population.best_tree.run_quick_analysis()
+        self.thinned_tree = self.tree_population.best_tree
 
 
-
-    def assign_edge_colors(self, settings_dict=None, iterate=True):
-
-        if settings_dict is None:
-            settings_dict = self.edge_settings
-        else:
-            self.edge_settings = settings_dict
+    def assign_edge_colors(self):
 
         self.classify_edges()
 
-        if settings_dict['correction']:
+        default_colors = [
+            (0.6, 0.55, 0.4),
+            (0.95, 0.4, 0.6),
+            (0.4, 0.6, 0.9),
+            (0.9, 0.9, 0.0),
+            (0.4, 0.7, 0.7),
+        ]
 
-            HALF_LENGTH = 0.10
-            score_decay = np.log(2) / HALF_LENGTH
+        process_repair_edges = False
+        if self.thinned_tree is None:
+            current_graph = self.superpoint_graph
+        elif self.thinned_tree.repair_info is None:
+            current_graph = self.thinned_tree.current_graph
+        else:
+            current_graph = self.thinned_tree.repair_info['tree']
+            process_repair_edges = True
 
-            template_tree = GrownTree(self.superpoint_graph, curvature_penalty=0.02, score_decay=score_decay)
-            self.tree_population = TreeManager(template_tree, population_size=50, selection_decay=score_decay,
-                                               best_repopulate=5, show_current_best=False)
+        all_chosen_edges = current_graph.edges
 
-            print('Skeletonizing tree...')
+        for edge in self.superpoint_graph.edges:
+            if edge in all_chosen_edges or edge[::-1] in all_chosen_edges:
+                if edge not in all_chosen_edges:
+                    edge = edge[::-1]
 
-            self.tree_population.iterate_to_completion()
-            self.tree_population.best_tree.run_quick_analysis()
-
-            #
-            # if self.thinned_tree.repair_info is None:
-            #     current_graph = self.thinned_tree.current_graph
-            # else:
-            #     current_graph = self.thinned_tree.repair_info['tree']
-
-            best_tree = self.tree_population.best_tree
-            current_graph = best_tree.current_graph
-            all_chosen_edges = current_graph.edges
-
-            for edge in self.superpoint_graph.edges:
-
-                if edge in all_chosen_edges or edge[::-1] in all_chosen_edges:
-                    if edge not in all_chosen_edges:
-                        edge = edge[::-1]
-
-                    if settings_dict['multi_classify']:
-
-                        assignment = current_graph.edges[edge]['classification']
-                        if assignment is None:
-                            continue
-
-                        default_color = settings_dict['data'][assignment]['color']
-                        color = current_graph.edges[edge].get('override_color', default_color)
-                    else:
-                        color = (1.0, 1.0, 1.0)
-
-                else:
-                    color = False
-                self.superpoint_graph.edges[edge]['color'] = color
-
-            # if self.thinned_tree.repair_info is not None:
-            #
-            #     for edge in edges(self.thinned_tree.repair_info['nodes']):
-            #         if edge not in self.superpoint_graph.edges:
-            #             self.superpoint_graph.add_edge(*edge)
-            #         self.superpoint_graph.edges[edge]['color'] = (0.9, 0.1, 0.9)
-
-            for node in self.superpoint_graph.nodes:
-
-                override_color = current_graph.nodes[node].get('override_color', False)
+                assignment = current_graph.edges[edge].get('classification', 4)
+                override_color = current_graph.edges[edge].get('override_color', None)
                 if override_color:
                     color = override_color
-                elif node == best_tree.trunk_node:
-                    color = (0.1, 0.1, 0.9)
-                elif node in best_tree.tip_nodes:
-                    color = (0.1, 0.9, 0.9)
                 else:
-                    color = (0.4, 0.4, 0.4)
+                    color = default_colors[assignment]
+            else:
+                color = False
+            self.superpoint_graph.edges[edge]['color'] = color
 
-                self.superpoint_graph.nodes[node]['color'] = color
+        if process_repair_edges:
+            for edge in edges(self.thinned_tree.repair_info['nodes']):
+                self.superpoint_graph.edges[edge]['color'] = (0.9, 0.1, 0.9)
 
-            return
 
-        to_show = set(self.superpoint_graph.subgraph(max(nx.connected_components(self.superpoint_graph))).edges)
+        for node in self.superpoint_graph.nodes:
+
+            override_color = current_graph.nodes[node].get('override_color', False)
+            if override_color:
+                color = override_color
+            elif node == self.thinned_tree.trunk_node:
+                color = (0.1, 0.1, 0.9)
+            elif node in self.thinned_tree.tip_nodes:
+                color = (0.1, 0.9, 0.9)
+            else:
+                color = (0.4, 0.4, 0.4)
+
+            self.superpoint_graph.nodes[node]['color'] = color
+
+        # to_show = set(self.superpoint_graph.subgraph(max(nx.connected_components(self.superpoint_graph))).edges)
 
         #
         #
         # if settings_dict['thinning'] is not None:
         #     to_show.intersection_update(self.thin_skeleton(*settings_dict['thinning']))
 
-        for edge in self.superpoint_graph.edges:
-            if edge not in to_show:
-                self.superpoint_graph.edges[edge]['color'] = False
-                continue
-
-            pred = self.superpoint_graph.edges[edge]['prediction']
-
-            connection_col = 1 if settings_dict['show_connected'] else 0
-            is_visible = pred['connected_values'][connection_col] > settings_dict['connection_threshold']
-
-            if not is_visible:
-                self.superpoint_graph.edges[edge]['color'] = False
-                continue
-
-            if settings_dict['multi_classify']:
-                predicted_cat = np.argmax(pred['classification_values'])
-                predicted_val = pred['classification_values'][predicted_cat]
-                cat_info = settings_dict['data'][predicted_cat]
-                if predicted_val >= cat_info['threshold']:
-                    color = cat_info['color']
-                else:
-                    color = False
-
-            else:
-                # Single - Even if a branch doesn't have a category as its primary
-                # classification, show it
-                val = pred['classification_values'][settings_dict['data']['category']]
-                if val < settings_dict['data']['threshold']:
-                    color = False
-                else:
-                    color = (1.0, 1.0, 1.0)
-
-            self.superpoint_graph.edges[edge]['color'] = color
+        # for edge in self.superpoint_graph.edges:
+        #     if edge not in to_show:
+        #         self.superpoint_graph.edges[edge]['color'] = False
+        #         continue
+        #
+        #     pred = self.superpoint_graph.edges[edge]['prediction']
+        #
+        #     connection_col = 1 if settings_dict['show_connected'] else 0
+        #     is_visible = pred['connected_values'][connection_col] > settings_dict['connection_threshold']
+        #
+        #     if not is_visible:
+        #         self.superpoint_graph.edges[edge]['color'] = False
+        #         continue
+        #
+        #     if settings_dict['multi_classify']:
+        #         predicted_cat = np.argmax(pred['classification_values'])
+        #         predicted_val = pred['classification_values'][predicted_cat]
+        #         cat_info = settings_dict['data'][predicted_cat]
+        #         if predicted_val >= cat_info['threshold']:
+        #             color = cat_info['color']
+        #         else:
+        #             color = False
+        #
+        #     else:
+        #         # Single - Even if a branch doesn't have a category as its primary
+        #         # classification, show it
+        #         val = pred['classification_values'][settings_dict['data']['category']]
+        #         if val < settings_dict['data']['threshold']:
+        #             color = False
+        #         else:
+        #             color = (1.0, 1.0, 1.0)
+        #
+        #     self.superpoint_graph.edges[edge]['color'] = color
 
     def classify_edges(self):
 
@@ -549,6 +546,8 @@ class GrownTree:
         self.debug = debug
         self.score_key = score_key
         self.cost_key = cost_key
+
+        self.repair_info = None
 
         # Parameters
         self.curvature_penalty = curvature_penalty
@@ -1333,10 +1332,19 @@ class GrownTree:
             self.initialize_repair(node)
             return
 
-        if node == self.repair_info['nodes'][0]:
-            # Double-clicking on a node means to toss out anything above the current node
-            for edge in list(self.current_graph.in_edges(node)):
-                self.current_graph.remove_edge(*edge)
+        last_node = self.repair_info['nodes'][-1]
+        first_node = self.repair_info['nodes'][0]
+
+        is_reverse_edge = (node, last_node) in self.current_graph.edges
+
+        if node == first_node or (len(self.repair_info['nodes']) == 1 and is_reverse_edge):
+            # If you reverse-click on an edge, it'll remove that particular edge and anything above it
+            if is_reverse_edge:
+                self.current_graph.remove_edge(node, last_node)
+            else:
+                # Double-clicking on a node means to toss out anything above the current node
+                for edge in list(self.current_graph.in_edges(node)):
+                    self.current_graph.remove_edge(*edge)
             main_comp = {self.trunk_node}
             for comp in nx.weakly_connected_components(self.current_graph):
                 if self.trunk_node in comp:
@@ -1350,7 +1358,8 @@ class GrownTree:
 
             self.determine_all_violations(commit=True)
             self.repair_info = None
-
+        elif node in self.repair_info['nodes']:
+            print("Attempting to self-loop a repair!")
         elif node in self.repair_info['all_components'] and not node in self.repair_info['main_component']:
             print("You cannot select this node, as this would cause a loop in the tree!")
         else:
@@ -1358,6 +1367,11 @@ class GrownTree:
             # Add the node and assignment and move along
             self.repair_info['nodes'].append(node)
             self.repair_info['assignments'].append(assignment)
+
+            last_edge = self.repair_info['nodes'][-2:]
+            if last_edge not in self.base_graph.edges:
+                print('Added new edge ({}, {}) to graph'.format(*last_edge))
+                self.base_graph.add_edge(*last_edge)
 
             if not node in self.repair_info['main_component']:
                 return
