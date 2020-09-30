@@ -85,3 +85,46 @@ def expand_node_subset(nodes, graph):
 
 def edges(points):
     return zip(points[:-1], points[1:])
+
+def convert_points_to_ndc_space(pts, modelview_matrix, proj_matrix):
+    all_pts_homog = np.ones((len(pts), 4))
+    all_pts_homog[:, :3] = pts
+
+    clip_space_pts = proj_matrix @ modelview_matrix @ all_pts_homog.T
+    ndc = (clip_space_pts / clip_space_pts[3]).T[:, :3]
+
+    return ndc
+
+def convert_ndc_to_gl_viewport(ndc, viewport_info):
+
+    x, y, w, h = viewport_info
+
+    viewport_xy = ndc[:, :2] * np.array([w / 2, h / 2]) + np.array([x + w / 2, y + h / 2])
+    # Need to flip y coordinate due to pixel coordinates being defined from the top-left
+    viewport_xy[:, 1] = h - viewport_xy[:, 1]
+
+    return viewport_xy
+
+def convert_points_to_gl_viewport_space(pts, modelview_matrix, proj_matrix, viewport_info):
+    ndc = convert_points_to_ndc_space(pts, modelview_matrix, proj_matrix)
+    return convert_ndc_to_gl_viewport(ndc, viewport_info)
+
+
+def convert_gl_viewport_space_to_ndc_2d(viewport_xy, viewport_info):
+    x, y, w, h = viewport_info
+    viewport_xy = viewport_xy.copy()
+    viewport_xy[:, 1] = h - viewport_xy[:, 1]
+    ndc = (viewport_xy - np.array([x + w / 2, y + h / 2])) / np.array([w / 2, h / 2])
+    return ndc
+
+
+def convert_pyqt_to_gl_viewport_space(pixel, pyqt_wh, viewport_info):
+    click_x, click_y = pixel
+    pyqt_w, pyqt_h = pyqt_wh
+    x, y, w, h = viewport_info
+
+    click_x_vp = click_x * w / pyqt_w
+    click_y_vp = click_y * h / pyqt_h
+
+    click_vp = np.array([click_x_vp, click_y_vp])
+    return click_vp

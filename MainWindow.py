@@ -105,7 +105,9 @@ class PointCloudViewerGUI(QMainWindow):
             'save_config': self.save_config,
             'skeletonize': self.skeletonize,
             'save_skeleton': self.save_active_skeleton,
-            'update_repair_mode': self.update_repair_mode
+            'update_repair_mode': self.update_repair_mode,
+            'apply_polygons': self.apply_polygons,
+            'enable_polygon_mode': self.enable_polygon_mode,
         }
         self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
         self.pc_management_panel.hide()
@@ -220,6 +222,8 @@ class PointCloudViewerGUI(QMainWindow):
         # The display for the robot drawing
         self.glWidget = DrawPointCloud(self, pcd_file=self.settings.get('pcd_file', None),
                                        cover_file=self.settings.get('cover_file', None))
+
+        self.glWidget.polygon_complete_callback = self.pc_management_panel.update_polygons
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -514,7 +518,7 @@ class PointCloudViewerGUI(QMainWindow):
                 self.pc_management_panel.load_config(config_dict)
                 print('Loaded settings from config!')
             except IOError:
-                pass
+                self.pc_management_panel.load_config({})
 
             self.glWidget.refresh_downsampled_points()
 
@@ -730,6 +734,15 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.glWidget.repair_mode = enable
         self.glWidget.repair_value = value
+
+    def enable_polygon_mode(self, toggle):
+        self.glWidget.polygon_filter_mode = toggle
+
+    def apply_polygons(self, polygons):
+        self.glWidget.polygon_filters = polygons
+        self.glWidget.refresh_filters()
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.update()
 
 
 if __name__ == '__main__':

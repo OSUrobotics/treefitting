@@ -122,6 +122,7 @@ class PointCloudManagementPanel(QWidget):
 
         self.callbacks = callbacks
         self.saved_skeleton = None
+        self.polygons = []
 
         layout = QHBoxLayout()
         self.setLayout(layout)
@@ -136,14 +137,23 @@ class PointCloudManagementPanel(QWidget):
         self.z_sliders = DoubleSlider('z', 0, 1, 1000)
         self.trusted = QCheckBox('Trusted')
         self.trusted.setChecked(False)
+        self.enable_polygon_box = QCheckBox('Polygon Filter')
+        self.enable_polygon_box.setChecked(False)
+        self.polygon_label = QLabel('')
+        delete_polygons = QPushButton('Delete all polygons')
+        self.update_polygon_label()
         commit_button = QPushButton('Commit')
 
         self.x_sliders.connect_to_value_changed(self.update_pc)
         self.y_sliders.connect_to_value_changed(self.update_pc)
         self.z_sliders.connect_to_value_changed(self.update_pc)
+        self.enable_polygon_box.clicked.connect(self.enable_polygon_mode)
+        delete_polygons.clicked.connect(self.delete_polygons)
+
         commit_button.clicked.connect(self.save_config)
 
-        widgets = [self.x_sliders, self.y_sliders, self.z_sliders, self.trusted, commit_button]
+        widgets = [self.x_sliders, self.y_sliders, self.z_sliders, self.trusted,
+                   self.enable_polygon_box, self.polygon_label, delete_polygons, commit_button]
         for widget in widgets:
             pc_layout.addWidget(widget)
         pc_layout.addStretch()
@@ -221,6 +231,7 @@ class PointCloudManagementPanel(QWidget):
         return {
             'trusted': self.trusted.isChecked(),
             'bounds': self.values_dict,
+            'polygons': self.polygons,
         }
 
     def update_pc(self):
@@ -232,6 +243,8 @@ class PointCloudManagementPanel(QWidget):
     def load_config(self, config):
         self.load_bounds_dict(config.get('bounds'))
         self.trusted.setChecked(config.get('trusted', False))
+        self.polygons = config.get('polygons', [])
+        self.apply_polygons()
 
     def load_bounds_dict(self, bounds_dict):
         if not bounds_dict:
@@ -266,3 +279,24 @@ class PointCloudManagementPanel(QWidget):
             self.repair_value_menu.setEnabled(False)
 
         self.callbacks['update_repair_mode'](repair_mode, repair_value)
+
+
+    def update_polygon_label(self):
+        n = len(self.polygons)
+        self.polygon_label.setText('{} active polygon filter(s)'.format(n))
+
+    def enable_polygon_mode(self):
+        toggle = self.enable_polygon_box.isChecked()
+        self.callbacks['enable_polygon_mode'](toggle)
+
+    def apply_polygons(self):
+        self.callbacks['apply_polygons'](self.polygons)
+        self.update_polygon_label()
+
+    def delete_polygons(self):
+        self.polygons = []
+        self.apply_polygons()
+
+    def update_polygons(self, polygons):
+        self.polygons = polygons
+        self.update_polygon_label()

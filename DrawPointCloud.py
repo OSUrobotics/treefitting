@@ -15,7 +15,10 @@ import numpy as np
 import ctypes
 
 from tree_model import TreeModel
+from utils import convert_points_to_gl_viewport_space, convert_pyqt_to_gl_viewport_space, \
+    convert_gl_viewport_space_to_ndc_2d, convert_ndc_to_gl_viewport, convert_points_to_ndc_space
 import matplotlib.pyplot as plt
+import matplotlib.path as mpath
 plt.ion()
 
 SHADER_CODE = """
@@ -155,7 +158,12 @@ class DrawPointCloud(QOpenGLWidget):
             'y': (-np.inf, np.inf),
             'z': (-np.inf, np.inf),
         }
+
+        self.polygon_filter_mode = False
         self.polygon_filters = []
+        self.polygon_complete_callback = None
+        self.active_polygon = []
+
         self.visual_filter = np.ones(len(self.my_pcd.points), dtype=np.bool)
         self.refresh_downsampled_points()
 
@@ -186,7 +194,13 @@ class DrawPointCloud(QOpenGLWidget):
         z_hi = pc[:, 2] <= self.axis_filters['z'][1]
 
         axis_filter = x_low & x_hi & y_low & y_hi & z_low & z_hi
-        # TODO: Implement polygon filters
+
+        for polygon_ndc, modelview_matrix, proj_matrix in self.polygon_filters:
+            polygon_path = mpath.Path(polygon_ndc)
+            pts_ndc = convert_points_to_ndc_space(pc, modelview_matrix, proj_matrix)[:, :2]
+
+            polygon_filter = ~polygon_path.contains_points(pts_ndc)
+            axis_filter = axis_filter & polygon_filter
 
         return axis_filter
 
@@ -288,6 +302,19 @@ class DrawPointCloud(QOpenGLWidget):
         GL.glVertex2d(x_center - bin_width, y_center + bin_height)
         GL.glVertex2d(x_center + bin_width, y_center + bin_height)
         GL.glVertex2d(x_center + bin_width, y_center - bin_height)
+        GL.glEnd()
+
+    @staticmethod
+    def draw_polygon(xys):
+        # TODO: Bug! This seems to draw with some weird perspective
+
+        GL.glLoadIdentity()
+        GL.glLineWidth(2.0)
+        GL.glBegin(GL.GL_LINE_LOOP)
+        GL.glColor3d(0.5, 0.5, 0.9)
+        for x, y in xys:
+            print(x, y)
+            GL.glVertex3d(x, y, 1)
         GL.glEnd()
 
     @staticmethod
@@ -476,6 +503,11 @@ class DrawPointCloud(QOpenGLWidget):
 
         GL.glDisable(GL.GL_DEPTH_TEST)
         self.draw_bin_size(radius)
+        if self.active_polygon:
+            viewport_info = GL.glGetInteger(GL.GL_VIEWPORT)
+            print('Drawing VP Info: {}'.format(viewport_info))
+            ndc = convert_gl_viewport_space_to_ndc_2d(np.array(self.active_polygon), viewport_info)
+            self.draw_polygon(ndc)
 
 
 
@@ -495,42 +527,28 @@ class DrawPointCloud(QOpenGLWidget):
 
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
+        click = (self.lastPos.x(), self.lastPos.y())
+
+        if self.polygon_filter_mode:
+            self.handle_polygon_click_event(click)
+            return
+
         if not self.repair_mode or self.tree.thinned_tree is None:
             return
 
-        click_x = self.lastPos.x()
-        click_y = self.lastPos.y()
-
         modelview_matrix, proj_matrix = self.last_tf_data
+        viewport_info = GL.glGetInteger(GL.GL_VIEWPORT)
         all_nodes = list(self.tree.superpoint_graph.nodes)
         all_pts = np.array([self.tree.superpoint_graph.nodes[n]['point'] for n in all_nodes])
-
-        all_pts_homog = np.ones((len(all_pts), 4))
-        all_pts_homog[:, :3] = all_pts
-
-        clip_space_pts = proj_matrix @ modelview_matrix @ all_pts_homog.T
-        ndc = (clip_space_pts / clip_space_pts[3]).T[:, :3]
-        # ndc = ndc[(np.abs(ndc[:,:2]) <= 1).all(axis=1)]
-
-        # Transformation to screen space
-        x, y, w, h = GL.glGetInteger(GL.GL_VIEWPORT)
-        # n, f = GL.glGetFloatv(GL.GL_DEPTH_RANGE)
-
-        screen_xy = ndc[:,:2] * np.array([w/2, h/2]) + np.array([x + w/2, y + h/2])
-        # Need to flip y coordinate due to pixel coordinates being defined from the top-left
-        screen_xy[:,1] = h - screen_xy[:,1]
+        vp_xy = convert_points_to_gl_viewport_space(all_pts, modelview_matrix, proj_matrix,
+                                                        viewport_info)
 
         # Convert the clicked point in PyQt land to the OpenGL viewport land
         geom = self.frameGeometry()
-        pyqt_w = geom.width()
-        pyqt_h = geom.height()
+        pyqt_wh = (geom.width(), geom.height())
+        click_vp = convert_pyqt_to_gl_viewport_space(click, pyqt_wh, viewport_info)
 
-        click_x_vp = click_x * w / pyqt_w
-        click_y_vp = click_y * h / pyqt_h
-
-        click_vp = np.array([click_x_vp, click_y_vp])
-
-        all_dists = np.linalg.norm(screen_xy - click_vp, axis=1)
+        all_dists = np.linalg.norm(vp_xy - click_vp, axis=1)
         min_node_idx = all_dists.argmin()
         chosen_node = all_nodes[min_node_idx]
         min_dist = all_dists[min_node_idx]
@@ -549,7 +567,7 @@ class DrawPointCloud(QOpenGLWidget):
         # print('Closest node was {} ({:.2f} pixels away)'.format(chosen_node, min_dist))
 
     def mouseMoveEvent(self, event):
-        if self.repair_mode:
+        if self.repair_mode or self.polygon_filter_mode:
             return
 
         dx = event.x() - self.lastPos.x()
@@ -560,6 +578,44 @@ class DrawPointCloud(QOpenGLWidget):
             self.set_turntable_rotation(self.turntable + 4 * dx)
 
         self.lastPos = event.pos()
+
+    def handle_polygon_click_event(self, click):
+        # viewport_info = GL.glGetInteger(GL.GL_VIEWPORT)
+        geom = self.frameGeometry()
+        pyqt_wh = (geom.width(), geom.height())
+
+        # For some reason, the viewport is wrong when outside of PaintGL, it seems to get the whole window
+        viewport_info = [0, 0, pyqt_wh[0], pyqt_wh[1]]
+        viewport_px = convert_pyqt_to_gl_viewport_space(click, pyqt_wh, viewport_info)
+
+        if not self.active_polygon:
+            self.active_polygon.append(viewport_px)
+            return
+
+        dist_threshold = 5.0
+        first_px = self.active_polygon[0]
+        last_px = self.active_polygon[-1]
+        if np.linalg.norm(last_px - viewport_px) < dist_threshold or np.linalg.norm(first_px - viewport_px) < dist_threshold:
+            # Commit the polygon if there's enough points
+            if len(self.active_polygon) > 2:
+                print('Finished polygon!')
+                polygon_ndc = convert_gl_viewport_space_to_ndc_2d(np.array(self.active_polygon), viewport_info)
+                modelview_matrix, proj_matrix = self.last_tf_data
+                filter_info = (polygon_ndc, modelview_matrix, proj_matrix)
+                self.polygon_filters.append(filter_info)
+                self.refresh_filters()
+                self.make_pcd_gl_list()
+                if self.polygon_complete_callback is not None:
+                    self.polygon_complete_callback(self.polygon_filters)
+
+            self.active_polygon = []
+        else:
+            self.active_polygon.append(viewport_px)
+
+        self.update()
+
+
+
 
     def make_pcd_gl_list(self):
 

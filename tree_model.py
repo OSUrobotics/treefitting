@@ -19,6 +19,7 @@ import random
 from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
 from ipdb import set_trace
 import time
+import matplotlib.pyplot as plt
 
 class TreeModel(object):
 
@@ -580,6 +581,9 @@ class GrownTree:
             self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
             self.update_node_eligibility(self.trunk_node)
 
+        # Some debugging for plotting
+        self.bounds = None
+
     def copy(self):
         precomputed_info = {
             'dijkstra_maps': self.dijkstra_maps,
@@ -649,6 +653,24 @@ class GrownTree:
         if path_to_optimize[1] in self.tip_nodes:
             self.tip_nodes.remove(path_to_optimize[1])
 
+    def plot_tree(self, file_name, title=''):
+
+        all_pts = np.array([self.base_graph.nodes[n]['point'] for n in self.base_graph.nodes])
+        if self.bounds is None:
+            self.bounds = list(zip(all_pts.min(axis=0), all_pts.max(axis=0)))
+        colors = ['green', 'red', 'blue']
+        for edge in self.current_graph.edges:
+            pt_1 = self.base_graph.nodes[edge[0]]['point']
+            pt_2 = self.base_graph.nodes[edge[1]]['point']
+            assignment = self.current_graph.edges[edge]['classification']
+            plt.plot([pt_1[0], pt_2[0]], [pt_1[1], pt_2[1]], color=colors[assignment])
+
+        plt.xlim(*self.bounds[0])
+        plt.ylim(*self.bounds[1])
+        plt.title(title)
+
+        plt.savefig(file_name)
+        plt.clf()
 
     def estimate_trunk_and_tips(self):
 
@@ -1237,9 +1259,10 @@ class GrownTree:
             if (sum(map(lambda x: x==1, in_assignments)) >= 2):
                 eligible.difference_update({1})
 
-            # Case 3: If you're between two supports, can't have a support coming out
-            if (out_assignment == 1 and 1 in in_assignments):
-                eligible.difference_update({1})
+            # Case 3: If you're between two supports/leaders, can't have a support/leader coming out
+            for assignment in [1, 2]:
+                if (out_assignment == assignment and assignment in in_assignments):
+                    eligible.difference_update({assignment})
 
         if inplace:
             self.current_graph.nodes[node]['eligible'] = eligible
@@ -1503,6 +1526,7 @@ class TreeManager:
 
         self.global_best_score = 0
         self.global_best_tree = self.population[0]
+        self.next_resample = None
 
 
     def iterate_to_completion(self):
@@ -1515,12 +1539,25 @@ class TreeManager:
     def iterate_once(self):
         self.iteration += 1
         start = time.time()
-        if not self.is_first:
-            self.resample()
-        else:
-            self.is_first = False
+        if self.next_resample is not None:
+            self.apply_resample()
+
         self.grow_all()
         self.score_all()
+        self.compute_next_resample()
+
+        # print('\tPlotting diagnostics...')
+        #
+        # ranked = np.argsort(self.last_scores)[::-1]
+        #
+        # for rank, pop_index in enumerate(ranked):
+        #     rank = rank + 1
+        #     tree = self.population[pop_index]
+        #     resampled_count = (self.next_resample == pop_index).sum()
+        #     file_name = 'i_{:03d}_rank_{:02d}.png'.format(self.iteration, rank)
+        #     title = 'Iteration {}, rank {} (Score {:.2f}, resampled {} times)'.format(self.iteration, rank, self.last_scores[pop_index], resampled_count)
+        #     tree.plot_tree(os.path.join('/home/main/diagnostics', file_name), title)
+
 
         end = time.time()
 
@@ -1555,7 +1592,7 @@ class TreeManager:
     def score_all(self):
         self.last_scores = np.array([tree.score for tree in self.population])
 
-    def resample(self):
+    def compute_next_resample(self):
 
         weights = np.exp(self.selection_decay * (self.last_scores - self.last_scores.max()))
         weights = weights / weights.sum()
@@ -1566,15 +1603,11 @@ class TreeManager:
         best_index = np.argmax(self.last_scores)
 
         choices = np.random.choice(n, n_random, replace=True, p=weights)
-        new_population = [self.population[best_index].copy() for _ in range(self.best_repopulate)] + \
-                         [self.population[i].copy() for i in choices]
+        self.next_resample = np.array([best_index] * self.best_repopulate + list(choices))
 
-        import pandas as pd
-        choices = pd.Series(choices)
-        print('Resampling stats:')
-        print(choices.groupby(choices).count())
-
-        self.population = new_population
+    def apply_resample(self):
+        self.population = [self.population[i].copy() for i in self.next_resample]
+        self.next_resample = None
 
 class Superpoint:
 
