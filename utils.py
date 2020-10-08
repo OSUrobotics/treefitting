@@ -27,7 +27,7 @@ class PriorityQueue:
     def __bool__(self):
         return len(self.items) > 0
 
-def points_to_grid_svd(pts, start, end, normalize=True):
+def points_to_grid_svd(pts, start, end, normalize=True, output_extra=False):
     main_axis = start - end
     main_axis = main_axis / np.linalg.norm(main_axis)
     projected = project_points_onto_normal(start, main_axis, pts)
@@ -41,7 +41,22 @@ def points_to_grid_svd(pts, start, end, normalize=True):
     grid = np.histogram2d(all_pts[:, 0], all_pts[:, 1], bins=[bounds_x, bounds_y])[0]
     if normalize:
         grid = grid / grid.max()
-    return grid
+    if not output_extra:
+        return grid
+    else:
+
+        plane_normal = np.cross(main_axis, secondary_axis)
+        proj_3d = project_points_onto_normal((start + end) / 2, plane_normal, pts)
+
+        return {
+            'grid': grid,
+            'start': start,
+            'end': end,
+            'first_projection': projected,
+            'y_axis': secondary_axis,
+            'second_projection': proj_3d,
+            'points': pts,
+        }
 
 
 def project_points_onto_normal(plane_origin, plane_normal, points):

@@ -151,7 +151,7 @@ class DrawPointCloud(QOpenGLWidget):
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
 
         self.show_tree_points = False
-        self.visual_downsampling = 10000
+        self.visual_downsampling = 50000
         self.downsampled_points = np.zeros((0, 3))
         self.axis_filters = {
             'x': (-np.inf, np.inf),

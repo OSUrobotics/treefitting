@@ -1,7 +1,7 @@
 import mesh
 import skeletonization as skel
 import networkx as nx
-from collections import defaultdict
+from collections import defaultdict, Counter
 import numpy as np
 from enum import Enum
 import scipy.signal as signal
@@ -18,6 +18,7 @@ from copy import deepcopy
 import random
 from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
 from ipdb import set_trace
+from itertools import product
 import time
 import matplotlib.pyplot as plt
 
@@ -47,7 +48,7 @@ class TreeModel(object):
         self.point_beliefs = None
 
     @classmethod
-    def from_point_cloud(cls, pc, num_points=50000, config=None, kd_tree_pts = 100):
+    def from_point_cloud(cls, pc, kd_tree_pts = 100):
         new_model = cls()
         new_model.base_points = pc
         new_model.points = pc
@@ -61,10 +62,10 @@ class TreeModel(object):
         pc = pymesh.load_mesh(file_name).vertices
         return cls.from_point_cloud(pc)
 
-    def initialize_template_tree(self):
+    def initialize_template_tree(self, curvature_penalty):
         HALF_LENGTH = 0.10
         score_decay = np.log(2) / HALF_LENGTH
-        self.template_tree = GrownTree(self.superpoint_graph, curvature_penalty=0.02, score_decay=score_decay)
+        self.template_tree = GrownTree(self.superpoint_graph, curvature_penalty=curvature_penalty, score_decay=score_decay)
 
     def rasterize(self, grid_size = 128, override=False):
         if self.raster is not None and self.raster.shape == (grid_size, grid_size) and not override:
@@ -112,13 +113,23 @@ class TreeModel(object):
 
         self.rasterize_tree()
 
+        print('TEMP: Outputting edge diagnostic information')
+
         for s, e in self.superpoint_graph.edges:
             s_n = self.superpoint_graph.nodes[s]
             e_n = self.superpoint_graph.nodes[e]
 
             point_indexes = list(set(s_n['superpoint'].neighbor_index).union(e_n['superpoint'].neighbor_index))
             points = self.points[point_indexes]
-            local_render = points_to_grid_svd(points, s_n['point'], e_n['point'], normalize=True)
+
+
+            info = points_to_grid_svd(points, s_n['point'], e_n['point'], normalize=True, output_extra=True)
+            #
+            # import pickle
+            # with open('/home/main/diagnostics/edge_info/{}_{}.edge'.format(s, e), 'wb') as fh:
+            #     pickle.dump(info, fh)
+
+            local_render = info['grid']
             global_render = rasterize_3d_points(points, bounds=self.raster_bounds)[0]
 
             self.superpoint_graph.edges[s, e]['global_image'] = np.stack([self.raster, global_render], axis=2)
@@ -130,9 +141,10 @@ class TreeModel(object):
     def skeletonize(self):
 
         if self.template_tree is None:
-            self.initialize_template_tree()
+            self.initialize_template_tree(0.3)
 
-        self.tree_population = TreeManager(self.template_tree, population_size=50, selection_decay=self.template_tree.score_decay,
+        self.tree_population = TreeManager(self.template_tree, population_size=500,
+                                           proposal_size=1000, selection_decay=self.template_tree.score_decay,
                                            best_repopulate=5, show_current_best=False)
 
         print('Skeletonizing tree...')
@@ -199,47 +211,6 @@ class TreeModel(object):
 
             self.superpoint_graph.nodes[node]['color'] = color
 
-        # to_show = set(self.superpoint_graph.subgraph(max(nx.connected_components(self.superpoint_graph))).edges)
-
-        #
-        #
-        # if settings_dict['thinning'] is not None:
-        #     to_show.intersection_update(self.thin_skeleton(*settings_dict['thinning']))
-
-        # for edge in self.superpoint_graph.edges:
-        #     if edge not in to_show:
-        #         self.superpoint_graph.edges[edge]['color'] = False
-        #         continue
-        #
-        #     pred = self.superpoint_graph.edges[edge]['prediction']
-        #
-        #     connection_col = 1 if settings_dict['show_connected'] else 0
-        #     is_visible = pred['connected_values'][connection_col] > settings_dict['connection_threshold']
-        #
-        #     if not is_visible:
-        #         self.superpoint_graph.edges[edge]['color'] = False
-        #         continue
-        #
-        #     if settings_dict['multi_classify']:
-        #         predicted_cat = np.argmax(pred['classification_values'])
-        #         predicted_val = pred['classification_values'][predicted_cat]
-        #         cat_info = settings_dict['data'][predicted_cat]
-        #         if predicted_val >= cat_info['threshold']:
-        #             color = cat_info['color']
-        #         else:
-        #             color = False
-        #
-        #     else:
-        #         # Single - Even if a branch doesn't have a category as its primary
-        #         # classification, show it
-        #         val = pred['classification_values'][settings_dict['data']['category']]
-        #         if val < settings_dict['data']['threshold']:
-        #             color = False
-        #         else:
-        #             color = (1.0, 1.0, 1.0)
-        #
-        #     self.superpoint_graph.edges[edge]['color'] = color
-
     def classify_edges(self):
 
         if self.is_classified:
@@ -271,7 +242,11 @@ class TreeModel(object):
 
             p1 = self.superpoint_graph.nodes[edge[0]]['point']
             p2 = self.superpoint_graph.nodes[edge[1]]['point']
-            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - unlikeliness) * np.linalg.norm(p2 - p1)
+
+            print('TESTINGNEGATIVES')
+
+
+            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - 1.5 * unlikeliness) * np.linalg.norm(p2 - p1)
             self.superpoint_graph.edges[edge]['normalized_unlikeliness'] = unlikeliness * np.linalg.norm(p2 - p1)
 
         self.is_classified = True
@@ -491,14 +466,6 @@ class TreeModel(object):
             world_xyzs_homog = tf @ homog.T
             world_xyzs = world_xyzs_homog[:3].T
 
-            # real_pts = self.points[superpt.neighbor_index]
-            # discrep = world_xyzs.mean(axis=0) - real_pts.mean(axis=0)
-            # if np.any(np.abs(discrep) > 0.07):
-            #     print('Big discrepancy!')
-            #     print(discrep)
-            #     all_pts = [world_xyzs, real_pts]
-            #     break
-
             all_pts.append(world_xyzs)
 
         all_pts = np.concatenate(all_pts)
@@ -515,7 +482,7 @@ class GrownTree:
 
     VIOLATION_COSTS = {
         'angle': 0.4,
-        'direction': 0.1,
+        'direction': 100,
         'topology':
             {0: np.inf,     # Should never happen in the first place
              1: 10,         # This also should never happen
@@ -538,11 +505,12 @@ class GrownTree:
     """
 
     def __init__(self, base_graph, score_key='normalized_likeliness', cost_key='normalized_unlikeliness',
-                 curvature_penalty=0.0, score_decay=1.0, potential_constant=0.0,
+                 curvature_penalty=0.0, score_decay=1.0,
                  precomputed_info=None, debug=False):
 
         self.base_graph = base_graph
         self.current_graph = None
+        self.set_rep = frozenset([])
 
         self.debug = debug
         self.score_key = score_key
@@ -553,7 +521,6 @@ class GrownTree:
         # Parameters
         self.curvature_penalty = curvature_penalty
         self.score_decay = score_decay
-        self.potential_constant = potential_constant
 
         # Information which is automatically computed about the tree
         self.trunk_node = None
@@ -561,7 +528,6 @@ class GrownTree:
 
         # Stuff to keep track of progress/repairs
         self.base_score = 0
-        self.current_iterator = None
         self.segment_to_fix = None
         self.edges_to_queue_removal = None
         self.debug_next = False
@@ -572,6 +538,7 @@ class GrownTree:
             self.tip_nodes = precomputed_info['tip_nodes'].copy()
             self.dijkstra_maps = precomputed_info['dijkstra_maps'].copy()
             self.base_score = precomputed_info['base_score']
+            self.set_rep = precomputed_info['set_rep']
         else:
             # Initialize information such as the trunk nodes, tip nodes, etc.
             self.current_graph = nx.DiGraph()
@@ -579,6 +546,7 @@ class GrownTree:
 
             self.estimate_trunk_and_tips()
             self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
+
             self.update_node_eligibility(self.trunk_node)
 
         # Some debugging for plotting
@@ -591,6 +559,7 @@ class GrownTree:
             'tip_nodes': self.tip_nodes,
             'trunk_node': self.trunk_node,
             'base_score': self.base_score,
+            'set_rep': self.set_rep
         }
 
         return GrownTree(self.base_graph, cost_key=self.cost_key, score_key=self.score_key,
@@ -598,60 +567,7 @@ class GrownTree:
                          precomputed_info=precomputed_info, debug=self.debug)
 
 
-    def iterate(self):
-        if self.current_iterator is None:
-            self.current_iterator = self.iterator()
 
-        try:
-            next(self.current_iterator)
-        except StopIteration:
-            self.current_iterator = self.iterator()
-
-
-    def iterator(self):
-
-        if self.debug:
-            print('-' * 40 + '\n')
-
-        if not self.tip_nodes:
-            print('All done!')
-            raise StopIteration
-
-        # Pick a tip at random
-
-        tip_node = random.choice(self.tip_nodes)
-        path_to_optimize = self.select_path_to_tip(tip_node, weighted_choice=True)
-
-        if path_to_optimize is None:
-            print('Node {} is now disconnected from the tree. Removing from list...'.format(tip_node))
-            self.tip_nodes.remove(tip_node)
-            del self.dijkstra_maps[tip_node]
-            raise StopIteration
-
-        if self.debug:
-            print('Chose edge ({}, {}) to optimize'.format(path_to_optimize[0], path_to_optimize[1]))
-        growth_node = path_to_optimize[0]
-
-        if self.debug:
-            # ====== For display purposes only - Can delete ===== #
-            orig_graph = self.current_graph
-            display_graph = self.current_graph.copy()
-            for e in edges(path_to_optimize):
-                display_graph.add_edge(*e, classification=2, override_color=(1.0, 0.0, 1.0))
-                self.current_graph = display_graph
-            yield
-            self.current_graph = orig_graph
-
-        edge_assignment = self.pick_assignment_for_path(path_to_optimize, self.current_graph.nodes[growth_node]['eligible'],
-                                                        weighted_choice=True, allow_null_assignment=False)
-
-        if self.debug:
-            print('Chosen edge assignment:\n{}'.format(edge_assignment))
-
-        self.commit_edge((path_to_optimize[1], growth_node), edge_assignment, validate=False)
-
-        if path_to_optimize[1] in self.tip_nodes:
-            self.tip_nodes.remove(path_to_optimize[1])
 
     def plot_tree(self, file_name, title=''):
 
@@ -732,7 +648,7 @@ class GrownTree:
     FUNCTIONS FOR DETERMINING VIOLATIONS AND ASSESSING THE TREE QUALITY
     """
 
-    def commit_edge(self, edge, assignment, validate=True):
+    def commit_edge(self, edge, assignment, validate=True, debug=False):
         """
         Adds edge to the current branch and also incrementally updates the tree score.
         :param edge:
@@ -748,6 +664,7 @@ class GrownTree:
                 raise ValueError("Edge must end in an existing part of the tree!")
 
         self.current_graph.add_edge(*edge, classification=assignment)
+        self.set_rep = self.set_rep.union([edge[0], edge[1], assignment])
 
         # Assess violations
 
@@ -765,12 +682,6 @@ class GrownTree:
         current_topology_violation = self.assess_topology_split_violation(out_class, in_classes)
         self.current_graph.nodes[edge[1]]['topology_violation'] = current_topology_violation
         score_change -= (current_topology_violation - previous_topology_violation)
-
-        # TEMP HACK TO AVOID WEIRD SUPPORT ISSUES
-        if out_class == 0 and assignment == 1 and in_classes.count(1) == 2:
-            edge_1, edge_2 = [e for e in self.current_graph.in_edges(edge[1]) if self.current_graph.edges[e]['classification'] == 1]
-            if self.get_node_turn_angle(edge_1[0], edge_1[1], edge_2[0]) > self.SUPPORT_SPLIT_VIOLATION:
-                score_change -= 1000
 
         self.base_score += score_change
         self.update_node_eligibility(edge[0])
@@ -830,19 +741,16 @@ class GrownTree:
     def assess_angular_violation(self, node, next_node, next_class, prev_node, prev_class):
 
         angle = self.get_node_turn_angle(prev_node, node, next_node)
-        if next_class != prev_class and angle > self.INTER_VIOLATION:
-            return self.VIOLATION_COSTS['angle']
-
-        elif next_class == prev_class and angle > self.INTRA_VIOLATION:
-            return self.VIOLATION_COSTS['angle']
-
-        return 0
+        if next_class != prev_class:
+            return 0
+        # return angle * self.curvature_penalty
+        return 100 if angle > np.radians(75) else (angle ** 2) * self.curvature_penalty
 
     def assess_edge_violation(self, node, next_node, classification):
 
         violation = 0
 
-        xy_angle = self.get_edge_elevation(node, next_node)
+        xy_angle = self.get_edge_elevation(node, next_node, xy_project=classification == 1)
 
         if classification == 1 and xy_angle > self.SUPPORT_VIOLATION:
             violation += self.VIOLATION_COSTS['direction']
@@ -879,11 +787,7 @@ class GrownTree:
 
     @property
     def score(self):
-
-        if not self.potential_constant:
-            return self.base_score
-
-        return self.base_score + self.potential_constant * self.score_remaining_branches()
+        return self.base_score
 
 
     def rescore_tree(self, tree=None, recompute_violations=True):
@@ -903,29 +807,13 @@ class GrownTree:
         pos_contrib = sum([self.base_graph.edges[e][self.score_key] for e in tree.edges])
         return pos_contrib - total_violations
 
-    def score_segment(self, segment, assignments):
-
-        raise NotImplementedError("Do you need this for something?")
-
-        # Total violations
-        if isinstance(assignments, int):
-            assignments = [assignments] * (len(segment) - 1)
-
-        score = 0
-        edges_and_assignments = list(zip(edges(segment), assignments))
-
-        for edge, assignment in edges_and_assignments:
-            score += self.base_graph.edges[edge][self.score_key]
-            score -= self.assess_edge_violation(*edge, assignment)
-
-        for (in_edge, in_assignment), (out_edge, out_assignment) in edges(edges_and_assignments):
-            score -= self.assess_angular_violation(out_edge[0], out_edge[1], out_assignment, in_edge[0], in_assignment)
-
-        return score
-
-    def get_edge_elevation(self, a, b):
+    def get_edge_elevation(self, a, b, xy_project=False):
         pt_a = self.base_graph.nodes[a]['point']
         pt_b = self.base_graph.nodes[b]['point']
+
+        if xy_project:
+            pt_a = pt_a[:2]
+            pt_b = pt_b[:2]
 
         diff = np.abs(pt_a - pt_b)
         return np.arctan2(diff[1], diff[0])
@@ -1007,7 +895,17 @@ class GrownTree:
         queue = PriorityQueue(minimize=True)
         queue.add((None, source_node), 0)
 
-        path_dict = {}
+        default_metadata =  {
+            'path': [source_node],                      # Path is expressed as towards the tip
+            'total_cost': 0,                            # Unlikeliness cost + curvature penalties
+            'total_reward': 0,                          # Confidence-length of all edges in path
+            'accumulated_angle_penalties': [],          # All curvature penalties, listed in order
+            'total_angle_penalties': 0,                 # Sum of accumulated costs
+            'total_angle_penalties_worst_one_out': 0,   # Sum of accumulated costs removing highest cost
+            'total_angle_penalties_worst_two_out': 0,   # Sum of accumulated costs removing second highest cost
+        }
+
+        path_dict = {(None, source_node): default_metadata}
 
         while queue:
 
@@ -1021,11 +919,7 @@ class GrownTree:
             elif not consider_target_edges and current in goals:
                 remaining_goals.remove(current)
                 # A bit of a hack to identify the edge associated with the goal node
-                path_dict[current] = {
-                    'previous_edge': edge,
-                    'running_cost': running_cost,
-                    'reward': path_dict[edge]['reward']
-                }
+                path_dict[current] = deepcopy(path_dict[edge])
 
             if not remaining_goals:
                 break
@@ -1038,186 +932,48 @@ class GrownTree:
                 if neighbor == previous:
                     continue
 
-                if previous is not None:
-                    previous_reward = path_dict[previous, current]['reward']
-                else:
-                    previous_reward = 0
-
-
                 edge_cost = self.base_graph.edges[current, neighbor][self.cost_key]
-                edge_reward = self.base_graph.edges[current, neighbor][self.score_key]
-
                 curvature_cost = 0
                 if previous is not None:
-                    node_angle = self.get_node_turn_angle(previous, current, neighbor)
-                    curvature_cost = node_angle * self.curvature_penalty
-                    # TODO: Unify this into a single curvature-based penalty
-                    if node_angle > self.INTRA_VIOLATION:
-                        edge_reward -= self.VIOLATION_COSTS['angle']
+                    curvature_cost = self.assess_angular_violation(current, neighbor, -1, previous, -1)
 
                 new_cost = running_cost + edge_cost + curvature_cost
-                new_reward = previous_reward + edge_reward
 
                 try:
                     existing_metadata = path_dict[(current, neighbor)]
                 except KeyError:
-                    existing_metadata = {'running_cost': np.inf}
+                    existing_metadata = {'total_cost': np.inf}
+                existing_cost = existing_metadata['total_cost']
 
-                existing_cost = existing_metadata['running_cost']
                 if new_cost < existing_cost:
+                    past_metadata = path_dict[previous, current]
+
+                    new_path = [neighbor] + past_metadata['path']
+
+                    past_reward = past_metadata['total_reward']
+                    new_reward = past_reward + self.base_graph.edges[current, neighbor][self.score_key]
+
+                    angle_penalties = [curvature_cost] + past_metadata['accumulated_angle_penalties']
+                    angle_penalites_sorted = sorted(angle_penalties)
+
+                    total_penalties = sum(angle_penalties)
+                    total_penalties_worst_one_out = total_penalties - sum(angle_penalites_sorted[-1:])
+                    total_penalties_worst_two_out = total_penalties - sum(angle_penalites_sorted[-2:])
+
                     new_metadata = {
-                        'previous_edge': (previous, current),
-                        'running_cost': new_cost,
-                        'reward': new_reward,
+                        'path': new_path,
+                        'total_cost': new_cost,
+                        'total_reward': new_reward,
+                        'accumulated_angle_penalties': angle_penalties,
+                        'total_angle_penalties': total_penalties,
+                        'total_angle_penalties_worst_one_out': total_penalties_worst_one_out,
+                        'total_angle_penalties_worst_two_out': total_penalties_worst_two_out,
                     }
+
                     path_dict[(current, neighbor)] = new_metadata
                     queue.add((current, neighbor), new_cost)
 
         return path_dict
-
-    def pick_assignment_for_path(self, path, eligible_classes, leading_node=None, weighted_choice=False, allow_null_assignment=True):
-
-        eligible_classes = list(eligible_classes)
-        scores = []
-
-        for leading_class in eligible_classes:
-
-            _, score = self.optimize_path_to_tip(path, leading_class, leading_node=leading_node, terminate_if_negative=False,
-                                                 fix_leading_class=True)
-            scores.append(score)
-
-        if allow_null_assignment:
-            eligible_classes.append(None)
-            scores.append(0)
-
-        scores = np.array(scores)
-
-        if weighted_choice:
-            scores = scores - scores.mean()
-            weights = np.exp(self.score_decay * scores)
-            weights = weights / weights.sum()
-
-            if self.debug:
-                print('Looking at class assignment weights for the chosen path...')
-                for assignment, weight in zip(eligible_classes, weights):
-                    print('\t{}: {:.3f}'.format(assignment, weight))
-
-            return eligible_classes[np.random.choice(len(eligible_classes), p=weights)]
-        else:
-            return eligible_classes[np.argmax(scores)]
-
-
-    def optimize_path_to_tip(self, path, leading_class, leading_node=None, terminate_if_negative=False, fix_leading_class=False):
-
-        # Preprocess the path into key indexes
-        # When preprocessing, each state is described by a tuple (bool is_fixable_intra_violation, set class_violation)
-        # - is_fixable_intra_violation - If True, says that this is an intra violation which could be fixed by a changing class assignment
-        # - Class violation - Describes all classes for which the angle of this edge would be a class violation
-
-        key_indexes = []
-        last_class_violation = None
-
-        previous_node = leading_node
-        for i, node in enumerate(path[:-1]):
-
-            next_node = path[i+1]
-            is_key_node = False
-
-            if previous_node is not None:
-                angle = self.get_node_turn_angle(previous_node, node, next_node)
-                if self.INTRA_VIOLATION <= angle < self.INTER_VIOLATION:
-                    is_key_node = True
-
-            elevation = self.get_edge_elevation(node, next_node)
-            class_violation = set()
-            if elevation < self.SUPPORT_VIOLATION:
-                class_violation.add(1)
-            if elevation > self.LEADER_VIOLATION:
-                class_violation.add(2)
-
-            if class_violation != last_class_violation:
-                is_key_node = True
-
-            if is_key_node:
-                key_indexes.append(i)
-
-            previous_node = node
-            last_class_violation = class_violation
-
-        # Run Dijkstra's to minimize the cost
-        # Cost key is (incurred_cost, -nodes_assigned)
-        # State is list of assignments at each key node
-
-
-        path_score = sum([self.base_graph.edges[e][self.score_key] for e in edges(path)])
-        # # TODO: Compute static penalties
-        # print('COMPUTE STATIC PENALTIES LATER')
-
-        queue = PriorityQueue(minimize=True)
-        queue.add([], (0, 0))
-        while queue:
-            assignments, (incurred_cost, nodes_assigned) = queue.pop()
-            nodes_assigned *= -1
-
-            if path_score - incurred_cost < 0 and terminate_if_negative:
-                return None, 0
-
-            if nodes_assigned == len(key_indexes):
-                # Process assignments to turn them into edge-assignment combos
-                final_edge_assignments = [assignments[-1]] * (len(path) - 1)
-                for (start_idx, end_idx), assignment in zip(edges(key_indexes), assignments):
-                    final_edge_assignments[start_idx:end_idx] = [assignment] * (end_idx - start_idx)
-                return final_edge_assignments, path_score - incurred_cost
-
-
-            if not assignments:
-                if path[0] == self.trunk_node:
-                    prev_class = 0
-                else:
-                    prev_edge = list(self.current_graph.out_edges(path[0]))[0]
-                    prev_class = self.current_graph.edges[prev_edge]['classification']
-
-                prev_node = leading_node
-            else:
-                prev_class = assignments[-1]
-                prev_node = path[key_indexes[len(assignments)] - 1]
-            node = path[key_indexes[len(assignments)]]
-            next_node = path[key_indexes[len(assignments)] + 1]
-
-            try:
-                number_of_edges_encompassed = key_indexes[len(assignments) + 1] - key_indexes[len(assignments)]
-            except IndexError:
-                number_of_edges_encompassed = len(path) - 1 - key_indexes[len(assignments)]
-
-            if not assignments and fix_leading_class:
-                next_classes = [leading_class]
-            else:
-                next_classes = range(leading_class, 2+1)
-
-            for next_class in next_classes:
-                angle_cost = 0
-                if prev_node is not None:
-                    angle_cost = self.assess_angular_violation(node, next_node, next_class, prev_node, prev_class)
-
-                # Topology split violation is only checked at the first node
-                topology_cost = 0
-                if not assignments:
-                    existing_in_edges = list(self.current_graph.in_edges(path[0]))
-                    existing_out_edges = list(self.current_graph.out_edges(path[0]))
-                    if not existing_out_edges:
-                        out_class = 0
-                    else:
-                        out_class = self.current_graph.edges[existing_out_edges[0]]['classification']
-                    in_classes = [self.current_graph.edges[e]['classification'] for e in existing_in_edges] + [next_class]
-                    topology_cost = self.assess_topology_split_violation(out_class, in_classes)
-
-                # All elevation costs should be the same, so multiply by the number of segments
-                elevation_cost = self.assess_edge_violation(node, next_node, next_class) * number_of_edges_encompassed
-                new_cost = incurred_cost + angle_cost + elevation_cost + topology_cost
-                new_assignments = assignments + [next_class]
-                queue.add(new_assignments, (new_cost, -len(new_assignments)))
-
-        return None, 0
 
     def update_node_eligibility(self, node, inplace=True):
         """
@@ -1269,85 +1025,84 @@ class GrownTree:
 
         return eligible
 
-    def select_path_to_tip(self, tip_node, weighted_choice=False, allow_recompute=True):
+    def compute_edge_label_pairing_scores(self, restrict_tips=None):
+        # For the active tree, computes a dictionary of (edge, assignment) keys, where the values are the change in
+        # potential
 
-        if tip_node not in self.dijkstra_maps:
-            raise ValueError("Did not pass in a node corresponding to a tip!")
+        cost_key_to_use = {
+            0: 'total_angle_penalties_worst_two_out',
+            1: 'total_angle_penalties_worst_one_out',
+            2: 'total_angle_penalties'
+        }
 
-        dijkstra_dict = self.dijkstra_maps[tip_node]
         existing_edges = list(self.current_graph.edges)
         if not existing_edges:
             active_nodes = {self.trunk_node}
         else:
             active_nodes = set(self.current_graph.edge_subgraph(self.current_graph.edges).nodes)
 
-        edges_to_check = []
+        rez = {}
+
+        target_tips = restrict_tips if restrict_tips is not None else self.tip_nodes
+
+
         for active_node in active_nodes:
 
-            if not self.current_graph.nodes[active_node].get('eligible'):
-                continue
-
+            eligible = self.current_graph.nodes[active_node].get('eligible', set())
             neighbors = set(self.base_graph[active_node]).difference(active_nodes)
-            edges_to_check.extend([(neighbor, active_node) for neighbor in neighbors if (neighbor, active_node) in dijkstra_dict])
+            to_check = [(neighbor, active_node) for neighbor in neighbors]
 
-        if not edges_to_check:
-            return None
+            if active_node == self.trunk_node:
+                out_node = None
+                out_class = 0
+            else:
+                out_node = list(self.current_graph.out_edges(active_node))[0][1]
+                out_class = self.current_graph.edges[active_node, out_node]['classification']
 
-        rewards = np.array([dijkstra_dict[e]['reward'] for e in edges_to_check])
-        rewards = rewards - rewards.mean()
-        if weighted_choice:
-            weights = np.exp(self.score_decay * rewards)
-            weights = weights / weights.sum()
+            for edge, proposed_assignment in product(to_check, eligible):
+                cost_key = cost_key_to_use[proposed_assignment]
+                total_score = 0
 
-            if self.debug:
-                print('Examining edge weights for path choice...')
-                for edge, weight, reward in zip(edges_to_check, weights, rewards):
-                    print('\tEdge {}: {:.3f} (reward {:.2f})'.format(edge, weight, reward))
+                for tip_node in target_tips:
+                    dijkstra_dict = self.dijkstra_maps[tip_node]
 
+                    # Check to see if the dijkstra map indicates the target tip node is reachable
+                    try:
+                        metadata = dijkstra_dict[edge]
+                    except KeyError:
+                        continue
 
-            edge_to_optimize = edges_to_check[np.random.choice(len(edges_to_check), p=weights)]
-        else:
-            edge_to_optimize = edges_to_check[np.argmax(rewards)]
+                    # Check to see if the precomputed path intersects with the currently active tree
+                    # Before, this is where we would recompute the Dijkstra map
+                    # However to save time, we will assume that the tip is no longer reachable
+                    path = metadata['path']
+                    if active_nodes.intersection(path[1:]):
+                        continue
 
-        path_data = self.extract_path_from_dijkstras_dict(dijkstra_dict, edge_to_optimize,
-                                                                    start_is_edge_pair=True,
-                                                                    target_to_source=True)
-        path_to_optimize = path_data['path']
+                    # For the given edge-pair combo, get the path reward
+                    # Subtract out the cost for the given cost key
+                    # Then subtract out any penalties associated with adding the edge in, including both angular and
+                    # edge wrongness
+                    score = metadata['total_reward'] - metadata[cost_key]
+                    score -= self.assess_edge_violation(*edge, proposed_assignment)
+                    if out_node is not None:
+                        curvature_penalty = self.assess_angular_violation(active_node, out_node, out_class, edge[0], proposed_assignment)
+                        score -= curvature_penalty
 
-        # It may be necessary to update the Dijkstra's nodes again because of chosen assignments
-        if active_nodes.intersection(path_to_optimize[1:]):
-            if not allow_recompute:
-                print('Recompute error!')
-                set_trace()
-                raise Exception("Weird... Somehow after recomputing the paths, still trying to get a path which overlaps with active nodes")
-            print('Recomputing for tip {}...'.format(tip_node))
-            # Re-run Dijkstras where it stops at the active nodes
-            new_map = self.run_dijkstras(tip_node, active_nodes, consider_target_edges=True, halt_at_targets=True)
-            self.dijkstra_maps[tip_node] = new_map
-            return self.select_path_to_tip(tip_node, weighted_choice=weighted_choice, allow_recompute=False)
+                    # If a potential best path to a node is bad enough, we simply don't consider it
+                    score = max(score, 0)
 
-        return path_to_optimize
+                    # If we're we assigning a leader, then we cannot extend to multiple tips - may only choose the best
+                    if proposed_assignment == 2 and score > total_score:
+                        total_score = score
+                    else:
+                        total_score += max(score, 0)
 
-    def score_remaining_branches(self):
-        """
-        Takes the currently assigned tree and builds a tree which attempts to connect to the tips
-        :return:
-        """
-
-        remaining_score = 0
-        for tip in self.tip_nodes:
-            path = self.select_path_to_tip(tip, weighted_choice=False)
-            if path is None:
-                continue
-            leading_class = min(self.current_graph.nodes[path[0]]['eligible'])
-            leading_node = list(self.current_graph.successors(path[0]))[0]
-            _, score = self.optimize_path_to_tip(path, leading_class, leading_node, terminate_if_negative=True)
-            remaining_score += score
-
-        return remaining_score
-
-
-
+                if total_score > 0:
+                    rez[edge, proposed_assignment] = total_score
+        if not rez:
+            self.tip_nodes = []
+        return rez
 
     def handle_repair(self, node, assignment):
 
@@ -1506,8 +1261,9 @@ class GrownTree:
 
 class TreeManager:
 
-    def __init__(self, template_tree, population_size=10, selection_decay=1.0, best_repopulate=0,
-                 show_current_best=False):
+    def __init__(self, template_tree, population_size=10, proposal_size=None,
+                 selection_decay=1.0, best_repopulate=0,
+                 max_prevalence=3, aggregate_tips=False, show_current_best=False):
 
 
         # The half lengths says: A tree with total reward (i.e. normalized length) this much less than another tree
@@ -1515,6 +1271,9 @@ class TreeManager:
         self.selection_decay = selection_decay
         self.show_current_best = show_current_best
         self.best_repopulate = best_repopulate
+        self.proposal_size = proposal_size if proposal_size is None else population_size
+        self.max_prevalence = max_prevalence
+        self.aggregate_tips = aggregate_tips
 
         self.population = []
         for _ in range(population_size):
@@ -1526,25 +1285,23 @@ class TreeManager:
 
         self.global_best_score = 0
         self.global_best_tree = self.population[0]
-        self.next_resample = None
-
+        self.global_best_tree = self.population[0]
 
     def iterate_to_completion(self):
         start = time.time()
+
         while not self.complete:
             self.iterate_once()
+
         end = time.time()
         return end - start
 
     def iterate_once(self):
         self.iteration += 1
         start = time.time()
-        if self.next_resample is not None:
-            self.apply_resample()
 
         self.grow_all()
         self.score_all()
-        self.compute_next_resample()
 
         # print('\tPlotting diagnostics...')
         #
@@ -1585,29 +1342,116 @@ class TreeManager:
     def complete(self):
         return all((tree.complete for tree in self.population))
 
+
     def grow_all(self):
+
+        processed = []
+        weights = []
+
+        all_keys = []
+        all_scores = []
+
+        PROPOSALS = defaultdict(lambda: 0)
+
+        for i, tree in enumerate(self.population):
+            if tree.complete:
+                continue
+
+            if tree.set_rep in processed:
+                idx = processed.index(tree.set_rep)
+                weights[idx] += 1
+            else:
+                target = None
+                if not self.aggregate_tips:
+                    target = [random.choice(tree.tip_nodes)]
+
+                tree_scores = tree.compute_edge_label_pairing_scores(target)
+                keys = list(tree_scores.keys())
+                idx_edge_assignment_triples = [(i, k[0], k[1]) for k in keys]
+                vals = np.array([tree_scores[k] for k in keys])
+
+                processed.append(tree.set_rep)
+                weights.append(1.0)
+
+                all_keys.extend(idx_edge_assignment_triples)
+                all_scores.append(vals)
+
+                # DIAGNOSTICS
+                for _, edge, assignment in idx_edge_assignment_triples:
+                    rep = (edge[0], edge[1], assignment)
+                    PROPOSALS[tree.set_rep.union([rep])] += 1
+
+        # Temp diagnostics
+        print('{} unique proposals from which to pick {}'.format(len(PROPOSALS), self.proposal_size))
+
+        weights = np.concatenate([s * w for s, w in zip(all_scores, weights)])
+        if not weights.sum():
+            print('Growth has terminated!')
+            return
+
+        weights = weights / weights.sum()
+
+        # Max prevalence
+        choose_len = len(weights)
+
+        # If the desired population size is more than prevalence * the number of possible entries, pad the choices
+        chosen = []
+        remaining = self.proposal_size
+        to_be_randomly_chosen = self.max_prevalence * choose_len
+
+        if to_be_randomly_chosen < self.proposal_size:
+            padding = np.arange(choose_len)
+            required_padding = np.ceil((self.proposal_size - to_be_randomly_chosen) / choose_len).astype(np.int)
+            for _ in range(required_padding):
+                chosen.extend(padding)
+            remaining -= required_padding * choose_len
+
+        sample_count = remaining // self.max_prevalence
+        to_sample = [sample_count] * self.max_prevalence
+        remainder = remaining % sample_count
+        for i in range(remainder):
+            to_sample[i] += 1
+
+        for sample_count in to_sample:
+            chosen.extend(np.random.choice(choose_len, sample_count, replace=False, p=weights))
+
+        new_population = []
+
+        for picked_index in chosen:
+            tree_idx, edge, assignment = all_keys[picked_index]
+            new_tree = self.population[tree_idx].copy()
+            new_tree.commit_edge(edge, assignment, validate=False)
+            new_population.append(new_tree)
+
+        if self.proposal_size > len(self.population):
+            scores = np.array([tree.score for tree in new_population])
+            # to_select = np.argsort(scores)[-len(self.population):]
+
+            scores[scores < 0] = 0
+            total = scores.sum()
+            if not total:
+                scores = np.ones(len(scores)) / len(scores)
+            else:
+                scores = scores / total
+            to_select = np.random.choice(len(new_population), len(self.population), replace=False, p=scores)
+            new_population = [new_population[i] for i in to_select]
+
+        
+        self.population = new_population
+
+        NEW_TREES_2 = defaultdict(lambda: 0)
         for tree in self.population:
-            tree.iterate()
+            NEW_TREES_2[tree.set_rep] += 1
+        counts = sorted(list(NEW_TREES_2.values()))
+        print('Final population had {} unique out of {} total pop'.format(len(NEW_TREES_2), len(self.population)))
+        print('Final tree counts: {}'.format(counts))
+
+
 
     def score_all(self):
         self.last_scores = np.array([tree.score for tree in self.population])
 
-    def compute_next_resample(self):
 
-        weights = np.exp(self.selection_decay * (self.last_scores - self.last_scores.max()))
-        weights = weights / weights.sum()
-        n = len(self.population)
-        n_random = n - self.best_repopulate
-
-        # Repopulate automatically with a certain number of best weights
-        best_index = np.argmax(self.last_scores)
-
-        choices = np.random.choice(n, n_random, replace=True, p=weights)
-        self.next_resample = np.array([best_index] * self.best_repopulate + list(choices))
-
-    def apply_resample(self):
-        self.population = [self.population[i].copy() for i in self.next_resample]
-        self.next_resample = None
 
 class Superpoint:
 

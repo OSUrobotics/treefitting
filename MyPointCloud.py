@@ -165,6 +165,9 @@ class MyPointCloud(ReadWrite):
         :param in_smallest_branch_width: Smallest branch width
         :return: bin list
         """
+
+        return
+
         max_width = 0
         for i in range(0, 3):
             max_width = max(max_width, self.max_pt[i] - self.min_pt[i])
