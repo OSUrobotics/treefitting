@@ -1258,6 +1258,145 @@ class GrownTree:
             'cost': metadata['running_cost']
         }
 
+    def find_side_branches(self, confidence=0.2, angle_threshold=np.pi/4, len_threshold=0.00):
+
+
+
+        graph_copy = self.base_graph.copy()
+        graph_copy.remove_edges_from([e for e in graph_copy.edges if graph_copy.edges[e]['likeliness'] < confidence])
+
+        leader_edges = [e for e in self.current_graph.edges if self.current_graph.edges[e]['classification'] == 2]
+        leader_nodes = set().union(*leader_edges)
+        all_edges = [e for e in self.current_graph.edges if self.current_graph.edges[e]['classification'] != 3]
+
+        # Remove the existing side branches from the tree
+        existing_side_branches = set(self.current_graph.edges).difference(all_edges)
+        self.current_graph.remove_edges_from(existing_side_branches)
+
+        base_tree_nodes = set(self.current_graph.edge_subgraph(all_edges).nodes)
+        non_leader_nodes = base_tree_nodes.difference(leader_nodes)
+
+        to_analyze = []
+
+        for comp in nx.algorithms.connected_components(graph_copy.subgraph(set(graph_copy.nodes).difference(base_tree_nodes))):
+            # Expand connected component by one element each
+            expanded = set().union(*[graph_copy[n] for n in comp])
+            diff = expanded.difference(comp)
+
+            if diff.intersection(leader_nodes) and not diff.intersection(non_leader_nodes):
+                to_analyze.append(expanded)
+
+
+
+        paths_to_add = []
+        for comp in to_analyze:
+
+            # Run Dijkstras where the goal termination condition is no nodes available to expand to (also cannot turn more than 90 degrees)
+
+            sub_leader_nodes = comp.intersection(leader_nodes)
+            non_assigned_nodes = comp.difference(sub_leader_nodes)
+
+            queue = PriorityQueue()
+
+            # Initialize starting states by making sure they are almost perpendicular to the connecting leader
+            for leader_node in sub_leader_nodes:
+
+                targets = set(graph_copy[leader_node]).intersection(non_assigned_nodes)
+                leader_node_preds = list(self.current_graph.predecessors(leader_node))
+                leader_node_successor = list(self.current_graph.successors(leader_node))[0]
+
+                if self.current_graph.edges[leader_node, leader_node_successor]['classification'] != 2:
+                    continue
+
+                if len(leader_node_preds) != 1:
+                    start = leader_node
+                else:
+                    start = leader_node_preds[0]
+
+                p1 = self.base_graph.nodes[start]['point']
+                p2 = self.base_graph.nodes[leader_node_successor]['point']
+                leader_vector = p1 - p2
+                leader_vector = leader_vector / np.linalg.norm(leader_vector)
+                for target in targets:
+                    target_pt = self.base_graph.nodes[target]['point']
+                    target_vector = target_pt - self.base_graph.nodes[leader_node]['point']
+                    target_vector = target_vector / np.linalg.norm(target_vector)
+
+                    dp = leader_vector.dot(target_vector)
+                    if dp > 1:
+                        dp = 1
+                    if dp < -1:
+                        dp = -1
+                    angle = np.arccos(dp)
+                    if np.abs(angle - np.pi/2) > angle_threshold:
+                        continue
+                    print('{:.2f}'.format(np.degrees(angle)))
+                    queue.add([leader_node, target], self.base_graph.edges[leader_node, target][self.cost_key])
+
+            while queue:
+                current_path, cost = queue.pop()
+                current_node = current_path[-1]
+                new_targets = (set(graph_copy[current_node]).difference(current_path)).intersection(non_assigned_nodes)
+                if not new_targets:
+                    if self.path_len(current_path) < len_threshold:
+                        continue
+                    paths_to_add.append(current_path[::-1])
+                    break
+
+                for target in new_targets:
+                    angle = self.get_node_turn_angle(target, current_node, current_path[-2])
+                    if angle > np.pi/2:
+                        continue
+                    penalty = self.assess_angular_violation(current_node, current_path[-2], None, target, None)
+                    new_cost = cost + self.base_graph.edges[target, current_node][self.score_key] + penalty
+                    new_path = current_path + [target]
+                    queue.add(new_path, new_cost)
+
+
+        for path in paths_to_add:
+            for e in edges(path):
+                self.current_graph.add_edge(*e, classification=3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            queue = PriorityQueue()
+
+
+
+
+
+
+
+    def path_len(self, path):
+        d = 0
+        for e in edges(path):
+            p1 = self.base_graph.nodes[e[0]]['point']
+            p2 = self.base_graph.nodes[e[1]]['point']
+            d = d + np.linalg.norm(p1-p2)
+        return d
+
 
 class TreeManager:
 

@@ -653,7 +653,7 @@ class DrawPointCloud(QOpenGLWidget):
                         continue
                     GL.glVertex3d(*self.tree.points[pt_index])
         else:
-            GL.glColor4d(0.9, 0.9, 0.9, 1.0)
+            GL.glColor4d(0.4, 0.4, 0.4, 1.0)
             pts = self.downsampled_points[self.visual_filter]
             for pt_index in range(len(pts)):
                 GL.glVertex3d(*pts[pt_index])
@@ -783,7 +783,7 @@ class DrawPointCloud(QOpenGLWidget):
             GL.glVertex3f(*self.tree.superpoint_graph.nodes[node]['point'])
         GL.glEnd()
 
-        GL.glLineWidth(2)
+        GL.glLineWidth(8)
         GL.glBegin(GL.GL_LINES)
         for edge in self.tree.superpoint_graph.edges:
             edge_color = self.tree.superpoint_graph.edges[edge].get('color', False)
