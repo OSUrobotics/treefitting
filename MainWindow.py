@@ -700,6 +700,7 @@ class PointCloudViewerGUI(QMainWindow):
             print('Please initialize a tree before you can run skeletonization!')
             return
 
+        self.glWidget.tree.set_params(params)
         self.glWidget.tree.skeletonize()
         self.glWidget.tree.thinned_tree.find_side_branches()
         self.classify_and_highlight_edges()

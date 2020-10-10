@@ -24,6 +24,19 @@ import matplotlib.pyplot as plt
 
 class TreeModel(object):
 
+    DEFAULT_ALGO_PARAMS = {
+        'angle_power': 2.0,
+        'angle_coeff': 0.3,
+        'angle_min_degrees': 0.0,
+        'elev_power': 1.0,
+        'elev_coeff': 0.0,
+        'elev_min_degrees': 0.0,
+        'pop_size': 200,
+        'pop_proposal_size': 500,
+        'pop_max_sampling': 5,
+        'force_fixed_seed': False,
+    }
+
     def __init__(self):
         self.points = None
         self.base_points = None     # Used to keep the original PC around if necessary
@@ -40,12 +53,17 @@ class TreeModel(object):
         self.template_tree = None
         self.tree_population = None
 
+        self.params = deepcopy(TreeModel.DEFAULT_ALGO_PARAMS)
+
         self.superpoint_graph = None
         self.edge_settings = None
 
         # For color output
         self.highlighted_points = defaultdict(list)
         self.point_beliefs = None
+
+
+
 
     @classmethod
     def from_point_cloud(cls, pc, kd_tree_pts = 100):
@@ -62,10 +80,20 @@ class TreeModel(object):
         pc = pymesh.load_mesh(file_name).vertices
         return cls.from_point_cloud(pc)
 
-    def initialize_template_tree(self, curvature_penalty):
-        HALF_LENGTH = 0.10
-        score_decay = np.log(2) / HALF_LENGTH
-        self.template_tree = GrownTree(self.superpoint_graph, curvature_penalty=curvature_penalty, score_decay=score_decay)
+    def set_params(self, params):
+        if set(params).difference(self.DEFAULT_ALGO_PARAMS):
+            raise ValueError("You're passing in keys that don't exist!")
+
+        new_params = deepcopy(self.DEFAULT_ALGO_PARAMS)
+        new_params.update(params)
+        self.params = new_params
+
+        self.initialize_template_tree()
+
+
+    def initialize_template_tree(self):
+
+        self.template_tree = GrownTree(self.superpoint_graph, params=self.params)
 
     def rasterize(self, grid_size = 128, override=False):
         if self.raster is not None and self.raster.shape == (grid_size, grid_size) and not override:
@@ -141,13 +169,20 @@ class TreeModel(object):
     def skeletonize(self):
 
         if self.template_tree is None:
-            self.initialize_template_tree(0.3)
+            self.initialize_template_tree()
 
-        self.tree_population = TreeManager(self.template_tree, population_size=500,
-                                           proposal_size=1000, selection_decay=self.template_tree.score_decay,
-                                           best_repopulate=5, show_current_best=False)
+
+
+        self.tree_population = TreeManager(self.template_tree, population_size=self.params['pop_size'],
+                                           proposal_size=self.params['pop_proposal_size'],
+                                           max_prevalence=self.params['pop_max_sampling'],
+                                           show_current_best=False)
 
         print('Skeletonizing tree...')
+        if self.params.get('force_fixed_seed', False):
+            np.random.seed(0)
+        else:
+            np.random.seed()
 
         self.tree_population.iterate_to_completion()
         self.tree_population.best_tree.run_quick_analysis()
@@ -207,7 +242,7 @@ class TreeModel(object):
             elif node in self.thinned_tree.tip_nodes:
                 color = (0.1, 0.9, 0.9)
             else:
-                color = (0.4, 0.4, 0.4)
+                color = (0.8, 0.6, 0.6)
 
             self.superpoint_graph.nodes[node]['color'] = color
 
@@ -504,8 +539,7 @@ class GrownTree:
     INITIALIZATION FUNCTIONS
     """
 
-    def __init__(self, base_graph, score_key='normalized_likeliness', cost_key='normalized_unlikeliness',
-                 curvature_penalty=0.0, score_decay=1.0,
+    def __init__(self, base_graph, params, score_key='normalized_likeliness', cost_key='normalized_unlikeliness',
                  precomputed_info=None, debug=False):
 
         self.base_graph = base_graph
@@ -519,8 +553,7 @@ class GrownTree:
         self.repair_info = None
 
         # Parameters
-        self.curvature_penalty = curvature_penalty
-        self.score_decay = score_decay
+        self.params = params
 
         # Information which is automatically computed about the tree
         self.trunk_node = None
@@ -563,8 +596,7 @@ class GrownTree:
         }
 
         return GrownTree(self.base_graph, cost_key=self.cost_key, score_key=self.score_key,
-                         curvature_penalty=self.curvature_penalty, score_decay=self.score_decay,
-                         precomputed_info=precomputed_info, debug=self.debug)
+                         params = self.params, precomputed_info=precomputed_info, debug=self.debug)
 
 
 
@@ -743,23 +775,28 @@ class GrownTree:
         angle = self.get_node_turn_angle(prev_node, node, next_node)
         if next_class != prev_class:
             return 0
-        # return angle * self.curvature_penalty
-        return 100 if angle > np.radians(75) else (angle ** 2) * self.curvature_penalty
+
+        angle_min = np.radians(self.params['angle_min_degrees'])
+
+        if angle < angle_min:
+            return 0
+        return self.params['angle_coeff'] * (angle - angle_min) ** self.params['angle_power']
+
 
     def assess_edge_violation(self, node, next_node, classification):
 
-        violation = 0
+        xy_angle = self.get_edge_elevation(node, next_node)
 
-        xy_angle = self.get_edge_elevation(node, next_node, xy_project=classification == 1)
+        if classification == 1:
+            deviation = xy_angle
+        else:
+            deviation = np.pi/2 - xy_angle
 
-        if classification == 1 and xy_angle > self.SUPPORT_VIOLATION:
-            violation += self.VIOLATION_COSTS['direction']
-        elif classification == 2 and xy_angle < self.LEADER_VIOLATION:
-            violation += self.VIOLATION_COSTS['direction']
-        elif classification == 0 and xy_angle < self.TRUNK_VIOLATION:
-            violation += self.VIOLATION_COSTS['direction']
+        elev_min = np.radians(self.params['elev_min_degrees'])
 
-        return violation
+        if deviation < elev_min:
+            return 0
+        return self.params['elev_coeff'] * (deviation - elev_min) ** self.params['elev_power']
 
     def assess_topology_split_violation(self, out_class, in_classes):
 
@@ -1151,6 +1188,15 @@ class GrownTree:
                 print('Added new edge ({}, {}) to graph'.format(*last_edge))
                 self.base_graph.add_edge(*last_edge)
 
+            if len(self.repair_info['nodes']) >= 3:
+                last_last_edge = self.repair_info['nodes'][-3:-1]
+                last_last_assignment = self.repair_info['assignments'][-2]
+            else:
+                last_last_edge = None
+                last_last_assignment = None
+
+            self.print_edge_info(last_edge, assignment, last_last_edge, last_last_assignment)
+
             if not node in self.repair_info['main_component']:
                 return
 
@@ -1162,6 +1208,7 @@ class GrownTree:
             self.current_graph = self.repair_info['tree']
             self.determine_all_violations(commit=True)
             self.repair_info = None
+
 
     def initialize_repair(self, node):
         self.repair_info = {}
@@ -1196,6 +1243,34 @@ class GrownTree:
         self.repair_info['main_component'] = main_comp
         self.repair_info['all_components'] = all_comp_nodes
         self.repair_info['tree'] = tree_to_assign
+
+    def print_edge_info(self, edge, assignment, prev_edge=None, prev_assignment=None):
+        print('Edge ({}, {}):'.format(*edge))
+        p1 = self.base_graph.nodes[edge[0]]['point']
+        p2 = self.base_graph.nodes[edge[1]]['point']
+        length = np.linalg.norm(p1 - p2)
+        conf = self.base_graph.edges[edge].get('likeliness', -99.99)
+        score = self.base_graph.edges[edge].get(self.score_key, -99.99)
+        edge_violation = self.assess_edge_violation(*edge, assignment)
+
+        print('\tLength is: {:.4f}'.format(length))
+        print('\tConfidence is: {:.4f}'.format(conf))
+        print('\tScore contrib is: {:.4f}'.format(score))
+
+        curvature_penalty = 0
+        if prev_edge is not None:
+            angle = self.get_node_turn_angle(prev_edge[0], edge[0], edge[1])
+            print('\tAngle with previous node: {:.4f}'.format(np.degrees(angle)))
+            curvature_penalty = self.assess_angular_violation(edge[0], edge[1], assignment, prev_edge[0], prev_assignment)
+            print('\tIncurred curvature penalty of: {:.4f}'.format(curvature_penalty))
+
+        print('\tIncurred elevation penalty of: {:.4f}'.format(edge_violation))
+
+        total = score - edge_violation - curvature_penalty
+        print('\tTOTAL SCORE CONTRIB: {:.4f}'.format(total))
+        return total
+
+
 
 
     def run_quick_analysis(self):
@@ -1330,7 +1405,6 @@ class GrownTree:
                     angle = np.arccos(dp)
                     if np.abs(angle - np.pi/2) > angle_threshold:
                         continue
-                    print('{:.2f}'.format(np.degrees(angle)))
                     queue.add([leader_node, target], self.base_graph.edges[leader_node, target][self.cost_key])
 
             while queue:
@@ -1564,15 +1638,23 @@ class TreeManager:
 
         if self.proposal_size > len(self.population):
             scores = np.array([tree.score for tree in new_population])
+
+            # # Deterministic selection
             # to_select = np.argsort(scores)[-len(self.population):]
 
-            scores[scores < 0] = 0
-            total = scores.sum()
-            if not total:
-                scores = np.ones(len(scores)) / len(scores)
-            else:
-                scores = scores / total
-            to_select = np.random.choice(len(new_population), len(self.population), replace=False, p=scores)
+            # # Selection based on raw score - prone to issues with 0s
+            # scores[scores < 0] = 0
+            # total = scores.sum()
+            # if not total:
+            #     scores = np.ones(len(scores)) / len(scores)
+            # else:
+            #     scores = scores / total
+
+            # Selection based on ranking
+            weights = pd.Series(scores).rank().values
+            weights = weights / weights.sum()
+
+            to_select = np.random.choice(len(new_population), len(self.population), replace=False, p=weights)
             new_population = [new_population[i] for i in to_select]
 
         

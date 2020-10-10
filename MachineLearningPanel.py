@@ -13,13 +13,14 @@ from exp_joint_detector import convert_pc_to_grid
 import imageio
 
 class LabelAndText(QWidget):
-    def __init__(self, label, starting_text=''):
+    def __init__(self, label, starting_text='', force_int=False):
         super(LabelAndText, self).__init__()
         layout = QVBoxLayout()
         self.setLayout(layout)
 
         self.label = QLabel(label)
         self.textbox = QLineEdit(starting_text)
+        self.force_int = force_int
 
         layout.addWidget(self.label)
         layout.addWidget(self.textbox)
@@ -32,6 +33,8 @@ class LabelAndText(QWidget):
         return self.textbox.text()
 
     def value(self):
+        if self.force_int:
+            return int(self.text())
         return float(self.text())
 
 class CanvasWithOverlay(QWidget):

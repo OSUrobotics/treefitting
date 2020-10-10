@@ -11,7 +11,7 @@ import os
 
 from functools import partial
 from DataLabelingPanel import DataLabelingPanel, LabelAndText
-
+from tree_model import TreeModel
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 CONFIG = os.path.join(ROOT, 'config')
@@ -200,6 +200,31 @@ class PointCloudManagementPanel(QWidget):
 
         self.fresh_initialize()
 
+        # Algorithmic parameters
+        algo_widget = QGroupBox("Algo Params")
+        algo_layout = QVBoxLayout()
+        algo_widget.setLayout(algo_layout)
+        layout.addWidget(algo_widget)
+
+        self.params_widgets = {}
+        for key in sorted(TreeModel.DEFAULT_ALGO_PARAMS):
+            val = TreeModel.DEFAULT_ALGO_PARAMS[key]
+
+            if isinstance(val, bool):
+                widget = QCheckBox(key)
+                widget.setChecked(val)
+            elif isinstance(val, (float, int)):
+                widget = LabelAndText(key, str(val), force_int=isinstance(val, int))
+            else:
+                raise ValueError("Don't know how to add param of type {}")
+
+            algo_layout.addWidget(widget)
+            self.params_widgets[key] = widget
+
+
+
+
+
 
     def fresh_initialize(self):
         self.saved_skeleton = None
@@ -234,6 +259,18 @@ class PointCloudManagementPanel(QWidget):
             'polygons': self.polygons,
         }
 
+    @property
+    def params_dict(self):
+        new_dict = {}
+        for key, widget in self.params_widgets.items():
+            if isinstance(widget, QCheckBox):
+                new_dict[key] = widget.isChecked()
+            elif isinstance(widget, LabelAndText):
+                new_dict[key] = widget.value()
+            else:
+                raise ValueError("Unknown widget of type {}?".format(type(widget)))
+        return new_dict
+
     def update_pc(self):
         self.callbacks['update_pc'](self.values_dict)
 
@@ -258,7 +295,7 @@ class PointCloudManagementPanel(QWidget):
         self.skel_status.setText('Status: Tree loaded, not skeletonized')
 
     def skeletonize(self):
-        skeleton = self.callbacks['skeletonize']()
+        skeleton = self.callbacks['skeletonize'](self.params_dict)
         self.saved_skeleton = skeleton.copy()
         self.skel_status.setText('Status: Skeletonized')
         self.enable_repair.setDisabled(False)
