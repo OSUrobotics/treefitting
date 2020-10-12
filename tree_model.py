@@ -26,14 +26,14 @@ class TreeModel(object):
 
     DEFAULT_ALGO_PARAMS = {
         'angle_power': 2.0,
-        'angle_coeff': 0.3,
-        'angle_min_degrees': 0.0,
+        'angle_coeff': 2.0,
+        'angle_min_degrees': 45.0,
         'elev_power': 1.0,
-        'elev_coeff': 0.0,
-        'elev_min_degrees': 0.0,
-        'pop_size': 200,
-        'pop_proposal_size': 500,
-        'pop_max_sampling': 5,
+        'elev_coeff': 0.3,
+        'elev_min_degrees': 45.0,
+        'pop_size': 500,
+        'pop_proposal_size': 1000,
+        'pop_max_sampling': 1,
         'force_fixed_seed': False,
     }
 
@@ -1558,54 +1558,45 @@ class TreeManager:
 
     def grow_all(self):
 
-        processed = []
-        weights = []
-
-        all_keys = []
-        all_scores = []
-
         PROPOSALS = defaultdict(lambda: 0)
+        BASES = {}
+        # TODO: Tree proposal is wrong, right now it favors proposing trees if they happen to appear a lot, even if they're not good trees
+        # Fix it to keep track of unique trees that are created and go from there
 
-        for i, tree in enumerate(self.population):
+        tree_ranks = pd.Series(self.last_scores).rank(pct=True).values
+
+        for (i, tree), tree_rank in zip(enumerate(self.population), tree_ranks):
+
             if tree.complete:
                 continue
 
-            if tree.set_rep in processed:
-                idx = processed.index(tree.set_rep)
-                weights[idx] += 1
-            else:
-                target = None
-                if not self.aggregate_tips:
-                    target = [random.choice(tree.tip_nodes)]
+            target = None
+            if not self.aggregate_tips:
+                target = [random.choice(tree.tip_nodes)]
 
-                tree_scores = tree.compute_edge_label_pairing_scores(target)
-                keys = list(tree_scores.keys())
-                idx_edge_assignment_triples = [(i, k[0], k[1]) for k in keys]
-                vals = np.array([tree_scores[k] for k in keys])
+            tree_scores = tree.compute_edge_label_pairing_scores(target)
+            keys = list(tree_scores.keys())
+            vals = np.array([tree_scores[k] for k in keys])
+            proposal_ranks = pd.Series(vals).rank(pct=True).values
 
-                processed.append(tree.set_rep)
-                weights.append(1.0)
-
-                all_keys.extend(idx_edge_assignment_triples)
-                all_scores.append(vals)
-
-                # DIAGNOSTICS
-                for _, edge, assignment in idx_edge_assignment_triples:
-                    rep = (edge[0], edge[1], assignment)
-                    PROPOSALS[tree.set_rep.union([rep])] += 1
+            for (edge, assignment), proposal_rank in zip(keys, proposal_ranks):
+                set_rep = tree.set_rep.union([(edge[0], edge[1], assignment)])
+                if set_rep not in BASES:
+                    BASES[set_rep] = (i, edge, assignment)
+                PROPOSALS[set_rep] += proposal_rank * tree_rank
 
         # Temp diagnostics
         print('{} unique proposals from which to pick {}'.format(len(PROPOSALS), self.proposal_size))
 
-        weights = np.concatenate([s * w for s, w in zip(all_scores, weights)])
-        if not weights.sum():
+        if not PROPOSALS:
             print('Growth has terminated!')
             return
 
-        weights = weights / weights.sum()
-
         # Max prevalence
-        choose_len = len(weights)
+        choose_len = len(PROPOSALS)
+        all_trees = list(PROPOSALS.keys())
+        weights = np.array([PROPOSALS[key] for key in all_trees])
+        weights = weights / weights.sum()
 
         # If the desired population size is more than prevalence * the number of possible entries, pad the choices
         chosen = []
@@ -1631,24 +1622,14 @@ class TreeManager:
         new_population = []
 
         for picked_index in chosen:
-            tree_idx, edge, assignment = all_keys[picked_index]
-            new_tree = self.population[tree_idx].copy()
+            tree_set = all_trees[picked_index]
+            base_tree_index, edge, assignment = BASES[tree_set]
+            new_tree = self.population[base_tree_index].copy()
             new_tree.commit_edge(edge, assignment, validate=False)
             new_population.append(new_tree)
 
         if self.proposal_size > len(self.population):
             scores = np.array([tree.score for tree in new_population])
-
-            # # Deterministic selection
-            # to_select = np.argsort(scores)[-len(self.population):]
-
-            # # Selection based on raw score - prone to issues with 0s
-            # scores[scores < 0] = 0
-            # total = scores.sum()
-            # if not total:
-            #     scores = np.ones(len(scores)) / len(scores)
-            # else:
-            #     scores = scores / total
 
             # Selection based on ranking
             weights = pd.Series(scores).rank().values
