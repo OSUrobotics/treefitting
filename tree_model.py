@@ -33,8 +33,9 @@ class TreeModel(object):
         'elev_min_degrees': 45.0,
         'pop_size': 500,
         'pop_proposal_size': 1000,
-        'pop_max_sampling': 1,
+        'pop_max_sampling': 3,
         'force_fixed_seed': False,
+        'null_confidence': 0.3,
     }
 
     def __init__(self):
@@ -185,8 +186,10 @@ class TreeModel(object):
             np.random.seed()
 
         self.tree_population.iterate_to_completion()
+        self.tree_population.best_tree.remove_unattended_tips(self.tree_population.orig_tips)
         self.tree_population.best_tree.run_quick_analysis()
         self.thinned_tree = self.tree_population.best_tree
+        self.thinned_tree.tip_nodes = self.tree_population.orig_tips
 
 
     def assign_edge_colors(self):
@@ -278,10 +281,10 @@ class TreeModel(object):
             p1 = self.superpoint_graph.nodes[edge[0]]['point']
             p2 = self.superpoint_graph.nodes[edge[1]]['point']
 
-            print('TESTINGNEGATIVES')
 
+            coef = 1 / (1 - self.params['null_confidence'])
 
-            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - 1.5 * unlikeliness) * np.linalg.norm(p2 - p1)
+            self.superpoint_graph.edges[edge]['normalized_likeliness'] = (1 - coef * unlikeliness) * np.linalg.norm(p2 - p1)
             self.superpoint_graph.edges[edge]['normalized_unlikeliness'] = unlikeliness * np.linalg.norm(p2 - p1)
 
         self.is_classified = True
@@ -649,8 +652,8 @@ class GrownTree:
 
         # PART 2 - Estimate tips
         # First, run minimum spanning tree to maximize the normalized likeliness
-        # Then remove all edges which are sufficiently horizontal, then iterating through the
-        # remaining subcomponents and finding the maximally located node
+        # Then remove all edges which are sufficiently horizontal and which fall below the confidence threshold
+        # Iterate through the remaining subcomponents and finding the maximally located node
         mst = nx.algorithms.minimum_spanning_tree(self.base_graph.subgraph(max_nodes), weight=self.cost_key)
 
         y_points = pts[:,1]
@@ -664,7 +667,8 @@ class GrownTree:
         subgraph = mst.subgraph(valid_nodes).copy()
 
         # Throw out horizontal looking branches
-        subgraph.remove_edges_from([e for e in subgraph.edges if self.get_edge_elevation(*e) <= ANGLE_THRESHOLD])
+        cond = lambda e: self.get_edge_elevation(*e) < ANGLE_THRESHOLD or self.base_graph.edges[e]['likeliness'] < self.params['null_confidence']
+        subgraph.remove_edges_from([e for e in subgraph.edges if cond(e)])
         subgraph = subgraph.edge_subgraph(subgraph.edges)
 
         # For each connected component in the graph, get the node with the most tip-like value
@@ -718,57 +722,6 @@ class GrownTree:
         self.base_score += score_change
         self.update_node_eligibility(edge[0])
         self.update_node_eligibility(edge[1])
-
-
-    def determine_all_violations(self, graph=None, commit=True):
-        if graph is None:
-            graph = self.current_graph
-
-        total = 0
-
-        # Get all the angular violations, node by node
-        for node in graph.nodes:
-
-            in_nodes = [e[0] for e in list(graph.in_edges(node))]
-            try:
-                out_node = list(graph.out_edges(node))[0][1]
-
-            except IndexError:
-                # Trunk node, the only type of violation that can occur there is a topology split violation
-                in_classes = [graph.edges[e]['classification'] for e in graph.in_edges(node)]
-                new_violation = self.assess_topology_split_violation(0, in_classes)
-                graph.nodes[node]['violation'] = new_violation
-                total += new_violation
-                continue
-
-            out_class = graph.edges[node, out_node]['classification']
-
-
-            all_in_classes = []
-            node_violations = 0
-            for in_node in in_nodes:
-                in_class = graph.edges[in_node, node]['classification']
-                all_in_classes.append(in_class)
-                node_violations += self.assess_angular_violation(node, out_node, out_class, in_node, in_class)
-
-            node_violations += self.assess_topology_split_violation(out_class, all_in_classes)
-
-            if commit:
-                graph.nodes[node]['violation'] = node_violations
-
-            total += node_violations
-
-        # Then get all the edge violations, edge by edge
-        for edge in graph.edges:
-            edge_class = graph.edges[edge]['classification']
-            edge_violations = self.assess_edge_violation(edge[0], edge[1], edge_class)
-            if commit:
-                graph.edges[edge]['violation'] = edge_violations
-
-            total += edge_violations
-
-        return total
-
 
     def assess_angular_violation(self, node, next_node, next_class, prev_node, prev_class):
 
@@ -827,22 +780,57 @@ class GrownTree:
         return self.base_score
 
 
-    def rescore_tree(self, tree=None, recompute_violations=True):
+    def remove_unattended_tips(self, orig_tip_nodes, max_len=None):
+        cond = lambda n: self.current_graph.out_degree(n) and not self.current_graph.in_degree(n)
+        candidates = {n for n in self.current_graph.nodes if cond(n)}.difference(orig_tip_nodes)
 
-        raise NotImplementedError("This needs to be checked for consistency with the incremental approach!")
+        DIAG_ORIG_SCORE = self.score
+        total = 0
+        for active_node in candidates:
+            to_remove = []
+            while self.current_graph.out_degree(active_node):
 
-        if tree is None:
-            tree = self.current_graph
+                # If we've already scooped up max_len number of edges,
+                # then this branch is too long, and we don't remove any edges
+                if max_len is not None and len(to_remove) >= max_len:
+                    to_remove = []
+                    break
 
-        tree = tree.copy()
-        tree.remove_edges_from([e for e in tree.edges if tree.edges[e]['classification'] is None])
+                successor = list(self.current_graph.successors(active_node))[0]
+                to_remove.append((active_node, successor))
+                terminate = self.current_graph.in_degree(successor) > 1 or successor in orig_tip_nodes
+                active_node = successor
 
-        if not recompute_violations:
-            raise NotImplementedError
+                # If we reach a tip node before the max_len cutoff, cut off all the branches to there
+                if terminate:
+                    break
 
-        total_violations = self.determine_all_violations(tree, commit=False)
-        pos_contrib = sum([self.base_graph.edges[e][self.score_key] for e in tree.edges])
-        return pos_contrib - total_violations
+            self.current_graph.remove_edges_from(to_remove)
+            total += len(to_remove)
+
+        if total:
+            print("Trimmed {}...".format(total))
+            self.rescore()
+        else:
+            assert abs(DIAG_ORIG_SCORE - self.score) < 1e-5
+
+    def rescore(self):
+
+        # TODO: This can be sped up, or rather there's no need to rebuild the whole tree from scratch if you just
+        # keep track of the edge score contributions
+
+        self.base_score = 0
+
+        old_graph = self.current_graph
+        self.current_graph = self.current_graph.copy()
+        self.current_graph.remove_edges_from(list(self.current_graph.edges))
+        for e_r in nx.algorithms.dfs_edges(old_graph.reverse(copy=False), source=self.trunk_node):
+            edge = (e_r[1], e_r[0])
+            assignment = old_graph.edges[edge]['classification']
+            self.commit_edge(edge, assignment, validate=False)
+
+        return self.score
+
 
     def get_edge_elevation(self, a, b, xy_project=False):
         pt_a = self.base_graph.nodes[a]['point']
@@ -1171,7 +1159,6 @@ class GrownTree:
                 if edge not in subgraph.edges:
                     self.current_graph.remove_edge(*edge)
 
-            self.determine_all_violations(commit=True)
             self.repair_info = None
         elif node in self.repair_info['nodes']:
             print("Attempting to self-loop a repair!")
@@ -1206,7 +1193,6 @@ class GrownTree:
                 self.repair_info['tree'].add_edge(*edge, classification=assignment)
 
             self.current_graph = self.repair_info['tree']
-            self.determine_all_violations(commit=True)
             self.repair_info = None
 
 
@@ -1333,12 +1319,10 @@ class GrownTree:
             'cost': metadata['running_cost']
         }
 
-    def find_side_branches(self, confidence=0.2, angle_threshold=np.pi/4, len_threshold=0.00):
-
-
+    def find_side_branches(self, angle_threshold=np.pi/4, len_threshold=0.00):
 
         graph_copy = self.base_graph.copy()
-        graph_copy.remove_edges_from([e for e in graph_copy.edges if graph_copy.edges[e]['likeliness'] < confidence])
+        graph_copy.remove_edges_from([e for e in graph_copy.edges if graph_copy.edges[e]['likeliness'] < self.params['null_confidence']])
 
         leader_edges = [e for e in self.current_graph.edges if self.current_graph.edges[e]['classification'] == 2]
         leader_nodes = set().union(*leader_edges)
@@ -1492,6 +1476,8 @@ class TreeManager:
         for _ in range(population_size):
             self.population.append(template_tree.copy())
 
+        self.orig_tips = template_tree.tip_nodes
+
         self.last_scores = np.zeros(population_size)
         self.is_first = True
         self.iteration = 0
@@ -1540,6 +1526,11 @@ class TreeManager:
         else:
             print('Score of best tree did not change. (Best was {:.2f} but current max is {:.2f})'.format(self.global_best_score, current_max))
 
+        if not self.iteration % 10:
+            print('Removing stray tips...')
+            for tree in self.population:
+                tree.remove_unattended_tips(self.orig_tips, max_len=1)
+
         print('-'*40)
         print('Iteration {} took {:.1f}s'.format(self.iteration, end-start))
         print('Best-scoring tree is now {:.2f}'.format(self.last_scores.max()))
@@ -1560,8 +1551,6 @@ class TreeManager:
 
         PROPOSALS = defaultdict(lambda: 0)
         BASES = {}
-        # TODO: Tree proposal is wrong, right now it favors proposing trees if they happen to appear a lot, even if they're not good trees
-        # Fix it to keep track of unique trees that are created and go from there
 
         tree_ranks = pd.Series(self.last_scores).rank(pct=True).values
 
