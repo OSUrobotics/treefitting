@@ -186,9 +186,10 @@ class PointCloudManagementPanel(QWidget):
             self.repair_value_menu.addItem(label, val)
         self.repair_value_menu.setDisabled(True)
         self.save_skeleton_button = QPushButton('Save repaired tree')
+        replay_history_button = QPushButton('Replay history')
 
         widgets = [self.skel_status, generate_skeleton_button, self.enable_repair, self.repair_value_menu,
-                   self.save_skeleton_button]
+                   self.save_skeleton_button, replay_history_button]
         for widget in widgets:
             skel_layout.addWidget(widget)
         skel_layout.addStretch()
@@ -197,6 +198,7 @@ class PointCloudManagementPanel(QWidget):
         self.save_skeleton_button.clicked.connect(self.save_skeleton)
         self.enable_repair.clicked.connect(self.update_repair_mode)
         self.repair_value_menu.currentIndexChanged.connect(self.update_repair_mode)
+        replay_history_button.clicked.connect(self.replay_history)
 
         self.fresh_initialize()
 
@@ -337,3 +339,6 @@ class PointCloudManagementPanel(QWidget):
     def update_polygons(self, polygons):
         self.polygons = polygons
         self.update_polygon_label()
+
+    def replay_history(self):
+        self.callbacks['replay_history']()

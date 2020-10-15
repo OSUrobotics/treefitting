@@ -4,7 +4,7 @@
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QColorDialog, QComboBox
-from PyQt5.QtCore import QRect
+from PyQt5.QtCore import QRect, QTimer
 from MyPointCloud import MyPointCloud
 from Cylinder import Cylinder
 from CylinderCover import CylinderCover
@@ -108,12 +108,16 @@ class PointCloudViewerGUI(QMainWindow):
             'update_repair_mode': self.update_repair_mode,
             'apply_polygons': self.apply_polygons,
             'enable_polygon_mode': self.enable_polygon_mode,
+            'replay_history': self.replay_history,
         }
         self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
         self.pc_management_panel.hide()
         pc_management_button = QPushButton('PC Management Panel')
         pc_management_button.clicked.connect(partial(self.toggle_window, self.pc_management_panel))
 
+        self.replay_timer = QTimer()
+        self.replay_counter = 0
+        self.replay_timer.timeout.connect(self.replay_history_update)
 
         #
         # read_cylinders_pca_button = QPushButton('Read pca cylinders')
@@ -624,9 +628,9 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.highlight_random()
 
-    def classify_and_highlight_edges(self):
+    def classify_and_highlight_edges(self, replay_counter=None):
 
-        self.glWidget.tree.assign_edge_colors()
+        self.glWidget.tree.assign_edge_colors(replay_counter=replay_counter)
         self.glWidget.make_pcd_gl_list()
         self.glWidget.initialize_skeleton()
         self.glWidget.update()
@@ -746,6 +750,27 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.refresh_filters()
         self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
+
+    def replay_history(self):
+        if self.glWidget.tree.tree_population is None:
+            print('No history to replay!')
+            return
+        if self.replay_counter != 0:
+            print('Timer in progress!')
+            return
+        self.replay_timer.start(200)
+
+    def replay_history_update(self):
+        try:
+            self.classify_and_highlight_edges(self.replay_counter)
+        except IndexError:
+            self.replay_timer.stop()
+            self.replay_counter = 0
+            return
+
+
+        self.replay_counter += 1
+
 
 
 if __name__ == '__main__':

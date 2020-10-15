@@ -26,7 +26,7 @@ class TreeModel(object):
 
     DEFAULT_ALGO_PARAMS = {
         'angle_power': 2.0,
-        'angle_coeff': 2.0,
+        'angle_coeff': 0.5,
         'angle_min_degrees': 45.0,
         'elev_power': 1.0,
         'elev_coeff': 0.3,
@@ -192,7 +192,7 @@ class TreeModel(object):
         self.thinned_tree.tip_nodes = self.tree_population.orig_tips
 
 
-    def assign_edge_colors(self):
+    def assign_edge_colors(self, replay_counter = None):
 
         self.classify_edges()
 
@@ -205,7 +205,10 @@ class TreeModel(object):
         ]
 
         process_repair_edges = False
-        if self.thinned_tree is None:
+        if replay_counter is not None:
+            current_graph = self.tree_population.history[replay_counter].current_graph
+
+        elif self.thinned_tree is None:
             current_graph = self.superpoint_graph
         elif self.thinned_tree.repair_info is None:
             current_graph = self.thinned_tree.current_graph
@@ -518,26 +521,6 @@ class TreeModel(object):
 
 class GrownTree:
 
-    VIOLATION_COSTS = {
-        'angle': 0.4,
-        'direction': 100,
-        'topology':
-            {0: np.inf,     # Should never happen in the first place
-             1: 10,         # This also should never happen
-             2: 100         # This says "assuming we have a leader split in two, what's the minimum length that both
-                            # branches should be to keep both around?
-             }
-    }
-
-    INTRA_VIOLATION = np.radians(45)
-    INTER_VIOLATION = np.radians(135)
-
-    TRUNK_VIOLATION = np.radians(30)
-    SUPPORT_VIOLATION = np.radians(60)
-    LEADER_VIOLATION = np.radians(30)
-
-    SUPPORT_SPLIT_VIOLATION = np.radians(90)
-
     """
     INITIALIZATION FUNCTIONS
     """
@@ -713,11 +696,11 @@ class GrownTree:
             out_edge = out_edge[0]
             out_class = self.current_graph.edges[out_edge]['classification']
             score_change -= self.assess_angular_violation(out_edge[0], out_edge[1], out_class, edge[0], assignment)
-        in_classes = [self.current_graph.edges[e]['classification'] for e in self.current_graph.in_edges(edge[1])]
-        previous_topology_violation = self.current_graph.nodes[edge[1]].get('topology_violation', 0)
-        current_topology_violation = self.assess_topology_split_violation(out_class, in_classes)
-        self.current_graph.nodes[edge[1]]['topology_violation'] = current_topology_violation
-        score_change -= (current_topology_violation - previous_topology_violation)
+        # in_classes = [self.current_graph.edges[e]['classification'] for e in self.current_graph.in_edges(edge[1])]
+        # previous_topology_violation = self.current_graph.nodes[edge[1]].get('topology_violation', 0)
+        # current_topology_violation = self.assess_topology_split_violation(out_class, in_classes)
+        # self.current_graph.nodes[edge[1]]['topology_violation'] = current_topology_violation
+        # score_change -= (current_topology_violation - previous_topology_violation)
 
         self.base_score += score_change
         self.update_node_eligibility(edge[0])
@@ -738,6 +721,9 @@ class GrownTree:
 
     def assess_edge_violation(self, node, next_node, classification):
 
+        if classification == 0:
+            return 0
+
         xy_angle = self.get_edge_elevation(node, next_node)
 
         if classification == 1:
@@ -752,21 +738,13 @@ class GrownTree:
         return self.params['elev_coeff'] * (deviation - elev_min) ** self.params['elev_power']
 
     def assess_topology_split_violation(self, out_class, in_classes):
+        raise NotImplementedError("Do you need this?")
 
         if len(in_classes) < 2:
             return 0
 
         is_equal = map(lambda x: x == out_class, in_classes)
 
-        if out_class == 0:
-            # A trunk cannot have a split resulting in another trunk
-            if any(is_equal):
-                return self.VIOLATION_COSTS['topology'][out_class]
-            # Can't have more than 2 splits of the support from the trunk
-            if sum(map(lambda x: x == 1, in_classes)) >= 3:
-                return self.VIOLATION_COSTS['topology'][out_class]
-        elif sum(is_equal) > 1:
-            return self.VIOLATION_COSTS['topology'][out_class]
 
         return 0
 
@@ -1486,6 +1464,8 @@ class TreeManager:
         self.global_best_tree = self.population[0]
         self.global_best_tree = self.population[0]
 
+        self.history = []
+
     def iterate_to_completion(self):
         start = time.time()
 
@@ -1530,6 +1510,8 @@ class TreeManager:
             print('Removing stray tips...')
             for tree in self.population:
                 tree.remove_unattended_tips(self.orig_tips, max_len=1)
+
+        self.history.append(self.best_tree)
 
         print('-'*40)
         print('Iteration {} took {:.1f}s'.format(self.iteration, end-start))
