@@ -8,9 +8,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtCore import Qt
 
 import os
-
-from functools import partial
-from DataLabelingPanel import DataLabelingPanel, LabelAndText
+from pyqt_utils import LabelAndText
 from tree_model import TreeModel
 
 ROOT = os.path.dirname(os.path.realpath(__file__))

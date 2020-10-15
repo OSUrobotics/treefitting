@@ -24,12 +24,7 @@ import hashlib
 from functools import partial
 from collections import defaultdict
 from utils import points_to_grid_svd, rasterize_3d_points
-
-from MachineLearningPanel import LabelAndText
-
-#
-# self.figure = Figure()
-#         self.display = FigureCanvas(self.figure)
+from pyqt_utils import LabelAndText
 
 class DataLabelingPanel(QWidget):
 

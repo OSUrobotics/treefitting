@@ -26,7 +26,6 @@ from tree_model import Superpoint
 import hashlib
 from functools import partial
 from collections import defaultdict
-from MachineLearningPanel import ML_Panel
 from DataLabelingPanel import DataLabelingPanel
 from PointCloudManagementPanel import PointCloudManagementPanel
 
@@ -276,15 +275,6 @@ class PointCloudViewerGUI(QMainWindow):
         magic_button = QPushButton('Click here for magic')
         magic_button.clicked.connect(self.magic)
 
-        ml_callbacks = {
-            'random_point': self.highlight_random_radius,
-            'resample': self.resample,
-        }
-        self.ml_panel = ML_Panel(ml_callbacks, '/home/main/data/autoencoder_real_tree')
-        self.ml_panel.hide()
-        ml_button = QPushButton('ML Panel')
-        ml_button.clicked.connect(partial(self.toggle_window, self.ml_panel))
-
         ml_labeling_callbacks = {
             'refresh_superpoints': self.reload_superpoint_graph,
             'highlight_edge': self.highlight_edge
@@ -307,7 +297,6 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
         resets_layout.addWidget(magic_button)
-        resets_layout.addWidget(ml_button)
         resets_layout.addWidget(labeling_button)
         resets.setLayout(resets_layout)
 
