@@ -22,13 +22,7 @@ class RealTreeClassifier(nn.Module):
     def __init__(self, data_params=None):
 
         defaults = {
-            'point_dim': 0,
-
-            'raster_size': (128, 128),
-            # 'raster_convs': (4, 'bn', -4, 8, 'bn', -4, 16, 'bn'),
-            'raster_convs': (16, 16, 'bn', -2, 16, 16, 'bn', -2, 32, 32, 'bn', -2, 32, 32, 'bn', -2, 64, 64),
-            'raster_fc': (64,),
-            'raster_vec_size': 6,
+            'point_dim': 3,
 
             'local_size': (32, 16),
             # 'local_convs': (2, 'bn', -2, 4, 'bn', -2, 8, 'bn'),
@@ -51,18 +45,13 @@ class RealTreeClassifier(nn.Module):
         self.full_name = '__'.join(['{}_{}'.format(k,settings[k]) for k in sorted(settings)])
         self.name = hashlib.md5(self.full_name.encode()).hexdigest()
 
-        # Create Conv and FC layers for global raster
-        self.raster_conv, raster_shrinkage, final_channels = self.process_conv_structure(settings['raster_convs'], 2)
-        self.raster_flat_size = np.prod(settings['raster_size']) // raster_shrinkage ** 2 * final_channels
-        self.raster_fc = self.process_fc_structure(settings['raster_fc'], self.raster_flat_size, settings['raster_vec_size'])
-
         # Create Conv and FC layers for local raster
         self.local_conv, local_shrinkage, final_channels = self.process_conv_structure(settings['local_convs'], 1)
         self.local_flat_size = np.prod(settings['local_size']) // local_shrinkage ** 2 * final_channels
         self.local_fc = self.process_fc_structure(settings['local_fc'], self.local_flat_size, settings['local_vec_size'])
 
         # Create FC which connects layers together plus adding in point dimensions if necessary
-        linear_start = settings['local_vec_size'] + settings['raster_vec_size'] + settings['point_dim'] * 2
+        linear_start = settings['local_vec_size'] + settings['point_dim'] + 1       # Extra for elevation
         linear_end = settings['num_classes'] + 2
         self.final_fc = self.process_fc_structure(settings['final_fc'], linear_start, linear_end)
 
@@ -108,15 +97,11 @@ class RealTreeClassifier(nn.Module):
         local = self.local_conv(local).view(local.shape[0], -1)
         local = self.local_fc(local)
 
-        rast = x['global_image'].permute(0, 3, 1, 2)
-        rast = self.raster_conv(rast).view(rast.shape[0], -1)
-        rast = self.raster_fc(rast)
-
         # Combine into final
         if self.settings['point_dim']:
-            final = torch.cat([local, rast, x['start'], x['end']], 1)
+            final = torch.cat([local, x['center'], x['elevation']], 1)
         else:
-            final = torch.cat([local, rast], 1)
+            final = local
         final = self.final_fc(final)
         return final
 
@@ -148,10 +133,9 @@ class TreeDataset(torch.utils.data.Dataset):
     NUMERIC_KEYS = [
         'classification',
         'connected',
-        'global_image',
         'local_image',
-        'start',
-        'end',
+        'center',
+        'elevation',
     ]
 
 
@@ -162,11 +146,9 @@ class TreeDataset(torch.utils.data.Dataset):
         for a, b in graph.edges:
             e = graph.edges[a,b]
             data_dict = {
-                'global_image': e['global_image'],
                 'local_image': e['local_image'],
-                'start': graph.nodes[a]['point'],
-                'end': graph.nodes[b]['point']
-
+                'center': e['center'],
+                'elevation': e['elevation'],
             }
             convert_dict_to_torch(data_dict)
 
@@ -332,7 +314,8 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
         conn_acc = acc_rez['connected_accuracy']
         cat_acc = acc_rez['category_accuracy']
         acc_by_label = acc_rez['per_category_accuracy']
-        acc = 2/3 * conn_acc + 1/3 * cat_acc
+        # acc = 2/3 * conn_acc + 1/3 * cat_acc
+        acc = conn_acc
 
 
         if acc > last_val_accuracy:

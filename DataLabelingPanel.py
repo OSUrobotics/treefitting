@@ -77,13 +77,9 @@ class DataLabelingPanel(QWidget):
 
         # State variables
         self.current_data = None
-        self.start = None
-        self.end = None
+        self.edge = None
         self.remaining_edges = []
         self.current_raster = None
-        self.current_tree_raster = None
-        self.current_branch_raster = None
-        self.current_tree_raster_bounds = None
 
         self.save_folder = save_folder
         self.count = 0
@@ -104,10 +100,8 @@ class DataLabelingPanel(QWidget):
         ax.imshow(grid)
         self.display.draw()
 
-        self.start = start
-        self.end = end
+        self.edge = edge
         self.current_raster = grid
-        self.current_branch_raster, _ = rasterize_3d_points(pts, bounds=self.current_tree_raster_bounds)
 
     def commit(self, val):
 
@@ -117,13 +111,14 @@ class DataLabelingPanel(QWidget):
             is_connected = np.array([False, True])
             classification[val] = 1.0
 
+        graph_edge_data = self.current_data['graph'].edges[self.edge]
+
         rez = {
             'classification': classification,
             'connected': is_connected,
-            'global_image': np.stack([self.current_tree_raster, self.current_branch_raster], axis=2),
             'local_image': self.current_raster,
-            'start': self.start,
-            'end': self.end,
+            'center': graph_edge_data['center'],
+            'elevation': graph_edge_data['center'],
             'source_file': self.current_data['source_file'],
             'radius': self.current_data['radius'],
         }
@@ -151,27 +146,11 @@ class DataLabelingPanel(QWidget):
     def regen_graph(self):
         data = self.callbacks['refresh_superpoints']()
         graph = data['graph']
-        pts = data['points']
 
         all_edges = list(graph.edges)
 
-        # Temp
-        def get_horizontalness(k):
-            p1 = graph.nodes[k[0]]['point']
-            p2 = graph.nodes[k[1]]['point']
-            diff = p1 - p2
-            planar = np.linalg.norm(diff[[0,2]])
-            return -np.abs(diff[1] / planar)
-
-        all_edges = sorted(all_edges, key=get_horizontalness)
-
-
         # random.shuffle(all_edges)
         self.remaining_edges = all_edges
-
-        # Get raster info for tree
-        self.current_tree_raster, self.current_tree_raster_bounds = rasterize_3d_points(pts)
-
         self.current_data = data
 
 
@@ -265,7 +244,6 @@ if __name__ == '__main__':
         base_n = len(base_points)
         points = None
         current_render = None
-        bounds = None
 
         for iter, data in enumerate(queue):
             if not (count + 1) % 50:
@@ -275,21 +253,15 @@ if __name__ == '__main__':
                 num_points = np.random.randint(RESAMPLING_BOUNDS[0], min(RESAMPLING_BOUNDS[1], base_n))
                 points = base_points[np.random.choice(base_n, num_points, replace=False)]
 
-                # Redo the raster stuff - copy and pasted
-                current_render, bounds = rasterize_3d_points(points)
-
             near_start = np.linalg.norm(points - data['start'], axis=1) < data['radius']
             near_end = np.linalg.norm(points - data['end'], axis=1) < data['radius']
             subpoints = points[near_start | near_end]
 
             if len(subpoints) < 8:
-                print('Dropped')
                 continue
 
             grid = points_to_grid_svd(subpoints, data['start'], data['end'])
-            global_branch_render, _ = rasterize_3d_points(subpoints, bounds)
 
-            data['global_image'] = np.stack([current_render, global_branch_render], axis=2)
             data['local_image'] = grid
 
             file = data['file']

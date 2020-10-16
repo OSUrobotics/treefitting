@@ -264,9 +264,6 @@ class PointCloudViewerGUI(QMainWindow):
         new_id_button = QPushButton('Random new id')
         new_id_button.clicked.connect(self.new_random_id)
 
-        highlight_random_button = QPushButton('Highlight random')
-        highlight_random_button.clicked.connect(self.highlight_random)
-
         compute_mesh_button = QPushButton('Compute mesh')
         compute_mesh_button.clicked.connect(self.compute_mesh)
 
@@ -293,7 +290,6 @@ class PointCloudViewerGUI(QMainWindow):
         # resets_layout.addWidget(recalc_pca_cylinder_button)
         # resets_layout.addWidget(recalc_fit_cylinder_button)
         # resets_layout.addWidget(new_id_button)
-        resets_layout.addWidget(highlight_random_button)
         resets_layout.addWidget(compute_mesh_button)
         resets_layout.addWidget(self.save_as_field)
         resets_layout.addWidget(magic_button)
@@ -539,33 +535,6 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.update()
         self.repaint()
 
-    def highlight_random_radius(self, rad):
-
-        pt_indexes, ref_index = self.glWidget.tree.query_neighborhood(rad, highlight=True)
-        self.glWidget.make_pcd_gl_list()
-        self.glWidget.update()
-        self.repaint()
-        return self.glWidget.tree.points[pt_indexes].copy(), self.glWidget.tree.points[ref_index].copy()
-
-    def highlight_random(self):
-
-        self.glWidget.tree.rasterize()
-
-        random_node = random.choice(list(self.glWidget.tree.superpoint_graph.nodes))
-        superpoint = self.glWidget.tree.superpoint_graph.nodes[random_node]['superpoint']
-        im_array = superpoint.neighbor_image_array
-        self.glWidget.tree.highlight_superpoint(superpoint)
-        self.glWidget.make_pcd_gl_list()
-
-        self.glWidget.update()
-        self.repaint()
-
-        guess_dict, _ = superpoint.classify()
-        top_guesses = [(label, guess_dict[label]) for label in sorted(guess_dict, key=lambda x: -guess_dict[x])][:3]
-        text = 'Confidence: {:.2f} ({})'.format(top_guesses[0][1], top_guesses[0][0])
-        for label, val in top_guesses[1:]:
-            text += '\n  {:.2f} ({})'.format(val, label)
-
     def reload_superpoint_graph(self, radius=0.10):
         graph = self.glWidget.tree.load_superpoint_graph(radius=radius)
         data = {
@@ -586,7 +555,7 @@ class PointCloudViewerGUI(QMainWindow):
 
         for edge_c in graph.edges:
             if edge_c == edge:
-                graph.edges[edge_c]['color'] = (0.1, 0.9, 0.1)
+                graph.edges[edge_c]['color'] = (0.1, 0.9, 0.9)
             else:
                 graph.edges[edge_c].pop('color', None)
 
@@ -597,25 +566,6 @@ class PointCloudViewerGUI(QMainWindow):
 
         return pts, start, end
 
-
-    def save_image(self, category=None):
-        if category is not None:
-            raster_data = self.glWidget.tree.get_raster_dict(self.current_superpoint.ref_point)
-            rez = self.current_superpoint.export(category, raster_data)
-
-            print(rez)
-
-            all_files = os.listdir('training_data')
-            if not all_files:
-                file_num = 0
-            else:
-                max_file = max(all_files)
-                file_num = int(max_file.split('.')[0]) + 1
-
-            with open('training_data/{:06}.pt'.format(file_num), 'wb') as fh:
-                pickle.dump(rez, fh)
-
-        self.highlight_random()
 
     def classify_and_highlight_edges(self, replay_counter=None):
 

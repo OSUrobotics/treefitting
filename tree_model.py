@@ -46,9 +46,6 @@ class TreeModel(object):
         self.mesh = None
         self.kd_tree = None
         self.net = None
-        self.raster = None
-        self.raster_bounds = None
-        self.raster_info = None
         self.edges_rendered = False
         self.is_classified = False
         self.template_tree = None
@@ -96,53 +93,10 @@ class TreeModel(object):
 
         self.template_tree = GrownTree(self.superpoint_graph, params=self.params)
 
-    def rasterize(self, grid_size = 128, override=False):
-        if self.raster is not None and self.raster.shape == (grid_size, grid_size) and not override:
-            return
-
-        pts_xy = self.points[:,0:2]
-        min_xy = pts_xy.min(axis=0)
-        max_xy = pts_xy.max(axis=0)
-        diff = max_xy - min_xy
-        center = min_xy + 0.5 * diff
-        scale = np.max(diff) / 2
-
-        rescaled_pts = (pts_xy - center) / scale
-
-        raster = np.histogram2d(rescaled_pts[:,0], rescaled_pts[:,1], bins=np.linspace(-1, 1, num=grid_size + 1))[0]
-        self.raster = raster / np.max(raster)
-        self.raster_info = (center, scale)
-
-    def get_raster_dict(self, point):
-        """
-        Used for outputting data for neural network consumption.
-        :param point:
-        :return:
-        """
-        if self.raster is None:
-            self.rasterize()
-
-        center, scale = self.raster_info
-        rasterized_point = (point[:2] - center) / scale
-        return {
-            'raster': self.raster,
-            'raster_location': rasterized_point
-        }
-
-    def rasterize_tree(self):
-        if self.raster is not None:
-            return
-
-        self.raster, self.raster_bounds = rasterize_3d_points(self.points)
-
     def assign_edge_renders(self):
 
         if self.edges_rendered:
             return
-
-        self.rasterize_tree()
-
-        print('TEMP: Outputting edge diagnostic information')
 
         for s, e in self.superpoint_graph.edges:
             s_n = self.superpoint_graph.nodes[s]
@@ -151,18 +105,14 @@ class TreeModel(object):
             point_indexes = list(set(s_n['superpoint'].neighbor_index).union(e_n['superpoint'].neighbor_index))
             points = self.points[point_indexes]
 
+            p1 = s_n['point']
+            p2 = e_n['point']
+            diff = np.abs(p1 - p2)
 
-            info = points_to_grid_svd(points, s_n['point'], e_n['point'], normalize=True, output_extra=True)
-            #
-            # import pickle
-            # with open('/home/main/diagnostics/edge_info/{}_{}.edge'.format(s, e), 'wb') as fh:
-            #     pickle.dump(info, fh)
-
-            local_render = info['grid']
-            global_render = rasterize_3d_points(points, bounds=self.raster_bounds)[0]
-
-            self.superpoint_graph.edges[s, e]['global_image'] = np.stack([self.raster, global_render], axis=2)
-            self.superpoint_graph.edges[s, e]['local_image'] = local_render
+            grid = points_to_grid_svd(points, p1, p2, normalize=True, output_extra=False)
+            self.superpoint_graph.edges[s, e]['local_image'] = grid
+            self.superpoint_graph.edges[s, e]['center'] = (p1 + p2) / 2
+            self.superpoint_graph.edges[s, e]['elevation'] = np.arctan2(diff[1], diff[0])
 
         self.edges_rendered = True
 
@@ -257,7 +207,7 @@ class TreeModel(object):
         if self.is_classified:
             return
 
-        from test_skeletonization_network_2 import TreeDataset, RealTreeClassifier, torch_data
+        from edge_classifier_network import TreeDataset, RealTreeClassifier, torch_data
         net = RealTreeClassifier().double()
         net.load()
 
@@ -283,7 +233,7 @@ class TreeModel(object):
 
             p1 = self.superpoint_graph.nodes[edge[0]]['point']
             p2 = self.superpoint_graph.nodes[edge[1]]['point']
-
+            diff = np.abs(p1 - p2)
 
             coef = 1 / (1 - self.params['null_confidence'])
 
@@ -389,7 +339,7 @@ class TreeModel(object):
         all_superpoints = {}
         for node, (ref_pt, assoc_indexes) in enumerate(cover):
             superpoint = Superpoint(ref_pt, assoc_indexes, self.points, radius, flow_axis=1, reverse_axis=True,
-                                    global_ref=np.median(self.points, axis=0), raster_info=self.get_raster_dict(ref_pt))
+                                    global_ref=np.median(self.points, axis=0))
             all_superpoints[node] = superpoint
 
         for node, superpoint in all_superpoints.items():
@@ -810,13 +760,9 @@ class GrownTree:
         return self.score
 
 
-    def get_edge_elevation(self, a, b, xy_project=False):
+    def get_edge_elevation(self, a, b):
         pt_a = self.base_graph.nodes[a]['point']
         pt_b = self.base_graph.nodes[b]['point']
-
-        if xy_project:
-            pt_a = pt_a[:2]
-            pt_b = pt_b[:2]
 
         diff = np.abs(pt_a - pt_b)
         return np.arctan2(diff[1], diff[0])
@@ -1652,7 +1598,7 @@ class Superpoint:
 
     IMAGE_FEATURE = 'neighbor_image_array'
 
-    def __init__(self, ref_pt, neighbor_index, pc, radius, flow_axis=0, reverse_axis=False, global_ref=None, raster_info=None):
+    def __init__(self, ref_pt, neighbor_index, pc, radius, flow_axis=0, reverse_axis=False, global_ref=None):
         self.ref_point = ref_pt
         self.neighbor_index = neighbor_index
 
@@ -1663,7 +1609,6 @@ class Superpoint:
         self.radius = radius
         self.neighbor_superpoints = None
         self.global_ref = global_ref
-        self.raster_info = raster_info
 
         # Computed stats
         self._svd = None
@@ -1713,10 +1658,6 @@ class Superpoint:
         output['linear_features'] = np.concatenate(all_linear)
         output['image_feature'] = self.__getattribute__(self.IMAGE_FEATURE)
 
-        if self.raster_info is None or 'raster' not in self.raster_info or 'raster_location' not in self.raster_info:
-            raise ValueError("raster_info data must contain keys 'raster' and 'raster_location'")
-
-        output['raster_info'] = self.raster_info
 
         return output
 
