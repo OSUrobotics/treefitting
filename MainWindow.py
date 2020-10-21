@@ -108,6 +108,8 @@ class PointCloudViewerGUI(QMainWindow):
             'apply_polygons': self.apply_polygons,
             'enable_polygon_mode': self.enable_polygon_mode,
             'replay_history': self.replay_history,
+            'load_results_dict': self.load_results_dict,
+            'get_current_graph': self.get_current_graph,
         }
         self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
         self.pc_management_panel.hide()
@@ -460,26 +462,17 @@ class PointCloudViewerGUI(QMainWindow):
         if save_text:
             self.glWidget.save_mesh(save_text)
 
-    # def read_point_cloud(self):
-    #     fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
-    #     fname_my_pcd = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_pcd.txt"
-    #
-    #     try:
-    #         with open(fname_my_pcd, "r") as fid:
-    #             self.glWidget.my_pcd.read(fid)
-    #     except FileNotFoundError:
-    #         self.glWidget.my_pcd.load_point_cloud(fname_pcd)
-    #         self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
-    #         with open(fname_my_pcd, "w") as fid:
-    #             self.glWidget.my_pcd.write(fid)
-    #
-    #     self.glWidget.make_pcd_gl_list()
-    #     self.glWidget.cyl_cover = CylinderCover()
-
-    def read_point_cloud(self):
-        fname = self.path_name.text().strip()
-        self.current_file = fname
+    @staticmethod
+    def get_file_hash(fname):
+        fname = fname.strip()
         file_hash = hashlib.md5(fname.encode('utf-8')).hexdigest()[:16]
+        return file_hash
+
+    def read_point_cloud(self, fname=None, config=None):
+        if fname is None:
+            fname = self.path_name.text().strip()
+        self.current_file = fname
+        file_hash = self.get_file_hash(fname)
         ver = self.version_name.text().strip()
         if ver:
             file_hash += '_{}'.format(ver)
@@ -502,9 +495,10 @@ class PointCloudViewerGUI(QMainWindow):
                 os.mkdir(config_dir)
             config_file = os.path.join(self.config_dir, 'config.pickle')
             try:
-                with open(config_file, 'rb') as fh:
-                    config_dict = pickle.load(fh)
-                self.pc_management_panel.load_config(config_dict)
+                if config is None:
+                    with open(config_file, 'rb') as fh:
+                        config = pickle.load(fh)
+                self.pc_management_panel.load_config(config)
                 print('Loaded settings from config!')
             except IOError:
                 self.pc_management_panel.load_config({})
@@ -524,6 +518,16 @@ class PointCloudViewerGUI(QMainWindow):
         with open('last_config', 'wb') as fh:
             pickle.dump(config_update, fh)
         # self.glWidget.reset_model()
+        self.glWidget.update()
+        self.repaint()
+
+    def load_results_dict(self, info):
+        self.read_point_cloud(fname=info['config']['source'], config=info['config'])
+        self.glWidget.tree = info['tree']
+        self.glWidget.tree.assign_edge_colors()
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.initialize_skeleton()
+
         self.glWidget.update()
         self.repaint()
 

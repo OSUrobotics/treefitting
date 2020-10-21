@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt
 import os
 from pyqt_utils import LabelAndText
 from tree_model import TreeModel
+import pickle
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 CONFIG = os.path.join(ROOT, 'config')
@@ -121,6 +122,8 @@ class PointCloudManagementPanel(QWidget):
         self.callbacks = callbacks
         self.saved_skeleton = None
         self.polygons = []
+        self.loaded_results = None
+        self.loaded_results_file = None
 
         layout = QHBoxLayout()
         self.setLayout(layout)
@@ -185,9 +188,14 @@ class PointCloudManagementPanel(QWidget):
         self.repair_value_menu.setDisabled(True)
         self.save_skeleton_button = QPushButton('Save repaired tree')
         replay_history_button = QPushButton('Replay history')
+        self.load_results_text = QLineEdit()
+        load_results_button = QPushButton("Load results file")
+        self.save_results_button = QPushButton("Save results file")
+
 
         widgets = [self.skel_status, generate_skeleton_button, self.enable_repair, self.repair_value_menu,
-                   self.save_skeleton_button, replay_history_button]
+                   self.save_skeleton_button, replay_history_button, self.load_results_text, load_results_button,
+                   self.save_results_button]
         for widget in widgets:
             skel_layout.addWidget(widget)
         skel_layout.addStretch()
@@ -197,6 +205,8 @@ class PointCloudManagementPanel(QWidget):
         self.enable_repair.clicked.connect(self.update_repair_mode)
         self.repair_value_menu.currentIndexChanged.connect(self.update_repair_mode)
         replay_history_button.clicked.connect(self.replay_history)
+        load_results_button.clicked.connect(self.load_results_file)
+        self.save_results_button.clicked.connect(self.save_results_file)
 
         self.fresh_initialize()
 
@@ -228,11 +238,15 @@ class PointCloudManagementPanel(QWidget):
 
     def fresh_initialize(self):
         self.saved_skeleton = None
+        self.loaded_results_file = None
+        self.loaded_results = None
+        self.save_results_button.setDisabled(True)
         self.skel_status.setText('Status: No tree initialized')
         self.enable_repair.setChecked(False)
         self.enable_repair.setDisabled(True)
         self.repair_value_menu.setDisabled(True)
         self.save_skeleton_button.setDisabled(True)
+
 
 
     def set_bounds_from_pc(self, pc):
@@ -340,3 +354,34 @@ class PointCloudManagementPanel(QWidget):
 
     def replay_history(self):
         self.callbacks['replay_history']()
+
+    def load_results_file(self):
+        file = self.load_results_text.text().strip()
+        with open(file, 'rb') as fh:
+            info = pickle.load(fh)
+
+        info['original_assignment'] = info['tree'].thinned_tree.current_graph.copy()
+
+        self.callbacks['load_results_dict'](info)
+        tree = info['tree']
+        self.fresh_initialize()
+
+
+        self.loaded_results = info
+        self.loaded_results_file = file
+        self.save_results_button.setEnabled(True)
+
+        if tree.tree_population is not None:
+            self.skel_status.setText('Status: Skeletonized')
+            self.enable_repair.setDisabled(False)
+            self.save_skeleton_button.setDisabled(False)
+
+        elif not tree.is_classified:
+            self.skel_status.setText('Status: Tree loaded, not skeletonized')
+
+    def save_results_file(self):
+        current = self.callbacks['get_current_graph']()
+        self.loaded_results['fixed_assignment'] = current
+        with open(self.loaded_results_file, 'wb') as fh:
+            pickle.dump(self.loaded_results, fh)
+        print('Saved to {}!'.format(self.loaded_results_file))

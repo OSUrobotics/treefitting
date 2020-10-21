@@ -2,7 +2,7 @@
 
 import numpy as np
 from scipy.optimize import fmin
-from test_pts import best_pts, bad_pts
+# from test_pts import best_pts, bad_pts
 from list_read_write import ReadWrite
 from PtsForFit import PtsForFit
 

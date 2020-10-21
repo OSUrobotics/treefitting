@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.linalg import svd
+import matplotlib.path as mpath
 
 class PriorityQueue:
 
@@ -143,3 +144,23 @@ def convert_pyqt_to_gl_viewport_space(pixel, pyqt_wh, viewport_info):
 
     click_vp = np.array([click_x_vp, click_y_vp])
     return click_vp
+
+
+def compute_filter(pc, bounds, polygon_filters):
+    x_low = pc[:, 0] >= bounds['x'][0]
+    x_hi = pc[:, 0] <= bounds['x'][1]
+    y_low = pc[:, 1] >= bounds['y'][0]
+    y_hi = pc[:, 1] <= bounds['y'][1]
+    z_low = pc[:, 2] >= bounds['z'][0]
+    z_hi = pc[:, 2] <= bounds['z'][1]
+
+    axis_filter = x_low & x_hi & y_low & y_hi & z_low & z_hi
+
+    for polygon_ndc, modelview_matrix, proj_matrix in polygon_filters:
+        polygon_path = mpath.Path(polygon_ndc)
+        pts_ndc = convert_points_to_ndc_space(pc, modelview_matrix, proj_matrix)[:, :2]
+
+        polygon_filter = ~polygon_path.contains_points(pts_ndc)
+        axis_filter = axis_filter & polygon_filter
+
+    return axis_filter

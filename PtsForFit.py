@@ -4,7 +4,7 @@ import numpy as np
 from list_read_write import ReadWrite
 from scipy.optimize import fmin
 from scipy.spatial.transform import Rotation
-from test_pts import radius_and_height
+# from test_pts import radius_and_height
 
 
 class PtsForFit(ReadWrite):

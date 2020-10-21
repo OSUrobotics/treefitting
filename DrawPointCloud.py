@@ -16,7 +16,8 @@ import ctypes
 
 from tree_model import TreeModel
 from utils import convert_points_to_gl_viewport_space, convert_pyqt_to_gl_viewport_space, \
-    convert_gl_viewport_space_to_ndc_2d, convert_ndc_to_gl_viewport, convert_points_to_ndc_space
+    convert_gl_viewport_space_to_ndc_2d, convert_ndc_to_gl_viewport, convert_points_to_ndc_space, \
+    compute_filter
 import matplotlib.pyplot as plt
 import matplotlib.path as mpath
 plt.ion()
@@ -186,28 +187,10 @@ class DrawPointCloud(QOpenGLWidget):
         self.refresh_filters()
 
     def compute_filter(self, pc):
-        x_low = pc[:, 0] >= self.axis_filters['x'][0]
-        x_hi = pc[:, 0] <= self.axis_filters['x'][1]
-        y_low = pc[:, 1] >= self.axis_filters['y'][0]
-        y_hi = pc[:, 1] <= self.axis_filters['y'][1]
-        z_low = pc[:, 2] >= self.axis_filters['z'][0]
-        z_hi = pc[:, 2] <= self.axis_filters['z'][1]
-
-        axis_filter = x_low & x_hi & y_low & y_hi & z_low & z_hi
-
-        for polygon_ndc, modelview_matrix, proj_matrix in self.polygon_filters:
-            polygon_path = mpath.Path(polygon_ndc)
-            pts_ndc = convert_points_to_ndc_space(pc, modelview_matrix, proj_matrix)[:, :2]
-
-            polygon_filter = ~polygon_path.contains_points(pts_ndc)
-            axis_filter = axis_filter & polygon_filter
-
-        return axis_filter
-
+        return compute_filter(pc, self.axis_filters, self.polygon_filters)
 
     def refresh_filters(self):
         self.visual_filter = self.compute_filter(self.downsampled_points)
-
 
     def create_new_tree(self, num_points=50000):
         pc = self.my_pcd.points[self.compute_filter(self.my_pcd.points)]
@@ -217,7 +200,7 @@ class DrawPointCloud(QOpenGLWidget):
         self.tree.load_superpoint_graph()
 
 
-    def reset_model(self, pc=None, apply_filters=False):
+    def reset_model(self, pc=None):
         if pc is None:
             pc = self.my_pcd.points.copy()
         # self.tree = TreeModel.from_point_cloud(pc)

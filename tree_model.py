@@ -38,7 +38,7 @@ class TreeModel(object):
         'null_confidence': 0.3,
     }
 
-    def __init__(self):
+    def __init__(self, params=None):
         self.points = None
         self.base_points = None     # Used to keep the original PC around if necessary
         self.graph = None
@@ -52,6 +52,8 @@ class TreeModel(object):
         self.tree_population = None
 
         self.params = deepcopy(TreeModel.DEFAULT_ALGO_PARAMS)
+        if params:
+            self.params.update(params)
 
         self.superpoint_graph = None
         self.edge_settings = None
@@ -64,8 +66,8 @@ class TreeModel(object):
 
 
     @classmethod
-    def from_point_cloud(cls, pc, kd_tree_pts = 100):
-        new_model = cls()
+    def from_point_cloud(cls, pc, params=None, kd_tree_pts = 100):
+        new_model = cls(params=params)
         new_model.base_points = pc
         new_model.points = pc
         new_model.kd_tree = KDTree(pc, kd_tree_pts)
