@@ -50,6 +50,7 @@ class TreeModel(object):
         self.is_classified = False
         self.template_tree = None
         self.tree_population = None
+        self.trunk = None
 
         self.params = deepcopy(TreeModel.DEFAULT_ALGO_PARAMS)
         if params:
@@ -66,8 +67,9 @@ class TreeModel(object):
 
 
     @classmethod
-    def from_point_cloud(cls, pc, params=None, kd_tree_pts = 100):
+    def from_point_cloud(cls, pc, params=None, trunk=None, kd_tree_pts = 100):
         new_model = cls(params=params)
+        new_model.trunk = trunk
         new_model.base_points = pc
         new_model.points = pc
         new_model.kd_tree = KDTree(pc, kd_tree_pts)
@@ -93,7 +95,7 @@ class TreeModel(object):
 
     def initialize_template_tree(self):
 
-        self.template_tree = GrownTree(self.superpoint_graph, params=self.params)
+        self.template_tree = GrownTree(self.superpoint_graph, params=self.params, trunk=self.trunk)
 
     def assign_edge_renders(self):
 
@@ -478,7 +480,7 @@ class GrownTree:
     """
 
     def __init__(self, base_graph, params, score_key='normalized_likeliness', cost_key='normalized_unlikeliness',
-                 precomputed_info=None, debug=False):
+                 trunk=None, precomputed_info=None, debug=False, ):
 
         self.base_graph = base_graph
         self.current_graph = None
@@ -515,7 +517,7 @@ class GrownTree:
             self.current_graph = nx.DiGraph()
             self.current_graph.add_nodes_from(self.base_graph.nodes)
 
-            self.estimate_trunk_and_tips()
+            self.estimate_trunk_and_tips(trunk_estimate=trunk)
             self.dijkstra_maps = {tip: self.run_dijkstras_exhaust(tip) for tip in self.tip_nodes}
 
             self.update_node_eligibility(self.trunk_node)
@@ -558,7 +560,7 @@ class GrownTree:
         plt.savefig(file_name)
         plt.clf()
 
-    def estimate_trunk_and_tips(self):
+    def estimate_trunk_and_tips(self, trunk_estimate=None):
 
         TRUNK_SEARCH_THRESHOLD = 0.50
         TIP_SCAN_THRESHOLD = 0.60
@@ -572,9 +574,11 @@ class GrownTree:
         # PART 1 - Find the trunk node by estimating where you think the node should be, then searching
         # within a threshold to find the minimal connected component in that radius
         # We look for the point in the middle of the X/Z dimensions, with a Y coordinate closest to the ground
-
-        est = np.median(pts, axis=0)
-        est[1] = pts[:,1].max()
+        if trunk_estimate is None:
+            est = np.median(pts, axis=0)
+            est[1] = pts[:,1].max()
+        else:
+            est = trunk_estimate
         est_dist = np.linalg.norm(pts - est, axis=1)
         valid = est_dist < TRUNK_SEARCH_THRESHOLD
         valid_indices = np.where(valid)[0]

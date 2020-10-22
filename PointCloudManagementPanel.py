@@ -122,6 +122,7 @@ class PointCloudManagementPanel(QWidget):
         self.callbacks = callbacks
         self.saved_skeleton = None
         self.polygons = []
+        self.trunk = None
         self.loaded_results = None
         self.loaded_results_file = None
 
@@ -144,6 +145,8 @@ class PointCloudManagementPanel(QWidget):
         delete_polygons = QPushButton('Delete all polygons')
         self.update_polygon_label()
         commit_button = QPushButton('Commit')
+        self.set_trunk_node_label = QLabel()
+        set_trunk_button = QPushButton('Set trunk estimate')
 
         self.x_sliders.connect_to_value_changed(self.update_pc)
         self.y_sliders.connect_to_value_changed(self.update_pc)
@@ -152,9 +155,11 @@ class PointCloudManagementPanel(QWidget):
         delete_polygons.clicked.connect(self.delete_polygons)
 
         commit_button.clicked.connect(self.save_config)
+        set_trunk_button.clicked.connect(self.set_trunk_node)
 
         widgets = [self.x_sliders, self.y_sliders, self.z_sliders, self.trusted,
-                   self.enable_polygon_box, self.polygon_label, delete_polygons, commit_button]
+                   self.enable_polygon_box, self.polygon_label, delete_polygons, commit_button,
+                   self.set_trunk_node_label, set_trunk_button]
         for widget in widgets:
             pc_layout.addWidget(widget)
         pc_layout.addStretch()
@@ -240,6 +245,8 @@ class PointCloudManagementPanel(QWidget):
         self.saved_skeleton = None
         self.loaded_results_file = None
         self.loaded_results = None
+        self.set_trunk_node_label.setText('Trunk: Not loaded')
+
         self.save_results_button.setDisabled(True)
         self.skel_status.setText('Status: No tree initialized')
         self.enable_repair.setChecked(False)
@@ -271,6 +278,7 @@ class PointCloudManagementPanel(QWidget):
             'trusted': self.trusted.isChecked(),
             'bounds': self.values_dict,
             'polygons': self.polygons,
+            'trunk': self.trunk,
         }
 
     @property
@@ -295,7 +303,10 @@ class PointCloudManagementPanel(QWidget):
         self.load_bounds_dict(config.get('bounds'))
         self.trusted.setChecked(config.get('trusted', False))
         self.polygons = config.get('polygons', [])
+        self.trunk = config.get('trunk', None)
         self.apply_polygons()
+        self.set_trunk_node(point=self.trunk)
+
 
     def load_bounds_dict(self, bounds_dict):
         if not bounds_dict:
@@ -385,3 +396,11 @@ class PointCloudManagementPanel(QWidget):
         with open(self.loaded_results_file, 'wb') as fh:
             pickle.dump(self.loaded_results, fh)
         print('Saved to {}!'.format(self.loaded_results_file))
+
+    def set_trunk_node(self, *_, point=None):
+        self.callbacks['set_trunk_node'](point=point)
+
+    def update_trunk(self, point):
+        self.trunk = point
+        if point is not None:
+            self.set_trunk_node_label.setText('Trunk: {:.1f}, {:.1f}, {:.1f}'.format(*point))

@@ -81,7 +81,7 @@ def end_to_end_test(file, params=None, downsampling=50000, superpoint_radius=0.1
 
     with timeit(info, '3: skeletonization'):
         tree.skeletonize()
-        tree.find_side_branches()
+        tree.thinned_tree.find_side_branches()
 
     info['tree'] = tree
     info['config'] = config
@@ -95,16 +95,18 @@ def end_to_end_test(file, params=None, downsampling=50000, superpoint_radius=0.1
 if __name__ == '__main__':
     rez_folder = '/home/main/data/skeletonization_results'
     training_set = [1, 5, 7, 15, 29, 31, 52, 57, 62, 68, 73, 76]
+    import random
+    random.shuffle(training_set)
 
-    to_run = 5
-    info = end_to_end_test(to_run, None)
-    file_name_base = 'skeleton_{}_{}.pickle'
-    i = 1
-    while True:
-        file_name = file_name_base.format(to_run, i)
-        file_path = os.path.join(rez_folder, file_name)
-        if not os.path.exists(file_path):
-            with open(file_path, 'wb') as fh:
-                pickle.dump(info, fh)
-            break
-        i += 1
+    for to_run in training_set:
+        info = end_to_end_test(to_run, None)
+        file_name_base = 'skeleton_{}_{}.pickle'
+        i = 1
+        while True:
+            file_name = file_name_base.format(to_run, i)
+            file_path = os.path.join(rez_folder, file_name)
+            if not os.path.exists(file_path):
+                with open(file_path, 'wb') as fh:
+                    pickle.dump(info, fh)
+                break
+            i += 1

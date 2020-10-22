@@ -165,6 +165,10 @@ class DrawPointCloud(QOpenGLWidget):
         self.polygon_complete_callback = None
         self.active_polygon = []
 
+        self.set_trunk_mode = False
+        self.trunk_node = None
+        self.set_trunk_node_callback = None
+
         self.visual_filter = np.ones(len(self.my_pcd.points), dtype=np.bool)
         self.refresh_downsampled_points()
 
@@ -196,7 +200,7 @@ class DrawPointCloud(QOpenGLWidget):
         pc = self.my_pcd.points[self.compute_filter(self.my_pcd.points)]
         if len(pc) > num_points:
             pc = pc[np.random.choice(len(pc), num_points, replace=False)]
-        self.tree = TreeModel.from_point_cloud(pc.copy())
+        self.tree = TreeModel.from_point_cloud(pc.copy(), trunk=self.trunk_node)
         self.tree.load_superpoint_graph()
 
 
@@ -516,6 +520,9 @@ class DrawPointCloud(QOpenGLWidget):
             self.handle_polygon_click_event(click)
             return
 
+        if self.set_trunk_mode:
+            self.handle_trunk_click_event(click)
+
         if not self.repair_mode or self.tree.thinned_tree is None:
             return
 
@@ -597,7 +604,31 @@ class DrawPointCloud(QOpenGLWidget):
 
         self.update()
 
+    def handle_trunk_click_event(self, click):
+        geom = self.frameGeometry()
+        pyqt_wh = (geom.width(), geom.height())
+        # For some reason, the viewport is wrong when outside of PaintGL, it seems to get the whole window
+        viewport_info = [0, 0, pyqt_wh[0], pyqt_wh[1]]
+        viewport_px = convert_pyqt_to_gl_viewport_space(click, pyqt_wh, viewport_info)
 
+        modelview_matrix, proj_matrix = self.last_tf_data
+        vp_xy = convert_points_to_gl_viewport_space(self.my_pcd.points, modelview_matrix, proj_matrix,
+                                                    viewport_info)
+
+        close_pts = self.my_pcd.points[np.linalg.norm(vp_xy - np.array(viewport_px), axis=1) < 5]
+        if not len(close_pts):
+            print('No point was closeby!')
+            return
+
+        final = np.median(close_pts, axis=0)
+        self.trunk_node = final
+        print('Set trunk estimate to {:.2f}, {:.2f}, {:.2f}'.format(*final))
+        if self.set_trunk_node_callback is not None:
+            self.set_trunk_node_callback(self.trunk_node)
+
+        self.set_trunk_mode = False
+        self.make_pcd_gl_list()
+        self.update()
 
 
     def make_pcd_gl_list(self):
@@ -662,6 +693,14 @@ class DrawPointCloud(QOpenGLWidget):
         #         GL.glVertex3d(p[0], p[1], p[2])
 
         GL.glEnd()
+
+        if self.trunk_node is not None:
+            GL.glPointSize(20)
+            GL.glBegin(GL.GL_POINTS)
+            GL.glColor3d(0.9, 0.1, 0.9)
+            GL.glVertex3d(*self.trunk_node)
+            GL.glEnd()
+
         GL.glDisable(GL.GL_BLEND)
         GL.glEndList()
 

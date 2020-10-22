@@ -110,6 +110,7 @@ class PointCloudViewerGUI(QMainWindow):
             'replay_history': self.replay_history,
             'load_results_dict': self.load_results_dict,
             'get_current_graph': self.get_current_graph,
+            'set_trunk_node': self.set_trunk_node,
         }
         self.pc_management_panel = PointCloudManagementPanel(pc_management_callbacks)
         self.pc_management_panel.hide()
@@ -229,6 +230,7 @@ class PointCloudViewerGUI(QMainWindow):
                                        cover_file=self.settings.get('cover_file', None))
 
         self.glWidget.polygon_complete_callback = self.pc_management_panel.update_polygons
+        self.glWidget.set_trunk_node_callback = self.pc_management_panel.update_trunk
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -468,7 +470,7 @@ class PointCloudViewerGUI(QMainWindow):
         file_hash = hashlib.md5(fname.encode('utf-8')).hexdigest()[:16]
         return file_hash
 
-    def read_point_cloud(self, fname=None, config=None):
+    def read_point_cloud(self, *_, fname=None, config=None):
         if fname is None:
             fname = self.path_name.text().strip()
         self.current_file = fname
@@ -714,6 +716,14 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.replay_counter += 1
 
+    def set_trunk_node(self, point=None):
+        if point is None:
+            self.glWidget.trunk_node = None
+            self.glWidget.set_trunk_mode = True
+        else:
+            self.glWidget.trunk_node = point
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.update()
 
 
 if __name__ == '__main__':
