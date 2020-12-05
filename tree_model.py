@@ -1057,7 +1057,8 @@ class GrownTree:
                 if total_score > 0:
                     rez[edge, proposed_assignment] = total_score
         if not rez:
-            self.tip_nodes = []
+            self.tip_nodes = list(set(self.tip_nodes).difference(target_tips))
+
         return rez
 
     def handle_repair(self, node, assignment):

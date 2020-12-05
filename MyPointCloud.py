@@ -237,6 +237,11 @@ class MyPointCloud(ReadWrite):
         if isinstance(file_name, str):
             self.points = pymesh.load_mesh(file_name).vertices
             self.file_name = file_name
+
+            # HACK!
+            if 'martins_clouds' in file_name:
+                self.points = self.points @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
+
         else:   # Super hack!
             self.points = file_name
 

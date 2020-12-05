@@ -28,6 +28,7 @@ from functools import partial
 from collections import defaultdict
 from DataLabelingPanel import DataLabelingPanel
 from PointCloudManagementPanel import PointCloudManagementPanel
+from PointCloudAnnotator import PointCloudAnnotator
 
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -284,7 +285,15 @@ class PointCloudViewerGUI(QMainWindow):
         self.ml_labeling_panel.hide()
         labeling_button = QPushButton('Labeling Panel')
         labeling_button.clicked.connect(partial(self.toggle_window, self.ml_labeling_panel))
-
+        annotator_callbacks = {
+            'read_point_cloud': self.read_point_cloud,
+            'load_tree': self.load_tree,
+            'rotate_turntable': self.rotate_turntable,
+        }
+        self.annotation_panel = PointCloudAnnotator(self.glWidget, annotator_callbacks)
+        self.annotation_panel.hide()
+        annotation_button = QPushButton('Annotation Panel')
+        annotation_button.clicked.connect(partial(self.toggle_window, self.annotation_panel))
 
 
         resets = QGroupBox('Resets')
@@ -298,6 +307,7 @@ class PointCloudViewerGUI(QMainWindow):
         resets_layout.addWidget(self.save_as_field)
         resets_layout.addWidget(magic_button)
         resets_layout.addWidget(labeling_button)
+        resets_layout.addWidget(annotation_button)
         resets.setLayout(resets_layout)
 
 
@@ -533,6 +543,22 @@ class PointCloudViewerGUI(QMainWindow):
         self.glWidget.update()
         self.repaint()
 
+    def load_tree(self, tree):
+        self.glWidget.show_skeleton = True
+        self.glWidget.tree = tree
+        self.glWidget.tree.assign_edge_colors()
+        self.glWidget.make_pcd_gl_list()
+        self.glWidget.initialize_skeleton()
+        self.glWidget.update()
+        self.repaint()
+
+    def rotate_turntable(self, angle):
+        if not self.glWidget.show_skeleton:
+            self.show_skeleton()
+        current_angle = self.turntable.value()
+        new_val = (current_angle + angle) % 360
+        self.glWidget.set_turntable_rotation(new_val)
+
     def resample(self, cover_radius, neighbor_radius):
 
         pc = self.glWidget.tree.resample(cover_radius, neighbor_radius)
@@ -651,7 +677,7 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.glWidget.tree.set_params(params)
         self.glWidget.tree.skeletonize()
-        self.glWidget.tree.thinned_tree.find_side_branches()
+        self.glWidget.tree.thinned_tree.find_side_branches(viz_points = self.glWidget.downsampled_points)
         self.classify_and_highlight_edges()
 
         return self.get_current_graph()
@@ -724,7 +750,6 @@ class PointCloudViewerGUI(QMainWindow):
             self.glWidget.trunk_node = point
         self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
-
 
 if __name__ == '__main__':
     app = QApplication([])
