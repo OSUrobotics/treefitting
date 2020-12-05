@@ -154,7 +154,7 @@ class TreeModel(object):
             (0.6, 0.55, 0.4),
             (0.95, 0.4, 0.6),
             (0.4, 0.6, 0.9),
-            (0.9, 0.9, 0.0),
+            (0.15, 0.65, 0.3),
             (0.4, 0.7, 0.7),
         ]
 
@@ -612,7 +612,8 @@ class GrownTree:
 
         # For each connected component in the graph, get the node with the most tip-like value
         tips = []
-        for comp_nodes in nx.algorithms.components.connected_components(subgraph):
+        for i, comp_nodes in enumerate(nx.algorithms.components.connected_components(subgraph)):
+            comp_nodes = list(comp_nodes)
             best_node = min(comp_nodes, key=lambda x: self.base_graph.nodes[x]['point'][1])
             tips.append(best_node)
 
@@ -639,7 +640,7 @@ class GrownTree:
                 raise ValueError("Edge must end in an existing part of the tree!")
 
         self.current_graph.add_edge(*edge, classification=assignment)
-        self.set_rep = self.set_rep.union([edge[0], edge[1], assignment])
+        self.set_rep = self.set_rep.union([(edge[0], edge[1], assignment)])
 
         # Assess violations
 
@@ -1252,7 +1253,8 @@ class GrownTree:
     def find_side_branches(self, angle_threshold=np.pi/4, len_threshold=0.00):
 
         graph_copy = self.base_graph.copy()
-        graph_copy.remove_edges_from([e for e in graph_copy.edges if graph_copy.edges[e]['likeliness'] < self.params['null_confidence']])
+        edges_to_remove = [e for e in graph_copy.edges if graph_copy.edges[e]['likeliness'] < self.params['null_confidence']]
+        graph_copy.remove_edges_from(edges_to_remove)
 
         leader_edges = [e for e in self.current_graph.edges if self.current_graph.edges[e]['classification'] == 2]
         leader_nodes = set().union(*leader_edges)
@@ -1345,38 +1347,6 @@ class GrownTree:
             for e in edges(path):
                 self.current_graph.add_edge(*e, classification=3)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            queue = PriorityQueue()
-
-
-
-
-
-
-
     def path_len(self, path):
         d = 0
         for e in edges(path):
@@ -1398,7 +1368,7 @@ class TreeManager:
         self.selection_decay = selection_decay
         self.show_current_best = show_current_best
         self.best_repopulate = best_repopulate
-        self.proposal_size = proposal_size if proposal_size is None else population_size
+        self.proposal_size = population_size  # proposal_size if proposal_size is None else population_size
         self.max_prevalence = max_prevalence
         self.aggregate_tips = aggregate_tips
 
@@ -1551,15 +1521,15 @@ class TreeManager:
             new_tree.commit_edge(edge, assignment, validate=False)
             new_population.append(new_tree)
 
-        if self.proposal_size > len(self.population):
-            scores = np.array([tree.score for tree in new_population])
-
-            # Selection based on ranking
-            weights = pd.Series(scores).rank().values
-            weights = weights / weights.sum()
-
-            to_select = np.random.choice(len(new_population), len(self.population), replace=False, p=weights)
-            new_population = [new_population[i] for i in to_select]
+        # if self.proposal_size > len(self.population):
+        #     scores = np.array([tree.score for tree in new_population])
+        #
+        #     # Selection based on ranking
+        #     weights = pd.Series(scores).rank().values
+        #     weights = weights / weights.sum()
+        #
+        #     to_select = np.random.choice(len(new_population), len(self.population), replace=False, p=weights)
+        #     new_population = [new_population[i] for i in to_select]
 
         
         self.population = new_population
@@ -1570,8 +1540,6 @@ class TreeManager:
         counts = sorted(list(NEW_TREES_2.values()))
         print('Final population had {} unique out of {} total pop'.format(len(NEW_TREES_2), len(self.population)))
         print('Final tree counts: {}'.format(counts))
-
-
 
     def score_all(self):
         self.last_scores = np.array([tree.score for tree in self.population])

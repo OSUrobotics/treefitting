@@ -39,6 +39,8 @@ def get_trusted_configs():
             with open(config_path, 'rb') as fh:
                 config = pickle.load(fh)
             if config.get('trusted', False):
+                if config.get('trunk') is None:
+                    print('{} had no trunk!'.format(val))
                 trusted.append(val)
         except FileNotFoundError:
             continue
@@ -61,16 +63,24 @@ def end_to_end_test(file, params=None, downsampling=50000, superpoint_radius=0.1
     info = {}
 
     pc, config = load_file_pc_and_config(file)
+
+    # HACK!
+    if 'martins_clouds' in file:
+        pc = pc @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
+
+
     initial_filter = compute_filter(pc, config['bounds'], config['polygons'])
     indexes = np.where(initial_filter)[0]
     if len(indexes) > downsampling:
         to_keep = indexes[np.random.choice(len(indexes), downsampling, replace=False)]
+    else:
+        to_keep = indexes
     final_filter = np.zeros(len(pc), dtype=np.bool)
     final_filter[to_keep] = True
     info['filter'] = final_filter
 
     pc = pc[final_filter]
-    tree = TreeModel.from_point_cloud(pc.copy(), params=params)
+    tree = TreeModel.from_point_cloud(pc.copy(), params=params, trunk=config.get('trunk', None))
     del pc
 
     with timeit(info, '1: superpoints'):
@@ -85,6 +95,7 @@ def end_to_end_test(file, params=None, downsampling=50000, superpoint_radius=0.1
 
     info['tree'] = tree
     info['config'] = config
+    info['config']['source'] = file
 
     return info
 
@@ -94,19 +105,57 @@ def end_to_end_test(file, params=None, downsampling=50000, superpoint_radius=0.1
 
 if __name__ == '__main__':
     rez_folder = '/home/main/data/skeletonization_results'
-    training_set = [1, 5, 7, 15, 29, 31, 52, 57, 62, 68, 73, 76]
-    import random
-    random.shuffle(training_set)
+    # training_set = [1, 5, 7, 15, 29, 31, 52, 57, 62, 68, 73, 76]
+    # import random
+    # random.shuffle(training_set)
+    #
+    # for to_run in training_set:
+    #     info = end_to_end_test(to_run, None)
+    #     file_name_base = 'skeleton_{}_{}.pickle'
+    #     i = 1
+    #     while True:
+    #         file_name = file_name_base.format(to_run, i)
+    #         file_path = os.path.join(rez_folder, file_name)
+    #         if not os.path.exists(file_path):
+    #             with open(file_path, 'wb') as fh:
+    #                 pickle.dump(info, fh)
+    #             break
+    #         i += 1
 
-    for to_run in training_set:
-        info = end_to_end_test(to_run, None)
-        file_name_base = 'skeleton_{}_{}.pickle'
-        i = 1
-        while True:
-            file_name = file_name_base.format(to_run, i)
-            file_path = os.path.join(rez_folder, file_name)
-            if not os.path.exists(file_path):
-                with open(file_path, 'wb') as fh:
-                    pickle.dump(info, fh)
-                break
-            i += 1
+    file_path = '/home/main/data/point_clouds/martins_clouds/07366.ply'
+    info = end_to_end_test(file_path)
+    to_save = os.path.join(rez_folder, 'martins_cloud.pickle')
+    with open(to_save, 'wb') as fh:
+        pickle.dump(info, fh)
+
+    # from itertools import product
+    # param_settings = {
+    #     'angle_coeff': [0.25, 0.5, 0.75],
+    #     'angle_min_degrees': [30.0, 60.0, 90.0],
+    #     'angle_power': [1, 2],
+    #     'elev_coeff': [0.1, 0.3, 0.5],
+    #     'elev_min_degrees': [30, 50, 70],
+    #     'elev_power': [1],
+    #     'force_fixed_seed': [True],
+    #     'pop_size': [300],
+    # }
+    #
+    # test_tree = 15
+    #
+    # keys = list(param_settings.keys())
+    #
+    # print(keys)
+    # assert False
+    #
+    # vals = [param_settings[k] for k in keys]
+    # file_name_base = 'calibration_{}_{}.pickle'
+    # for i, all_settings in enumerate(product(*vals)):
+    #     params = {k: s for k, s in zip(keys, all_settings)}
+    #     info = end_to_end_test(test_tree, params=params)
+    #     file_name = file_name_base.format(test_tree, i)
+    #     file_path = os.path.join(rez_folder, file_name)
+    #     with open(file_path, 'wb') as fh:
+    #         pickle.dump(info, fh)
+
+
+

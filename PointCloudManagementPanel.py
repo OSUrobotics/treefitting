@@ -195,11 +195,12 @@ class PointCloudManagementPanel(QWidget):
         replay_history_button = QPushButton('Replay history')
         self.load_results_text = QLineEdit()
         load_results_button = QPushButton("Load results file")
+        next_button = QPushButton("Next")
         self.save_results_button = QPushButton("Save results file")
 
 
         widgets = [self.skel_status, generate_skeleton_button, self.enable_repair, self.repair_value_menu,
-                   self.save_skeleton_button, replay_history_button, self.load_results_text, load_results_button,
+                   self.save_skeleton_button, replay_history_button, self.load_results_text, load_results_button, next_button,
                    self.save_results_button]
         for widget in widgets:
             skel_layout.addWidget(widget)
@@ -212,6 +213,7 @@ class PointCloudManagementPanel(QWidget):
         replay_history_button.clicked.connect(self.replay_history)
         load_results_button.clicked.connect(self.load_results_file)
         self.save_results_button.clicked.connect(self.save_results_file)
+        next_button.clicked.connect(self.move_next_results_file)
 
         self.fresh_initialize()
 
@@ -389,6 +391,14 @@ class PointCloudManagementPanel(QWidget):
 
         elif not tree.is_classified:
             self.skel_status.setText('Status: Tree loaded, not skeletonized')
+
+    def move_next_results_file(self):
+        current = self.load_results_text.text()
+        comps = current.replace('.pickle', '').split('_')
+        comps[-1] = str(int(comps[-1]) + 1)
+        new = '_'.join(comps) + '.pickle'
+        self.load_results_text.setText(new)
+        self.load_results_file()
 
     def save_results_file(self):
         current = self.callbacks['get_current_graph']()
