@@ -239,7 +239,7 @@ def convert_dict_to_torch(data_dict, add_dim=False, ignore_keys=None):
 
 
 
-def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
+def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False, suffix=''):
     """
 
     :param max_epochs: Max number of epochs to train
@@ -248,17 +248,17 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
     """
     net = RealTreeClassifier().double()
 
-    train_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0, 0.8])
+    train_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0, 0.7])
     train_loader = torch_data.DataLoader(train_data, batch_size=10, shuffle=True, num_workers=0)
 
-    val_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0.8, 1.0])
+    val_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, [0.7, 0.9])
     val_loader = torch_data.DataLoader(val_data, batch_size=10, shuffle=False, num_workers=0)
 
 
 
     if load:
         try:
-            net.load()
+            net.load(suffix=suffix)
         except FileNotFoundError:
             print('No model currently exists')
 
@@ -313,11 +313,9 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
 
         conn_acc = acc_rez['connected_accuracy']
         cat_acc = acc_rez['category_accuracy']
-        acc_by_label = acc_rez['per_category_accuracy']
-        # acc = 2/3 * conn_acc + 1/3 * cat_acc
-        acc = conn_acc
 
-
+        acc = 2/3 * conn_acc + 1/3 * cat_acc
+        # acc = conn_acc
         if acc > last_val_accuracy:
             not_improved_streak = 0
         else:
@@ -335,16 +333,36 @@ def train_net(max_epochs=5, no_improve_threshold=999, lr=1e-4, load=False):
 
         if acc > best_acc:
             best_acc = acc
-            net.save()
+            net.save(suffix=suffix)
 
         last_val_accuracy = acc
 
         if not (epoch % 10):
             print('--Current best validation acc is {:.2f}%'.format(best_acc * 100))
 
-        print('Accuracy by label:')
-        for label, label_acc in acc_by_label.items():
-            print('\t{}: {:.2f}% (out of {})'.format(label, label_acc * 100, acc_rez['per_category_count'][label]))
+        print('Additional details:')
+        acc_by_connected = acc_rez['connected_details']
+        acc_by_category = acc_rez['category_details']
+        print('By connection value:')
+        pprint_stats(acc_by_connected, [0, 1])
+
+        print('By category value:')
+        pprint_stats(acc_by_category, [0, 1, 2, 3, 4])
+
+
+def pprint_stats(stats_dict, keys, prefix='\t'):
+    for k in keys:
+        info = stats_dict[k]
+        print('{}{}'.format(prefix, k))
+        for metric in ['Total', 'Precision', 'Recall']:
+            if metric == 'Total':
+                fs = '{}\t{}: {}'
+            else:
+                fs = '{}\t{}: {:.4f}'
+            print(fs.format(prefix, metric, info[metric]))
+    if 'Overall' in stats_dict:
+        print('{}Overall: {:.4f}'.format(prefix, stats_dict['Overall']))
+
 
 def eval_net(net, dataloader):
     net.eval()
@@ -355,8 +373,8 @@ def eval_net(net, dataloader):
     category_total = 0
     category_correct = 0
 
-    total_per = defaultdict(lambda: 0)
-    correct_per = defaultdict(lambda: 0)
+    category_by_validity = defaultdict(lambda: {'tp': 0, 'tn': 0, 'fp': 0, 'fn': 0})
+    category_by_class = defaultdict(lambda: {'tp': 0, 'tn': 0, 'fp': 0, 'fn': 0})
 
     for data in dataloader:
 
@@ -378,26 +396,77 @@ def eval_net(net, dataloader):
         category_total += len(category_prediction)
         category_correct += (category_prediction == category_true).sum().item()
 
+        for label, prediction in zip(connect_true, connect_prediction):
+            label = label.item()
+            prediction = prediction.item()
+            if prediction == label:
+                category_by_validity[label]['tp'] += 1
+            else:
+                category_by_validity[label]['fn'] += 1
+                category_by_validity[prediction]['fp'] += 1
+
         for label, prediction in zip(category_true, category_prediction):
             label = label.item()
             prediction = prediction.item()
-            total_per[label] += 1
             if prediction == label:
-                correct_per[label] += 1
+                category_by_class[label]['tp'] += 1
+            else:
+                category_by_class[label]['fn'] += 1
+                category_by_class[prediction]['fp'] += 1
+
     net.train()
 
-    final = {k: correct_per.get(k, 0) / total_per[k] for k in total_per}
+    stats_validity = {}
+    total = 0
+    correct = 0
+    for k in category_by_validity:
+        stats = {}
+        info = category_by_validity[k]
+        stats['Total'] = info['tp'] + info['fn']
+        stats['Precision'] = info['tp'] / (info['tp'] + info['fp'])
+        stats['Recall'] = info['tp'] / (info['tp'] + info['fn'])
+        stats_validity[k] = stats
+        total += stats['Total']
+        correct += info['tp']
+    stats_validity['Overall'] = correct / total
+
+
+    stats_class = {}
+    total = 0
+    correct = 0
+    for k in category_by_class:
+        stats = {}
+        info = category_by_class[k]
+        stats['Total'] = info['tp'] + info['fn']
+        stats['Precision'] = info['tp'] / (info['tp'] + info['fp'])
+        stats['Recall'] = info['tp'] / (info['tp'] + info['fn'])
+        stats_class[k] = stats
+        total += stats['Total']
+        correct += info['tp']
+    stats_class['Overall'] = correct / total
 
     rez = {
         'connected_accuracy': connect_correct / connect_total,
         'category_accuracy': category_correct / category_total,
-        'per_category_accuracy': final,
-        'per_category_count': total_per,
+        'connected_details': stats_validity,
+        'category_details': stats_class,
     }
 
     return rez
 
 if __name__ == '__main__':
 
-    train_net(500, 500, lr=1e-4, load=False)
+    # train_net(500, 500, lr=1e-4, load=False)
+    for label, bounds in [('Validation', [0.7, 0.9]), ('Testing', [0.9, 1.0])]:
+        print('-----------------{}------------'.format(label))
+        val_data = TreeDataset.from_directory('/home/main/data/tree_edge_data', True, bounds)
+        val_loader = torch_data.DataLoader(val_data, batch_size=10, shuffle=False, num_workers=0)
+        net = RealTreeClassifier().double()
+        net.load()
 
+        rez = eval_net(net, val_loader)
+
+        print('By connectedness')
+        pprint_stats(rez['connected_details'], [0, 1])
+        print('By category')
+        pprint_stats(rez['category_details'], [0, 1, 2, 3, 4])
