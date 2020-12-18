@@ -16,8 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from copy import deepcopy
 import random
-from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset
-from ipdb import set_trace
+from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset, read_ply
 from itertools import product
 import time
 import matplotlib.pyplot as plt
@@ -78,8 +77,8 @@ class TreeModel(object):
 
     @classmethod
     def from_file_name(cls, file_name):
-        import pymesh
-        pc = pymesh.load_mesh(file_name).vertices
+
+        pc = read_ply(file_name)
         return cls.from_point_cloud(pc)
 
     def set_params(self, params):

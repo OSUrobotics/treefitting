@@ -184,7 +184,7 @@ def overlay_pixmap(base, overlay):
 
 if __name__ == '__main__':
 
-    import pymesh
+    from utils import read_ply
     import tree_model
 
     # Resample all of the existing data, rebalancing categories if necessary
@@ -239,7 +239,7 @@ if __name__ == '__main__':
 
         random.shuffle(queue)
 
-        base_points = pymesh.load_mesh(source_file).vertices
+        base_points = read_ply(source_file)
         base_points = tree_model.preprocess_point_cloud(base_points, downsample=False)
         base_n = len(base_points)
         points = None

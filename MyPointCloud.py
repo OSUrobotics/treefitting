@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-import pymesh
 import numpy as np
-import scipy.signal as signal
+from utils import read_ply
 from list_read_write import ReadWrite
 
 class MyPointCloud(ReadWrite):
@@ -235,7 +234,7 @@ class MyPointCloud(ReadWrite):
     def load_point_cloud(self, file_name=None):
 
         if isinstance(file_name, str):
-            self.points = pymesh.load_mesh(file_name).vertices
+            self.points = read_ply(file_name)
             self.file_name = file_name
 
             # HACK!
