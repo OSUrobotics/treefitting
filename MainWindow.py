@@ -22,7 +22,6 @@ import sys
 import pickle
 import numpy as np
 from MySliders import SliderIntDisplay, SliderFloatDisplay
-from tree_model import Superpoint
 import hashlib
 from functools import partial
 from collections import defaultdict
@@ -633,24 +632,6 @@ class PointCloudViewerGUI(QMainWindow):
             print("File not found {0}".format(fname))
 
     def redraw_self(self):
-        self.glWidget.update()
-        self.repaint()
-
-    def redraw_by_classification(self, state):
-        self.glWidget.ignore_points = set()
-        self.glWidget.tree.highlighted_points = defaultdict(list)
-
-        for superpoint_node in self.glWidget.tree.superpoint_graph.nodes:
-            superpoint = self.glWidget.tree.superpoint_graph.nodes[superpoint_node]['superpoint']
-            classification = superpoint.classification
-            sorted_cats = sorted(classification, key=lambda x: -classification[x])
-            top_cat = sorted_cats[0]
-            if not state[top_cat]['active'] or classification[top_cat] < state[top_cat]['threshold']:
-                self.glWidget.ignore_points.update(superpoint.neighbor_index)
-            else:
-                self.glWidget.tree.highlighted_points[state[top_cat]['color']].extend(superpoint.neighbor_index)
-
-        self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
         self.repaint()
 

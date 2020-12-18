@@ -19,7 +19,6 @@ import os
 import sys
 import pickle
 import numpy as np
-from tree_model import Superpoint
 import hashlib
 from functools import partial
 from collections import defaultdict
@@ -84,7 +83,11 @@ class DataLabelingPanel(QWidget):
         self.save_folder = save_folder
         self.count = 0
         if save_folder is not None:
-            self.count = len(os.listdir(save_folder))
+            try:
+                self.count = len(os.listdir(save_folder))
+            except:
+                self.save_folder = None
+                print('Save folder {} passed in did not exist, will not save data'.format(save_folder))
         else:
             print('No save folder passed in, will not save data')
 

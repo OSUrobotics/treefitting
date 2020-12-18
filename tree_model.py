@@ -11,13 +11,11 @@ from itertools import combinations, permutations, product, chain
 import sys
 import os
 from Cylinder import Cylinder
-from exp_joint_detector import CloudClassifier, NewCloudClassifier, convert_pc_to_grid, project_point_onto_plane
 import pandas as pd
 import matplotlib.pyplot as plt
 from copy import deepcopy
 import random
 from utils import rasterize_3d_points, points_to_grid_svd, PriorityQueue, edges, expand_node_subset, read_ply
-from itertools import product
 import time
 import matplotlib.pyplot as plt
 
@@ -352,64 +350,6 @@ class TreeModel(object):
 
         return superpoint_graph
 
-
-    def query_ball_type(self, point_indexes, reference_point_index):
-        labels = {0: 'Branch', 1: 'Joint', 2: 'Other'}
-        if self.net is None:
-
-            self.net = CloudClassifier.from_model()
-
-        pts = self.points[point_indexes]
-        ref_pt = self.points[reference_point_index]
-
-        _, s, v = svd(pts - pts.mean(axis=0))
-
-        im_array = convert_pc_to_grid(pts, ref_pt, v=v)
-        guesses = self.net.guess_from_array(im_array)
-        guesses = {labels[i]: guesses[i] for i in range(3)}
-        main_guess = labels[np.argmax(guesses)]
-
-        return main_guess, guesses, im_array, (s, v)
-
-    def classify_points(self, radius):
-        print('Generating open cover...')
-
-
-        n = self.points.shape[0]
-        beliefs = np.zeros((n, 3))
-        counts = np.zeros(n)
-
-        for _ in range(5):
-            cover = self.produce_open_cover(radius)
-
-            print('Classifying covers...')
-            for ref_index, pt_indexes in cover.items():
-                if len(pt_indexes) < 10:
-                    continue
-                _, guesses, _, _ = self.query_ball_type(pt_indexes, ref_index)
-                counts[pt_indexes] += 1
-                beliefs[pt_indexes] += np.array([guesses['Branch'], guesses['Joint'], guesses['Other']])
-
-        counts[counts == 0] = 1
-
-        beliefs = np.divide(beliefs.T, counts).T
-
-        jointiness = (beliefs[:,1] - beliefs[:,0]) / 2 + 0.5
-        non_otherness = 1 - beliefs[:,2]
-
-        # # Temp
-        # jointiness = (jointiness > 0.5) * 1.0
-
-        rgba = np.zeros((n,4))
-        rgba[:,0] = 1 - jointiness
-        rgba[:,2] = jointiness
-        rgba[:,3] = non_otherness
-
-        self.point_beliefs = rgba
-
-        return beliefs
-
-
     def get_pt_colors(self):
 
         if self.point_beliefs is not None:
@@ -429,47 +369,6 @@ class TreeModel(object):
         raise StopIteration
 
 
-    def resample(self, cover_radius=None, neighbor_radius=None):
-
-        from autoencoder_experiment import SkeletonAutoencoder, sample_xys_from_image
-
-        old_spg = self.superpoint_graph
-        if cover_radius is not None or neighbor_radius is not None:
-            self.load_superpoint_graph(cover_radius, neighbor_radius=neighbor_radius)
-
-        net = SkeletonAutoencoder(30, [32, 64, 128]).double()
-        net.load()
-
-        all_pts = []
-        for node in self.superpoint_graph:
-            superpt = self.superpoint_graph.nodes[node]['superpoint']
-            im = superpt.image_array
-            # output = net.from_numpy_array(im)
-            output = im
-            xys = sample_xys_from_image(output, len(superpt.neighbor_index)) - 15.5
-            # zs = np.random.uniform(-1, 1, (len(superpt.neighbor_index), 1))
-            zs = np.zeros((len(xys), 1))
-
-            xyzs = np.hstack([xys, zs]) / 16 * superpt.image_scale
-            homog = np.hstack([xyzs, np.ones((len(xyzs), 1))])
-
-            tf = np.identity(4)
-            tf[:3, :3] = superpt.svd[2].T
-            tf[:3, 3] = superpt.ref_point
-
-            world_xyzs_homog = tf @ homog.T
-            world_xyzs = world_xyzs_homog[:3].T
-
-            all_pts.append(world_xyzs)
-
-        all_pts = np.concatenate(all_pts)
-        if len(all_pts) >= len(self.points):
-            all_pts = all_pts[np.random.choice(len(all_pts), len(self.points), replace=False)]
-
-
-        self.superpoint_graph = old_spg
-        print('New graph has {} pts'.format(len(all_pts)))
-        return all_pts
 
 
 class GrownTree:
@@ -1548,20 +1447,6 @@ class TreeManager:
 
 class Superpoint:
 
-    CLASSIFIER_NET = NewCloudClassifier.from_data_file('training_data/000000.pt', load_model='best_new_model.model')
-
-    CLASSIFICATIONS = {
-        0: 'Leader',
-        1: 'Side Branch',
-        2: 'Endpoint',
-        3: 'Joint (Leader to Side)',
-        4: 'Joint (Support to Leader)',
-        5: 'Support',
-        6: 'Trunk',
-        7: 'Non-Attached Component',
-        8: 'Noise',
-    }
-
     ATTRIBS_TO_EXPORT = sorted([
         'primary_axis',
         'ref_point',
@@ -1606,38 +1491,8 @@ class Superpoint:
         ax = self.primary_axis
         return template.format(cent[0], cent[1], cent[2], len(self.neighbor_index), ax[0], ax[1], ax[2], self.flow_angle)
 
-    def __lt__(self, other):
-        if isinstance(other, Superpoint):
-            if other.flow_axis != self.flow_axis or other.reverse_axis != self.reverse_axis:
-                raise ValueError('Cannot order two superpoints with inconsistent axes!')
-            other = other.center[other.flow_axis]
-        if not self.reverse_axis:
-            return self.center[self.flow_axis] < other
-        else:
-            return self.center[self.flow_axis] > other
-
-    def __gt__(self, other):
-        return not self.__lt__(other)
-
     def set_neighbor_superpoints(self, superpoints):
         self.neighbor_superpoints = superpoints
-
-    def export(self, categorization=None):
-        output = {}
-        if categorization is not None:
-            output['classification'] = np.zeros(len(self.CLASSIFICATIONS))
-            output['classification'][categorization] = 1
-
-        all_linear = [np.reshape(self.__getattribute__(attrib), -1) for attrib in self.ATTRIBS_TO_EXPORT]
-        output['linear_features'] = np.concatenate(all_linear)
-        output['image_feature'] = self.__getattribute__(self.IMAGE_FEATURE)
-
-
-        return output
-
-
-
-
 
     @property
     def svd(self):
@@ -1683,41 +1538,10 @@ class Superpoint:
         return np.arccos(dp)
 
     @property
-    def classification(self):
-        if self._classification is None:
-            self.classify()
-        return self._classification
-
-    @property
-    def image_array(self):
-        if self._image_array is None:
-            self.compute_image_array()
-
-        return self._image_array
-
-    @property
-    def image_scale(self):
-        if self._image_scale is None:
-            self.compute_image_array()
-        return self._image_scale
-
-    @property
     def center(self):
         if self._center is None:
             self.compute_flow()
         return self._center
-
-    @property
-    def leading_point(self):
-        if self._leading_point is None:
-            self.compute_flow()
-        return self._leading_point
-
-    @property
-    def terminal_point(self):
-        if self._terminal_point is None:
-            self.compute_flow()
-        return self._terminal_point
 
     @property
     def neighbors(self):
@@ -1726,50 +1550,6 @@ class Superpoint:
 
         return len(self.neighbor_superpoints)
 
-    @property
-    def primary_axis_variance(self):
-        if self._primary_axis_variance is None:
-            axes = []
-            for superpoint in chain([self], self.neighbor_superpoints):
-                axes.append(superpoint.primary_axis * (superpoint.svd[1][0] / superpoint.svd[1].sum() - 1/3))
-            self._primary_axis_variance = np.array(axes).var(axis=0)
-
-        return self._primary_axis_variance
-
-    @property
-    def neighbor_image_array(self):
-        if self._neighbor_image_array is None:
-            all_pts_indexes = self.neighbor_index
-            for neighbor_superpoint in self.neighbor_superpoints:
-                all_pts_indexes = np.union1d(all_pts_indexes, neighbor_superpoint.neighbor_index)
-            all_pts = self.pc[all_pts_indexes]
-
-            v = self.svd[2]
-            im_array = convert_pc_to_grid(all_pts, self.ref_point, grid_size=32, v=v)
-            self._neighbor_image_array = im_array
-
-        return self._neighbor_image_array
-
-    def compute_image_array(self):
-        if self._image_array is None:
-            v = self.svd[2]
-            im_array, scale = convert_pc_to_grid(self.points, self.ref_point, grid_size=32, v=v, return_scale=True)
-            self._image_array = im_array
-            self._image_scale = scale
-
-        return self._image_array
-
-    def classify(self):
-
-        guesses = self.CLASSIFIER_NET.guess_from_superpoint_export(self.export(None))
-
-        guesses_dict = {i: guesses[i] for i in range(len(self.CLASSIFICATIONS))}
-        main_guess = self.CLASSIFICATIONS[np.argmax(guesses)]
-
-        self._main_classification = main_guess
-        self._classification = guesses_dict
-
-        return guesses_dict, main_guess
 
     def compute_flow(self):
 
@@ -1789,70 +1569,6 @@ class Superpoint:
         axis_dist = abs(x)
         planar_dist = np.sqrt(y**2 + z**2)
         return axis_dist, planar_dist, np.arctan(planar_dist / axis_dist)
-
-    # def compute_conic_distance_metric(self, other_pt, angle_cutoff=np.pi/2, angular_penalty=2):
-    #     primary, angle = self.compute_conic_distance(other_pt)
-    #     if angle > angle_cutoff:
-    #         return np.inf
-    #     true_dist = primary / np.cos(angle)
-    #     multiplier = 1 + (angular_penalty - 1) * (angle / angle_cutoff)
-    #     return true_dist * multiplier
-
-
-
-
-class Segment:
-
-    MASTER_LIST = {}
-
-    @classmethod
-    def get_by_id(cls, id):
-        return cls.MASTER_LIST[id]
-
-    @classmethod
-    def get_by_type(cls, segment_type):
-        return [cls.MASTER_LIST[key] for key in cls.MASTER_LIST if cls.MASTER_LIST[key].classification == segment_type]
-
-
-    @classmethod
-    def register(cls, obj):
-        cls.MASTER_LIST[obj.id] = obj
-
-    def __init__(self, segment, segment_id=None):
-
-        if segment_id is None:
-            if not len(self.MASTER_LIST):
-                segment_id = 0
-            else:
-                segment_id = max(self.MASTER_LIST) + 1
-
-        self.segment = segment
-        self.id = segment_id
-        self.register(self)
-
-        self.endpoints = [np.array(segment[0]), np.array(segment[-1])]
-        self.vector = self.endpoints[1] - self.endpoints[0]
-        self.vector /= np.linalg.norm(self.vector)
-        self.angle = np.abs(np.arcsin(self.vector[1]))
-
-        cum_l = 0
-        len_index = {}
-        for i, (s, e) in enumerate(zip(segment[:-1], segment[1:])):
-            len_index[i] = cum_l
-            cum_l += np.linalg.norm(np.array(s) - np.array(e))
-
-        self.length = cum_l
-        # Find midpoint
-        rel_index = max([i for i in len_index if len_index[i] <= self.length / 2])
-        s = np.array(segment[rel_index])
-        e = np.array(segment[rel_index + 1])
-        remaining_len = self.length / 2 - len_index[rel_index]
-        self.midpoint = s + (e-s) * remaining_len / np.linalg.norm(e-s)
-        self.endpoint_vectors = [self.midpoint - self.endpoints[0], self.midpoint - self.endpoints[1]]
-
-
-    def edges(self):
-        return zip(self.segment[:-1], self.segment[1:])
 
 
 def preprocess_point_cloud(pc, downsample=10000):
