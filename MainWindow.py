@@ -482,8 +482,11 @@ class PointCloudViewerGUI(QMainWindow):
     def read_point_cloud(self, *_, fname=None, config=None):
         if fname is None:
             fname = self.path_name.text().strip()
+
         self.current_file = fname
-        file_hash = self.get_file_hash(fname)
+        file_base = os.path.normpath(fname).split(os.sep)[-2]
+        print('Base: {}'.format(file_base))
+        file_hash = self.get_file_hash(file_base)
         ver = self.version_name.text().strip()
         if ver:
             file_hash += '_{}'.format(ver)

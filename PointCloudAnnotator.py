@@ -217,9 +217,8 @@ class PointCloudAnnotator(QWidget):
         source = self.subid_data[sub_ids[0]]['config']['source']
         pc_dir = self.pc_directory.text()
         if pc_dir:
-            base_comps = os.path.split(source)[-2:]
+            base_comps = os.path.normpath(source).split(os.sep)[-2:]
             source = os.path.join(pc_dir, *base_comps)
-
 
         self.callbacks['read_point_cloud'](fname=source)
         self.update_sub_skeleton()
