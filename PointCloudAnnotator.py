@@ -187,7 +187,7 @@ class PointCloudAnnotator(QWidget):
 
     def update_results_files(self):
         new_dict = defaultdict(list)
-        all_files = [f.replace('.pickle', '') for f in os.listdir(self.results_directory.text()) if f.startswith(self.results_prefix.text())]
+        all_files = [f.replace('.pickle', '') for f in os.listdir(self.results_directory.text()) if f.startswith(self.results_prefix.text()) and f.endswith('.pickle')]
         for file_base in all_files:
             comps = file_base.split('_')
             skel_id = int(comps[-2])
