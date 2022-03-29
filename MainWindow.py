@@ -661,7 +661,7 @@ class PointCloudViewerGUI(QMainWindow):
 
         self.glWidget.tree.set_params(params)
         self.glWidget.tree.skeletonize()
-        self.glWidget.tree.thinned_tree.find_side_branches(viz_points = self.glWidget.downsampled_points)
+        self.glWidget.tree.thinned_tree.find_side_branches()
         self.classify_and_highlight_edges()
 
         return self.get_current_graph()
