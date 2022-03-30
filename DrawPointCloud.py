@@ -258,6 +258,8 @@ class DrawPointCloud(QOpenGLWidget):
         print(info_msg)
 
         shader_ver = shader_ver.decode("utf8").replace('.', '')
+        if 'Build' in shader_ver:
+            shader_ver = shader_ver.split(' - ')[0]
 
         vertex_shader = shaders.compileShader(SHADER_CODE.replace('{ver}', shader_ver), GL.GL_VERTEX_SHADER)
         fragment_shader = shaders.compileShader(FRAGMENT_CODE.replace('{ver}', shader_ver), GL.GL_FRAGMENT_SHADER)
