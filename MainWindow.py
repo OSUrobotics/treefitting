@@ -93,6 +93,10 @@ class PointCloudViewerGUI(QMainWindow):
         # path_names_layout.addWidget(self.pcd_name)
         path_names_layout.addWidget(QLabel("Version:"))
         path_names_layout.addWidget(self.version_name)
+
+        self.tf_widget = PointCloudOrientationWidget()
+        path_names_layout.addWidget(self.tf_widget)
+
         path_names.setLayout(path_names_layout)
 
         read_point_cloud_button = QPushButton('Read point cloud')
@@ -149,8 +153,8 @@ class PointCloudViewerGUI(QMainWindow):
 
 
         # Sliders for Camera
-        self.turntable = SliderFloatDisplay('Rotate turntable', 0.0, 360, 0, 361)
-        self.up_down = SliderFloatDisplay('Up down', 0, 360, 0, 361)
+        self.turntable = SliderFloatDisplay('Rotate turntable', 0.0, 360, 180, 361)
+        self.up_down = SliderFloatDisplay('Up down', 0, 360, 180, 361)
         self.zoom = SliderFloatDisplay('Zoom', 0.6, 2.0, 1.0)
 
         show_buttons = QGroupBox('Show buttons')
@@ -237,6 +241,9 @@ class PointCloudViewerGUI(QMainWindow):
         self.turntable.slider.valueChanged.connect(self.glWidget.set_turntable_rotation)
         self.glWidget.turntableRotationChanged.connect(self.turntable.slider.setValue)
         self.zoom.slider.valueChanged.connect(self.redraw_self)
+
+        self.glWidget.set_up_down_rotation(180)
+        self.glWidget.set_turntable_rotation(180)
 
         quit_button = QPushButton('Quit')
         quit_button.clicked.connect(app.exit)
@@ -494,11 +501,13 @@ class PointCloudViewerGUI(QMainWindow):
         self.config_dir = config_dir
         self.loaded_hash_label.setText('File hash: {}'.format(file_hash))
 
+        adjustment = self.tf_widget.get_desired_transform()
+
         if os.path.exists(os.path.join(config_dir, 'blah.txt')):
             pass
         else:
             try:
-                self.glWidget.my_pcd.load_point_cloud(fname)
+                self.glWidget.my_pcd.load_point_cloud(fname, adjustment=adjustment)
             except OSError:
                 print('Couldn\'t find file!')
                 return
@@ -734,6 +743,74 @@ class PointCloudViewerGUI(QMainWindow):
             self.glWidget.trunk_node = point
         self.glWidget.make_pcd_gl_list()
         self.glWidget.update()
+
+
+class PointCloudOrientationWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.widgets = {}
+        for default_idx, direction in enumerate(['Right', 'Up', 'In']):
+            sub_layout = QHBoxLayout()
+            checkbox = QCheckBox()
+            dropdown = QComboBox()
+            for val, label in enumerate(['X', 'Y', 'Z']):
+                dropdown.addItem(label, val)
+            dropdown.setCurrentIndex(default_idx)
+            self.widgets[direction] = {'sign': checkbox, 'axis': dropdown}
+            for widget in [QLabel('{}: '.format(direction)), QLabel('Neg'), checkbox, dropdown]:
+                sub_layout.addWidget(widget)
+
+            dropdown.currentIndexChanged.connect(self.validate_selection)
+            checkbox.clicked.connect(self.validate_selection)
+
+            layout.addLayout(sub_layout)
+
+        self.widgets['In']['sign'].setDisabled(True)
+        self.widgets['In']['axis'].setDisabled(True)
+
+    def get_axis_sign(self, direction):
+        sign = -1 if self.widgets[direction]['sign'].isChecked() else 1
+        axis = self.widgets[direction]['axis'].currentIndex()
+        return axis, sign
+
+    def validate_selection(self):
+        right_ax, right_sign = self.get_axis_sign('Right')
+        up_ax, up_sign = self.get_axis_sign('Up')
+        if right_ax == up_ax:
+            if right_ax == 0:
+                up_ax = 1
+            else:
+                up_ax = 0
+            self.widgets['Up']['axis'].setCurrentIndex(up_ax)
+
+        right_vec = np.array([0, 0, 0])
+        right_vec[right_ax] = right_sign
+        up_vec = np.array([0, 0, 0])
+        up_vec[up_ax] = up_sign
+
+        in_vec = np.cross(right_vec, up_vec)
+        in_ax = np.where(in_vec != 0)[0][0]
+        in_sign = 1 if in_vec[in_ax] > 0 else -1
+        self.widgets['In']['sign'].setChecked(in_sign < 0)
+        self.widgets['In']['axis'].setCurrentIndex(in_ax)
+
+    def get_desired_transform(self):
+        # By default, the algorithm uses the convention of X=right, Y=down, Z=out, so we need to transform it
+        default_tf = np.array([
+            [1,0,0],
+            [0,-1,0],
+            [0,0,-1]])
+
+        current_tf = np.zeros((3,3))
+        for i, direction in enumerate(['Right', 'Up', 'In']):
+            axis, sign = self.get_axis_sign(direction)
+            current_tf[:,i][axis] = sign
+
+        return default_tf @ current_tf
+
 
 if __name__ == '__main__':
     app = QApplication([])

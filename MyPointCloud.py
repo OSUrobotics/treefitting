@@ -231,15 +231,16 @@ class MyPointCloud(ReadWrite):
 
         return self.bin_list
 
-    def load_point_cloud(self, file_name=None):
+    def load_point_cloud(self, file_name=None, adjustment=None):
 
         if isinstance(file_name, str):
             self.points = read_ply(file_name)
+            if self.points.shape[0] > 3:
+                self.points = self.points[:,:3].copy()
             self.file_name = file_name
 
-            # HACK!
-            if 'martins_clouds' in file_name:
-                self.points = self.points @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
+            if adjustment is not None:
+                self.points = self.points @ adjustment
 
         else:   # Super hack!
             self.points = file_name

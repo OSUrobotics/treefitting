@@ -460,7 +460,7 @@ class GrownTree:
 
     def estimate_trunk_and_tips(self, trunk_estimate=None):
 
-        TRUNK_SEARCH_THRESHOLD = 0.50
+        TRUNK_SEARCH_THRESHOLD = 0.15
         TIP_SCAN_THRESHOLD = 0.60
         ANGLE_THRESHOLD = np.radians(45)
 
