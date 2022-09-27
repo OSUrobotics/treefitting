@@ -522,6 +522,23 @@ class GrownTree:
     FUNCTIONS FOR DETERMINING VIOLATIONS AND ASSESSING THE TREE QUALITY
     """
 
+    def score_hypothetical_assignment(self, root_edge, root_assignment, next_edges, next_edge_assignments):
+
+        assert all(map(lambda e: e[1] == root_edge[0], next_edges))
+
+        if self.assess_topology_split_violation(root_assignment, next_edge_assignments):
+            return None
+
+        score = 0
+        for edge, assignment in zip(chain([root_edge], next_edges), chain([root_assignment], next_edge_assignments)):
+            score += self.base_graph.edges[edge][self.score_key] - self.assess_edge_violation(*edge, assignment)
+
+        for next_edge, next_assignment in zip(next_edges, next_edge_assignments):
+            score -= self.assess_angular_violation(*root_edge, root_assignment, next_edge[0], next_assignment)
+
+        return score
+
+
     def commit_edge(self, edge, assignment, validate=True, debug=False):
         """
         Adds edge to the current branch and also incrementally updates the tree score.
@@ -593,16 +610,23 @@ class GrownTree:
         return self.params['elev_coeff'] * (deviation - elev_min) ** self.params['elev_power']
 
     def assess_topology_split_violation(self, out_class, in_classes):
-        raise NotImplementedError("Do you need this?")
 
-        if len(in_classes) < 2:
-            return 0
+        in_classes = np.array(in_classes)
+        if np.any(in_classes < out_class):
+            return True
 
-        is_equal = map(lambda x: x == out_class, in_classes)
+        # Cannot split into the same class
+        if np.sum(in_classes == out_class) > 1:
+            return True
 
+        # Trunk: If there is a support, there can only be two supports in the subsequent assignment, and no trunks
+        if out_class == 0:
+            num_support = np.sum(in_classes == 1)
+            if num_support:
+                if num_support > 2 or np.sum(in_classes == 0):
+                    return True
 
-        return 0
-
+        return False
 
     @property
     def complete(self):
@@ -1598,20 +1622,18 @@ def preprocess_point_cloud(pc, downsample=10000):
 
 if __name__ == '__main__':
 
-    file_path = sys.argv[1]
-    try:
-        output_path = sys.argv[2]
-    except IndexError:
-        components = list(os.path.split(file_path))
-        if '.' in components[-1]:
-            components[-1] = '.'.join(components[-1].split('.')[:-1]) + '.obj'
-        else:
-            components[-1] = components[-1] + '.obj'
+    import pickle
 
-        output_path = os.path.join(*components)
+    folder = 'data'
+    pickle_files = [x for x in os.listdir(folder) if x.endswith('.pickle')]
+    for file in pickle_files[:1]:
+        print(file)
+        with open(os.path.join(folder, file), 'rb') as fh:
+            data = pickle.load(fh)
 
-    print('Reading file from: {}'.format(file_path))
-    print('Outputting file:   {}'.format(output_path))
+        tree = data['tree'].template_tree
+        graph = tree.base_graph
 
-    model = TreeModel.from_file_name(file_path, process=True)
-    model.output_mesh(output_path)
+        import pdb
+        pdb.set_trace()
+
