@@ -213,7 +213,7 @@ class Quad:
 
         if axs is not None:
             im_debug = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)
-            quad.draw_edge_rects(im_debug, step_size=step_size, perc_width=perc_width)
+            self.draw_edge_rects(im_debug, step_size=step_size, perc_width=perc_width)
             axs.imshow(im_debug)
 
         ret_segs = []
@@ -222,6 +222,14 @@ class Quad:
         line_b = np.zeros((3, 1))
         line_b[2, 0] = 1.0
         for i_rect, r in enumerate(rects):
+            b_rect_inside = True
+            if np.min(r) < -2:
+                b_rect_inside = False
+            if np.max(r[:, 0]) > im_edge.shape[1]:
+                b_rect_inside = False
+            if np.max(r[:, 1]) > im_edge.shape[0]:
+                b_rect_inside = False
+
             im_warp, tform3_back = self._image_cutout(im_edge, r, step_size=step_size, height=height)
             i_seg = i_rect // 2
             i_side = i_rect % 2
@@ -249,7 +257,7 @@ class Quad:
                     p1_back = tform3_back @ p1_in
                     print(f"Orig {p}, transform back {p1_back}")
 
-            if lines is not None:
+            if lines is not None and b_rect_inside:
                 for rho, theta in lines[0]:
                     a = np.cos(theta)
                     b = np.sin(theta)
@@ -383,15 +391,23 @@ class Quad:
         if axs is not None:
             axs.imshow(im_mask, origin='lower')
         for i, r in enumerate(rects):
+            b_rect_inside = True
+            if np.min(r) < -2:
+                b_rect_inside = False
+            if np.max(r[:, 0]) > im_mask.shape[1]:
+                b_rect_inside = False
+            if np.max(r[:, 1]) > im_mask.shape[0]:
+                b_rect_inside = False
+
             im_warp, tform_inv = self._image_cutout(im_mask, r, step_size=step_size, height=height)
-            if np.sum(im_warp > 0) > 0:
+            if b_rect_inside and np.sum(im_warp > 0) > 0:
                 x_mean = np.mean(x_grid[im_warp > 0])
                 y_mean = np.mean(y_grid[im_warp > 0])
                 pt_warp_back = tform_inv @ np.transpose(np.array([x_mean, y_mean, 1]))
                 print(f"{self.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
                 b_rhs[i, :] = pt_warp_back[0:2]
             else:
-                print("Empty slice")
+                print(f"Empty slice {r}")
 
             if axs is not None:
                 axs.clear()

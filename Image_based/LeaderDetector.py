@@ -19,6 +19,25 @@ from scipy.cluster.vq import kmeans, whiten, vq
 
 class LeaderDetector:
     image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
+
+    _width = 0
+    _height = 0
+
+    _x_grid = None
+    _y_grid = None
+
+    @staticmethod
+    def _init_grid_(in_im):
+        """ INitialize width, height, xgrid, etc so we don't have to keep re-making it
+        :param in_im: Input image
+        """
+        if LeaderDetector._width == in_im.shape[1] and LeaderDetector._height == in_im.shape[0]:
+            return
+        LeaderDetector._width = in_im.shape[1]
+        LeaderDetector._height = in_im.shape[0]
+
+        LeaderDetector._x_grid, LeaderDetector._y_grid = np.meshgrid(np.linspace(0.5, LeaderDetector._width - 0.5, LeaderDetector._width), np.linspace(0.5,  LeaderDetector._height -  0.5,  LeaderDetector._height))
+
     def __init__(self, path, image_name, b_output_debug=True, b_recalc=False):
         """ Read in the image, mask image, flow image, 2 rgb images
         @param path: Directory where files are located
@@ -32,7 +51,7 @@ class LeaderDetector:
         # Read in all images that have name_ and are not debugging images
         self.images = self.read_images(path, image_name)
         # Split the mask into connected components, each of which might be a vertical leader
-        self.vertical_leader_masks = self.split_mask(self.images["Mask"], b_debug=b_output_debug)
+        self.vertical_leader_masks = self.split_mask(self.images["Mask"], b_one_mask=True, b_debug=b_output_debug)
         self.vertical_leader_stats = []
         self.vertical_leader_quads = []
 
@@ -85,7 +104,7 @@ class LeaderDetector:
                     pass
 
                 cv2.imwrite(self.path_debug + image_name + "_" + f"{i}_mask_points.png", self.images["Mask_Stats"])
-            cv2.imwrite(self.path_debug + image_name + "_" + "rgb_points.png", self.images["RGB_Stats"])
+            # cv2.imwrite(self.path_debug + image_name + "_" + "rgb_points.png", self.images["RGB_Stats"])
 
         # Fit a quad to each vertical leader
         print("Fitting quads")
@@ -164,16 +183,18 @@ class LeaderDetector:
 
         return images
 
-    def split_mask(self, in_im_mask, b_debug=False):
+    def split_mask(self, in_im_mask, b_one_mask=True, b_debug=False):
         """Split the mask image up into connected components, discarding anything really small
         @param in_im_mask - the mask image
         @param b_debug - print out mask labeled image
-        @return a list of boolean indices for each componet"""
+        @return a list of boolean indices for each component"""
         output = cv2.connectedComponentsWithStats(in_im_mask)
         labels = output[1]
         stats = output[2]
 
         ret_masks = []
+        i_widest = 0
+        i_area = 0
         for i, stat in enumerate(stats):
             if np.sum(in_im_mask[labels == i]) == 0:
                 continue
@@ -182,11 +203,20 @@ class LeaderDetector:
                 continue
             if stat[cv2.CC_STAT_HEIGHT] < 0.5 * in_im_mask.shape[1]:
                 continue
+            if i_area < stat[cv2.CC_STAT_AREA]:
+                i_widest = len(ret_masks)
+                i_area = stat[cv2.CC_STAT_AREA]
             ret_masks.append(labels == i)
 
         if b_debug:
             labels = 128 + labels * (120 // output[0])
             cv2.imwrite(self.path_debug + self.name + "_" + "labels.png", labels)
+
+        try:
+            if b_one_mask:
+                return [ret_masks[i_widest]]
+        except:
+            pass
         return ret_masks
 
     def stats_image(self, in_im, pixs_in_mask):
@@ -195,13 +225,10 @@ class LeaderDetector:
         @param im image
         @returns stats as a dictionary of values"""
 
-        width = in_im.shape[1]
-        height = in_im.shape[0]
+        LeaderDetector._init_grid_(in_im)
 
-        x_grid, y_grid = np.meshgrid(np.linspace(0.5, width - 0.5, width), np.linspace(0.5, height -  0.5, height))
-
-        xs = x_grid[pixs_in_mask]
-        ys = y_grid[pixs_in_mask]
+        xs = LeaderDetector._x_grid[pixs_in_mask]
+        ys = LeaderDetector._y_grid[pixs_in_mask]
 
         stats = {}
         stats["x_min"] = np.min(xs)
@@ -216,14 +243,14 @@ class LeaderDetector:
         if stats["x_span"] > stats["y_span"]:
             stats["Direction"] = "left_right"
             stats["Length"] = stats["x_span"]
-            for r in range(0, width):
+            for r in range(0, LeaderDetector._width):
                 if sum(pixs_in_mask[:, r]) > 0:
                     avg_width += sum(pixs_in_mask[:, r] > 0)
                     count_width += 1
         else:
             stats["Direction"] = "up_down"
             stats["Length"] = stats["y_span"]
-            for c in range(0, height):
+            for c in range(0, LeaderDetector._height):
                 if sum(pixs_in_mask[c, :]) > 0:
                     avg_width += sum(pixs_in_mask[c, :] > 0)
                     count_width += 1
@@ -258,10 +285,22 @@ class LeaderDetector:
         @returns fitted quad"""
 
         # Fit a quad to the trunk
-        quad = Quad(pts['lower_left'], pts['upper_right'], 0.5 * pts['width'])
+        pt_lower_left = pts['center']
+        vec_len = pts["Length"] * 0.4
+        while pt_lower_left[0] > 2 + pts['x_min'] and pt_lower_left[1] > 2 + pts['y_min']:
+            pt_lower_left = pts["center"] - pts["EigenVector"] * vec_len
+            vec_len = vec_len * 1.1
+
+        pt_upper_right = pts['center']
+        vec_len = pts["Length"] * 0.4
+        while pt_upper_right[0] < -2 + pts['x_max'] and pt_upper_right[1] < -2 + pts['y_max']:
+            pt_upper_right = pts["center"] + pts["EigenVector"] * vec_len
+            vec_len = vec_len * 1.1
+
+        quad = Quad(pt_lower_left, pt_upper_right, 0.5 * pts['width'])
 
         # Current parameters for the vertical leader
-        params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
+        params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.25}
 
         # Iteratively move the quad to the center of the mask
         for i in range(0, 5):
