@@ -147,6 +147,11 @@ class LeaderDetector:
 
                 quad.draw_quad(self.images["RGB_Stats"])
 
+        for quad in self.vertical_leader_quads:
+            score = self.score_quad(quad)
+            print(f"Score {score}")
+
+
     def read_images(self, path, image_name):
         """ Read in all of the mask, rgb, flow images
         If Edge image does not exist, create it
@@ -440,6 +445,26 @@ class LeaderDetector:
             im_mask_labels[np.logical_and(pixel_labels[0] == label[1], im_inside == False)] = int(i * n_div)
         im_mask[pixel_labels[0] == label_count[-1][1]] = 255
         return im_mask.reshape((im_flow.shape[0], im_flow.shape[1])), im_mask_labels.reshape((im_flow.shape[0], im_flow.shape[1]))
+
+    def score_quad(self, quad):
+        """ See if the quad makes sense over the optical flow image
+        @quad - the quad
+        """
+
+        # Two checks: one, are the depth/optical fow values largely consistent under the quad center
+        #  Are there boundaries in the optical flow image where the edge of the quad is?
+        im_flow_mask = cv2.cvtColor(self.images["Flow"], cv2.COLOR_BGR2GRAY)
+        perc_consistant, stats_slice = quad.check_interior_depth(im_flow_mask)
+
+        diff = 0
+        for i in range(1, len(stats_slice)):
+            diff_slices = np.abs(stats_slice[i]["Median"] - stats_slice[i-1]["Median"])
+            if diff_slices > 20:
+                print(f"Warning: Depth values not consistant from slice {self.name} {i} {stats_slice}")
+            diff += diff_slices
+        if perc_consistant < 0.9:
+            print(f"Warning: not consistant {self.name} {stats_slice}")
+        return perc_consistant, diff / (len(stats_slice) - 1)
 
 
 if __name__ == '__main__':

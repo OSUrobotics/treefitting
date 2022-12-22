@@ -70,6 +70,21 @@ class Quad:
         right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
         return left_pt, right_pt
 
+    @staticmethod
+    def _rect_in_image(im, r, pad=2):
+        """ See if the rectangle is within the image boundaries
+        @im - image (for width and height)
+        @r - the rectangle
+        @pad - how much to allow for overlap
+        @return True or False"""
+        if np.min(r) < pad:
+            return False
+        if np.max(r[:, 0]) > im.shape[1] + pad:
+            return False
+        if np.max(r[:, 1]) > im.shape[0] + pad:
+           return False
+        return True
+
     def _rect_corners(self, t1, t2, perc_width=0.3):
         """ Get two rectangles covering the expected edges of the cylinder
         @param t1 starting t value
@@ -172,33 +187,30 @@ class Quad:
         tform3_back = np.linalg.pinv(tform3)
         return cv2.warpPerspective(im, tform3, (step_size, height)), tform3_back
 
-    def depth_mask(self, im_depth, step_size=40, perc_width=0.3):
+    def check_interior_depth(self, im_depth, step_size=40, perc_width=0.3):
         """ Find which pixels are valid depth and fit average depth
         @param im_depth - depth image
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
         height = int(self.radius_2d)
-        rect_destination = np.array([[0, 0], [step_size, 0], [step_size, height], [0, height]], dtype="float32")
-        ts, rects = self.interior_rects(self, step_size=step_size, perc_width=perc_width)
-        l_col = height // 4
-        r_col = 3 * height // 4
-        for r in rects:
-            tform3 = cv2.getPerspectiveTransform(r, rect_destination)
-            tform3_back = np.linalg.pinv(tform3)
-            im_warp = cv2.warpPerspective(im_depth, tform3, (step_size, height))
-            for r in range(0, step_size):
-                row = []
-                row_mean = []
-                for c in range(0, height):
-                    if im_warp[r, c, 0] > 100 and im_warp[r, c, 1] < 50:
-                        row.append(c, im_warp[r, c, 0] / 255.0)
-                        if l_col < c < r_col:
-                            row_mean.append(im_warp[r, c, 0] / 255.0)
+        rects, ts = self.interior_rects(step_size=step_size, perc_width=perc_width)
 
+        stats = []
+        perc_consistant = 0.0
+        for i, r in enumerate(rects):
+            b_rect_inside = Quad._rect_in_image(im_depth, r, pad=2)
 
-            im_debug = cv2.cvtColor(im_warp, cv2.COLOR_GRAY2RGB)
-        return rects, ts
+            im_warp, tform_inv = self._image_cutout(im_depth, r, step_size=step_size, height=height)
+
+            stats_slice = {"Min": np.min(im_warp),
+                           "Max": np.max(im_warp),
+                           "Median": np.median(im_warp)}
+            stats_slice["Perc_in_range"] = np.count_nonzero(np.abs(im_warp - stats_slice["Median"]) < 10) / (im_warp.size)
+            perc_consistant += stats_slice["Perc_in_range"]
+            stats.append(stats_slice)
+        perc_consistant /= len(rects)
+        return perc_consistant, stats
 
     def find_edges_hough_transform(self, im_edge, step_size=40, perc_width=0.3, axs=None):
         """Find the hough transform of the images in the boxes; save the line orientations
@@ -222,13 +234,7 @@ class Quad:
         line_b = np.zeros((3, 1))
         line_b[2, 0] = 1.0
         for i_rect, r in enumerate(rects):
-            b_rect_inside = True
-            if np.min(r) < -2:
-                b_rect_inside = False
-            if np.max(r[:, 0]) > im_edge.shape[1]:
-                b_rect_inside = False
-            if np.max(r[:, 1]) > im_edge.shape[0]:
-                b_rect_inside = False
+            b_rect_inside = Quad._rect_in_image(im_edge, r, pad=2)
 
             im_warp, tform3_back = self._image_cutout(im_edge, r, step_size=step_size, height=height)
             i_seg = i_rect // 2
@@ -391,13 +397,7 @@ class Quad:
         if axs is not None:
             axs.imshow(im_mask, origin='lower')
         for i, r in enumerate(rects):
-            b_rect_inside = True
-            if np.min(r) < -2:
-                b_rect_inside = False
-            if np.max(r[:, 0]) > im_mask.shape[1]:
-                b_rect_inside = False
-            if np.max(r[:, 1]) > im_mask.shape[0]:
-                b_rect_inside = False
+            b_rect_inside = Quad._rect_in_image(im_mask, r, pad=2)
 
             im_warp, tform_inv = self._image_cutout(im_mask, r, step_size=step_size, height=height)
             if b_rect_inside and np.sum(im_warp > 0) > 0:
