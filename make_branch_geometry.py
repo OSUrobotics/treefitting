@@ -269,6 +269,10 @@ class MakeTreeGeometry:
 if __name__ == '__main__':
     branch = MakeTreeGeometry("data")
 
+    branch.make_branch_segment([506.5, 156.0, 0.0], [457.49999996771703, 478.9999900052037, 0.0], [521.5, 318.0, 0.0 ], radius_start=10.5, radius_end=8.25,
+                               start_is_junction=True, end_is_bud=False)
+    branch.write_mesh("data/jos.obj")
+
     branch.make_branch_segment([-0.5, 0.0, 0.0], [0.0, 0.1, 0.05], [0.5, 0.0, 0.0], radius_start=0.5, radius_end=0.25,
                                start_is_junction=True, end_is_bud=False)
     branch.write_mesh("data/cyl.obj")
