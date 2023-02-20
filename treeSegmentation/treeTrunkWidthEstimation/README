@@ -1,0 +1,17 @@
+1. Prepare python environment and data path
+   (1) create mask2former and create env
+   (2) place Mask2Former to 'project_path/Mask2Former'
+   (3) place datasets to 'project_path/datasets'
+2. run inference.py
+	generate 3 folders
+	(1) row97_1 mask_in_png
+	(2) row97_2 mask_in_npy
+	(3) row97_3 width_estimation
+	
+3. run running_time.py 
+	calculate the running time
+
+4. ground truth
+	row_96_diameters.csv (Row100)
+	row_97_diameters.csv (Row97)
+	row_98_diameters.csv (Row98)
