@@ -261,7 +261,7 @@ class Quad:
                 for i, p in enumerate(r):
                     p1_in = np.transpose(np.array([rect_destination[i][0], rect_destination[i][1], 1.0]))
                     p1_back = tform3_back @ p1_in
-                    print(f"Orig {p}, transform back {p1_back}")
+                    # print(f"Orig {p}, transform back {p1_back}")
 
             if lines is not None and b_rect_inside:
                 for rho, theta in lines[0]:
@@ -287,9 +287,9 @@ class Quad:
                         line_abc_constraints[0, 1] = y1
                         line_abc_constraints[1, 1] = y2
 
-                        print(f"rho {rho} theta {theta}")
-                        print(f"A {line_abc_constraints}")
-                        print(f"b {line_b}")
+                        # print(f"rho {rho} theta {theta}")
+                        # print(f"A {line_abc_constraints}")
+                        # print(f"b {line_b}")
                         line_abc = np.linalg.solve(line_abc_constraints, line_b)
 
                     check1 = line_abc[0] * x1 + line_abc[1] * y1 + line_abc[2]
@@ -314,7 +314,7 @@ class Quad:
                         cv2.line(im_debug, (x1,y1), (x2,y2), (255, 100, 100), 2)
                 if axs is not None:
                     axs.imshow(im_debug, origin='lower')
-                    print(f"Found {len(lines[0])} lines")
+                    # print(f"Found {len(lines[0])} lines")
             else:
                 if axs is not None:
                     axs.imshow(im_debug, origin='lower')
@@ -365,11 +365,11 @@ class Quad:
 
         new_pts, residuals, rank, _ = np.linalg.lstsq(a_constraints, b_rhs, rcond=None)
 
-        print(f"Residuals {residuals}, rank {rank}")
+        # print(f"Residuals {residuals}, rank {rank}")
         b_rhs[1, :] = self.p1
         pts_diffs = np.sum(np.abs(new_pts - b_rhs[0:3, :]))
 
-        if self.orientation is "vertical":
+        if self.orientation == "vertical":
             new_pts[0, 1] = self.p0[1]
             new_pts[2, 1] = self.p2[1]
         else:
@@ -404,10 +404,11 @@ class Quad:
                 x_mean = np.mean(x_grid[im_warp > 0])
                 y_mean = np.mean(y_grid[im_warp > 0])
                 pt_warp_back = tform_inv @ np.transpose(np.array([x_mean, y_mean, 1]))
-                print(f"{self.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
+                # print(f"{self.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
                 b_rhs[i, :] = pt_warp_back[0:2]
             else:
-                print(f"Empty slice {r}")
+                # print(f"Empty slice {r}")
+                pass
 
             if axs is not None:
                 axs.clear()
@@ -479,33 +480,33 @@ class Quad:
                 mid_pt_right = mid_pt_right / len(s2)
 
                 if axs is not None:
-                    print(f"{mid_pt_left.shape}, {mid_pt_right.shape}")
+                    # print(f"{mid_pt_left.shape}, {mid_pt_right.shape}")
                     self.draw_line(im_show_lines, mid_pt_left, mid_pt_right, (180, 180, 180), 2)
 
                 pt_mid = 0.5 * (mid_pt_left + mid_pt_right)
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_mid}")
+                # print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_mid}")
                 b_rhs[i_seg, :] = pt_mid
 
                 radius_avg.append(0.5 * np.linalg.norm(mid_pt_right - mid_pt_left))
             elif len(s1) > 0:
                 pt_from_left = pt_from_left / len(s1)
 
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_from_left}")
+                # print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_from_left}")
                 b_rhs[i_seg, :] = pt_from_left
                 if axs is not None:
                     self.draw_line(im_show_lines, mid_pt_left, pt_from_left, (250, 180, 250), 2)
             else:
                 pt_from_right = pt_from_right / len(s2)
 
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_from_right}")
+                # print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_from_right}")
                 b_rhs[i_seg, :] = pt_from_right
                 if axs is not None:
                     self.draw_line(im_show_lines, mid_pt_right, pt_from_right, (250, 180, 250), 2)
 
         if len(radius_avg) > 0:
-            print(f"Radius before {self.radius_2d}")
+            # print(f"Radius before {self.radius_2d}")
             self.radius_2d = 0.5 * self.radius_2d + 0.5 * np.mean(np.array(radius_avg))
-            print(f"Radius after {self.radius_2d}")
+            # print(f"Radius after {self.radius_2d}")
         if axs is not None:
             axs.imshow(im_show_lines)
 
@@ -755,7 +756,7 @@ def check_one():
         res = quad.adjust_quad_by_mask(im_mask,
                                        step_size=step_size_to_use, perc_width=perc_width_to_use_mask,
                                        axs=axs[1, 0])
-        print(f"Res {res}")
+        # print(f"Res {res}")
 
     # Draw the original, the edges, and the depth mask with the fitted quad
     quad.draw_quad(im_orig)
@@ -774,14 +775,14 @@ def check_one():
     # Now do the hough transform - first draw the hough transform edges
     for i in range(0, 5):
         ret = quad.adjust_quad_by_hough_edges(im_edge, step_size=step_size_to_use, perc_width=perc_width_to_use, axs=axs[1, 1])
-        print(f"Res Hough {ret}")
+        # print(f"Res Hough {ret}")
 
     im_orig = cv2.imread('data/forcindy/0.png')
     quad.draw_quad(im_orig)
     quad.draw_boundary(im_orig, 10)
     cv2.imwrite('data/forcindy/0_quad.png', im_orig)
 
-    print("foo")
+    # print("foo")
 
 
 if __name__ == '__main__':

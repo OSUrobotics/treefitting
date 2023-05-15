@@ -86,7 +86,7 @@ class LeaderDetector:
         #   Save points in debug image
         if b_output_debug:
             self.images["Mask_Stats"] = np.copy(self.images["Mask"])
-            self.images["RGB_Stats"] = np.copy(self.images["RGB1"])
+            self.images["RGB_Stats"] = np.copy(self.images["RGB0"])
             for i, stats in enumerate(self.vertical_leader_stats):
                 self.images["Mask_Stats"] = self.images["Mask"] / 2
                 try:
@@ -147,9 +147,9 @@ class LeaderDetector:
 
                 quad.draw_quad(self.images["RGB_Stats"])
 
-        for quad in self.vertical_leader_quads:
-            score = self.score_quad(quad)
-            print(f"Score {score}")
+        # for quad in self.vertical_leader_quads:
+        #     score = self.score_quad(quad)
+        #     print(f"Score {score}")
 
 
     def read_images(self, path, image_name):
@@ -160,7 +160,7 @@ class LeaderDetector:
         @returns dictionary of images with image_type as keywords """
 
         images = {}
-        search_path = f"{path}{image_name}_*.png"
+        search_path = f"{path}{image_name}_*.jpg"
         fnames = glob(search_path)
         if fnames is None:
             raise ValueError(f"No files in directory {search_path}")
@@ -182,8 +182,8 @@ class LeaderDetector:
                 print(f" Skipping {n}")
 
         if "Edge" not in images:
-            im_gray = cv2.cvtColor(images["RGB0"], cv2.COLOR_BGR2GRAY)
-            images["Edge"] = cv2.Canny(im_gray, 50, 150, apertureSize=3)
+            # im_gray = cv2.cvtColor(images["Mask"], cv2.COLOR_BGR2GRAY)
+            images["Edge"] = cv2.Canny(images["Mask"], 50, 150, apertureSize=3)
             cv2.imwrite(path + image_name + "_edge.png", images["Edge"])
 
         return images
@@ -468,9 +468,10 @@ class LeaderDetector:
 
 
 if __name__ == '__main__':
-    path = "./data/predictions/"
+    # path = "./data/predictions/"
+    path = "/home/josyula/Documents/DataAndModels/"
     #path = "./forcindy/"
-    for im_i in range(0, 49):
-        name = str(im_i)
-        print(name)
-        bp = LeaderDetector(path, name, b_output_debug=True, b_recalc=True)
+    # for im_i in range(0, 49):
+    name = "1"
+    print(name)
+    bp = LeaderDetector(path, name, b_output_debug=True, b_recalc=True)
