@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+import time
 
 # Read in one masked image, the flow image, and the two rgbd images and
 #  a) Find the most likely mask
@@ -24,10 +24,7 @@ from ransac_circle import RANSAC
 import matplotlib.pyplot as plt
 from circle_fit import taubinSVD
 from annonation.json_dict import json_dict
-<<<<<<< HEAD
 from trunk_width_estimator import TrunkWidthEstimator
-=======
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
 class LeaderDetector:
     image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
 
@@ -221,12 +218,12 @@ class LeaderDetector:
         branch = MakeTreeGeometry("data")
         radmaxs = []
         radmins = []
-<<<<<<< HEAD
         rad_picos = []
-=======
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
         radius_from_ransac = []
         for i in range(1000):
+            #time single frame
+
+            time_start = time.time()
             frameset = pipe.wait_for_frames()
             color_frame = frameset.get_color_frame()
             color = np.asanyarray(color_frame.get_data())
@@ -241,11 +238,7 @@ class LeaderDetector:
             frameset = align.process(frameset)
             depth_frame = frameset.get_depth_frame()
             # Update color and depth frames:
-<<<<<<< HEAD
             # colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
-=======
-            colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
             path_temp = tempfile.mkdtemp("masks")
             search_path = f"{path}{image_name}_*.npy"
             fnames = glob(search_path)
@@ -424,62 +417,58 @@ class LeaderDetector:
                 mask_b = images[image_name + "_np_mask" + "_{0}".format(i)]
                 top_left, top_right, bottom_left, bottom_right = self.find_four_corners_v1(mask_b)
                 # top_left, top_right, bottom_left, bottom_right = self.find_four_corners_v2(mask_b, quad)
-                try:
-                    bound_low_left = rs.rs2_deproject_pixel_to_point(intrinsics, [bottom_left[0], bottom_left[1]], depth_frame.get_distance(bottom_left[0], bottom_left[1]))
-                    bound_low_right = rs.rs2_deproject_pixel_to_point(intrinsics, [bottom_right[0], bottom_right[1]], depth_frame.get_distance(bottom_right[0], bottom_right[1]))
-                    bound_high_left = rs.rs2_deproject_pixel_to_point(intrinsics, [top_left[0], top_left[1]], depth_frame.get_distance( top_left[0], top_left[1]))
-                    bound_high_right = rs.rs2_deproject_pixel_to_point(intrinsics, [top_right[0], top_right[1]], depth_frame.get_distance(top_right[0], top_right[1]))
+                # try:
+                bound_low_left = rs.rs2_deproject_pixel_to_point(intrinsics, [bottom_left[0], bottom_left[1]], depth_frame.get_distance(bottom_left[0], bottom_left[1]))
+                bound_low_right = rs.rs2_deproject_pixel_to_point(intrinsics, [bottom_right[0], bottom_right[1]], depth_frame.get_distance(bottom_right[0], bottom_right[1]))
+                bound_high_left = rs.rs2_deproject_pixel_to_point(intrinsics, [top_left[0], top_left[1]], depth_frame.get_distance( top_left[0], top_left[1]))
+                bound_high_right = rs.rs2_deproject_pixel_to_point(intrinsics, [top_right[0], top_right[1]], depth_frame.get_distance(top_right[0], top_right[1]))
 
-                    rad_min_alt = np.linalg.norm(np.array(bound_low_left) - np.array(bound_low_right))
-                    rad_max_alt = np.linalg.norm(np.array(bound_high_left) - np.array(bound_high_right))
-                    rad_min = min(rad_min, rad_min_alt)
-                    rad_max = min(rad_max, rad_max_alt)
-                    print(f"rad_min {rad_min}, rad_max {rad_max}")
-                    radmins.append(rad_min)
-                    radmaxs.append(rad_max)
-<<<<<<< HEAD
-                    depths = self.get_depths(images["RGB0"], depth_frame)
-                    tw = TrunkWidthEstimator()
-                    rad_pico = tw.get_width(images["RGB0"], depths, images[image_name + "_np_mask" + "_{0}".format(i)] )
-                    print(f"rad_pico {rad_pico}")
-                    rad_picos.append(rad_pico)
-=======
-
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
-                    #WRITE BRANCH TO FILE
-                    branch.make_branch_segment(points_on_axis[0], points_on_axis[1],
-                                               points_on_axis[2],
-                                               radius_start=rad_min, radius_end=rad_max,
-                                               start_is_junction=True, end_is_bud=False)
-<<<<<<< HEAD
-                    tw = TrunkWidthEstimator()
-=======
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
-                    vertex_locs = branch.write_mesh(self.path_debug + "_" + image_name + f"_{i}_branch.obj")
-                    #project the vertices onto the image and draw them
-                    vertex_2d = []
-                    for v in vertex_locs:
-                        for v1 in v:
-                            pix = rs.rs2_project_point_to_pixel(intrinsics, v1)
-                            pix = np.array(pix).clip(0, max=np.array([720,1280])).astype(int)
-                            cv2.circle(self.images["RGB_Stats"], (int(pix[0]), int(pix[1])), 5, (0, 0, 255), -1)
-                            vertex_2d.append([int(pix[0]), int(pix[1])])
-                    # cv2.imshow("RGB_Stats", self.images["RGB_Stats"])
-                    # cv2.waitKey(0)
-                    # cv2.destroyAllWindows()
-                    cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_branch.png", self.images["RGB_Stats"])
-                    os.remove(path_temp+"/mask.jpg")
-                    #MAKE ANNONATION
-                    self.make_image_annotation(vertex_2d, image_name, path, class_id=i)
-                    i += 1
-                except:
-                    import sys
-                    print("Error in branch detection - no depth data for branch ", image_name)
-                    print("error type: ", sys.exc_info()[0])
-                    # os.remove(path_temp+"/mask.jpg")
-                    continue
+                rad_min_alt = np.linalg.norm(np.array(bound_low_left) - np.array(bound_low_right))
+                rad_max_alt = np.linalg.norm(np.array(bound_high_left) - np.array(bound_high_right))
+                rad_min = min(rad_min, rad_min_alt)
+                rad_max = min(rad_max, rad_max_alt)
+                print(f"rad_min {rad_min}, rad_max {rad_max}")
+                radmins.append(rad_min)
+                radmaxs.append(rad_max)
+                # depths = self.get_depths(images["RGB0"], depth_frame)
+                # tw = TrunkWidthEstimator()
+                # rad_pico = tw.get_width(images["RGB0"], depths, images[image_name + "_np_mask" + "_{0}".format(i)] )
+                # print(f"rad_pico {rad_pico}")
+                # rad_picos.append(rad_pico)
+                #WRITE BRANCH TO FILE
+                branch.make_branch_segment(points_on_axis[0], points_on_axis[1],
+                                           points_on_axis[2],
+                                           radius_start=rad_min, radius_end=rad_max,
+                                           start_is_junction=True, end_is_bud=False)
+                tw = TrunkWidthEstimator()
+                vertex_locs = branch.write_mesh(self.path_debug + "_" + image_name + f"_{i}_branch.obj")
+                #project the vertices onto the image and draw them
+                vertex_2d = []
+                for v in vertex_locs:
+                    for v1 in v:
+                        pix = rs.rs2_project_point_to_pixel(intrinsics, v1)
+                        pix = np.array(pix).clip(0, max=np.array([720,1280])).astype(int)
+                        cv2.circle(self.images["RGB_Stats"], (int(pix[0]), int(pix[1])), 5, (0, 0, 255), -1)
+                        vertex_2d.append([int(pix[0]), int(pix[1])])
+                # cv2.imshow("RGB_Stats", self.images["RGB_Stats"])
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
+                cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_branch.png", self.images["RGB_Stats"])
+                os.remove(path_temp+"/mask.jpg")
+                #MAKE ANNONATION
+                # self.make_image_annotation(vertex_2d, image_name, path, class_id=i)
+                i += 1
+                time_end= time.time()
+                print(f"branch {i} took {time_end - time_start} seconds")
+                # except:
+                #     import sys
+                #     print("Error in branch detection - no depth data for branch ", image_name)
+                #     print("error type: ", sys.exc_info()[0])
+                #     # os.remove(path_temp+"/mask.jpg")
+                #     continue
+                # time_end = time.time()
+                # print(f"branch {i} took {time_end - time_start} seconds")
         pipe.stop()
-<<<<<<< HEAD
         radmins = np.array(radmins)
         radmaxs = np.array(radmaxs)
         rad_picos = np.array(rad_picos)
@@ -508,27 +497,18 @@ class LeaderDetector:
         plt.hist(radmins, bins=10, color='b', label='radmin')
         #plot actual as x-axis
         plt.plot([0, len(radmins)], [radactual, radactual], color='r', label='actual')
-=======
-        avg_rad_min = np.mean(radmins)
-        avg_rad_max = np.mean(radmaxs)
-        print(f"avg_rad_min {avg_rad_min}, avg_rad_max {avg_rad_max}")
-        np.save(self.path_debug + self.name + "_radmins.npy", radmins)
-        np.save(self.path_debug + self.name + "_radmaxs.npy", radmaxs)
-
-
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
         return images
     def make_image_annotation(self, vertex_locs, image_name, path, class_id=0):
         #make coco annotation from vertices on boundary of branch
         #get vertices on boundary of branch
         classes = ["leader", "side_branch"]
-        i = class_id
+
         annotations = []
         img_mask = np.zeros((720, 1280))
         for v in vertex_locs:
-            img_mask[v[1], v[0]] = 1
+            img_mask[v[0], v[1]] = 1
 
-        img_mask += self.images[image_name + "_np_mask" + "_{0}".format(i)]
+        img_mask += self.images[image_name + "_np_mask" + "_{0}".format(class_id)]
         img_mask = np.clip(img_mask, 0, 1)
         img_mask= img_mask*255
         img_mask= img_mask.astype(np.uint8)
@@ -544,7 +524,7 @@ class LeaderDetector:
         kernel = np.ones((5, 5), np.uint8)
         img_mask = cv2.dilate(img_mask, kernel, iterations=10)
 
-        cv2.imwrite(self.path_debug + image_name + f"_{i}seg_mask.jpg", img_mask)
+        cv2.imwrite(self.path_debug + image_name + f"_{class_id}seg_mask.jpg", img_mask)
         # cv2.imshow("dilated", img_mask)
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
@@ -589,6 +569,8 @@ class LeaderDetector:
 
         image_dict.update({'file_name': image_name, 'id': image_name, "path": path+"/RGB"+"/{0}.jpg".format(image_name)})
 
+        i = class_id
+
         annotation = {
             "segmentation": segmentation,
             "area": w*h,
@@ -608,15 +590,6 @@ class LeaderDetector:
 
 
 
-<<<<<<< HEAD
-=======
-
-
-
-
-
-
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
     def depth_mask(self, image, mask, depth_frame, intrinsics):
         depth = []
         points = np.where(mask == 1)
@@ -628,7 +601,6 @@ class LeaderDetector:
                 mask_depth[point[0], point[1]] = 255
         return mask_depth
 
-<<<<<<< HEAD
     def get_depths(self, image, depth_frame):
         depths = np.zeros((image.shape[0], image.shape[1]))
         for i in range(image.shape[0]):
@@ -637,8 +609,6 @@ class LeaderDetector:
                     depths[i, j] = depth_frame.get_distance(j, i)
         return depths
 
-=======
->>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
     def split_mask(self, in_im_mask, b_one_mask=True, b_debug=False):
         """Split the mask image up into connected components, discarding anything really small
         @param in_im_mask - the mask image
