@@ -24,7 +24,10 @@ from ransac_circle import RANSAC
 import matplotlib.pyplot as plt
 from circle_fit import taubinSVD
 from annonation.json_dict import json_dict
+<<<<<<< HEAD
 from trunk_width_estimator import TrunkWidthEstimator
+=======
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
 class LeaderDetector:
     image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
 
@@ -218,7 +221,10 @@ class LeaderDetector:
         branch = MakeTreeGeometry("data")
         radmaxs = []
         radmins = []
+<<<<<<< HEAD
         rad_picos = []
+=======
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
         radius_from_ransac = []
         for i in range(1000):
             frameset = pipe.wait_for_frames()
@@ -235,7 +241,11 @@ class LeaderDetector:
             frameset = align.process(frameset)
             depth_frame = frameset.get_depth_frame()
             # Update color and depth frames:
+<<<<<<< HEAD
             # colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
+=======
+            colorized_depth = np.asanyarray(colorizer.colorize(depth_frame).get_data())
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
             path_temp = tempfile.mkdtemp("masks")
             search_path = f"{path}{image_name}_*.npy"
             fnames = glob(search_path)
@@ -427,17 +437,24 @@ class LeaderDetector:
                     print(f"rad_min {rad_min}, rad_max {rad_max}")
                     radmins.append(rad_min)
                     radmaxs.append(rad_max)
+<<<<<<< HEAD
                     depths = self.get_depths(images["RGB0"], depth_frame)
                     tw = TrunkWidthEstimator()
                     rad_pico = tw.get_width(images["RGB0"], depths, images[image_name + "_np_mask" + "_{0}".format(i)] )
                     print(f"rad_pico {rad_pico}")
                     rad_picos.append(rad_pico)
+=======
+
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
                     #WRITE BRANCH TO FILE
                     branch.make_branch_segment(points_on_axis[0], points_on_axis[1],
                                                points_on_axis[2],
                                                radius_start=rad_min, radius_end=rad_max,
                                                start_is_junction=True, end_is_bud=False)
+<<<<<<< HEAD
                     tw = TrunkWidthEstimator()
+=======
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
                     vertex_locs = branch.write_mesh(self.path_debug + "_" + image_name + f"_{i}_branch.obj")
                     #project the vertices onto the image and draw them
                     vertex_2d = []
@@ -462,6 +479,7 @@ class LeaderDetector:
                     # os.remove(path_temp+"/mask.jpg")
                     continue
         pipe.stop()
+<<<<<<< HEAD
         radmins = np.array(radmins)
         radmaxs = np.array(radmaxs)
         rad_picos = np.array(rad_picos)
@@ -490,6 +508,15 @@ class LeaderDetector:
         plt.hist(radmins, bins=10, color='b', label='radmin')
         #plot actual as x-axis
         plt.plot([0, len(radmins)], [radactual, radactual], color='r', label='actual')
+=======
+        avg_rad_min = np.mean(radmins)
+        avg_rad_max = np.mean(radmaxs)
+        print(f"avg_rad_min {avg_rad_min}, avg_rad_max {avg_rad_max}")
+        np.save(self.path_debug + self.name + "_radmins.npy", radmins)
+        np.save(self.path_debug + self.name + "_radmaxs.npy", radmaxs)
+
+
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
         return images
     def make_image_annotation(self, vertex_locs, image_name, path, class_id=0):
         #make coco annotation from vertices on boundary of branch
@@ -581,6 +608,15 @@ class LeaderDetector:
 
 
 
+<<<<<<< HEAD
+=======
+
+
+
+
+
+
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
     def depth_mask(self, image, mask, depth_frame, intrinsics):
         depth = []
         points = np.where(mask == 1)
@@ -592,6 +628,7 @@ class LeaderDetector:
                 mask_depth[point[0], point[1]] = 255
         return mask_depth
 
+<<<<<<< HEAD
     def get_depths(self, image, depth_frame):
         depths = np.zeros((image.shape[0], image.shape[1]))
         for i in range(image.shape[0]):
@@ -600,6 +637,8 @@ class LeaderDetector:
                     depths[i, j] = depth_frame.get_distance(j, i)
         return depths
 
+=======
+>>>>>>> cf57a41a972ab1acdce4fbd8e9f9067079a012c3
     def split_mask(self, in_im_mask, b_one_mask=True, b_debug=False):
         """Split the mask image up into connected components, discarding anything really small
         @param in_im_mask - the mask image
