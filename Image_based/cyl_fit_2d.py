@@ -636,6 +636,14 @@ class Quad:
             col = (i * col_incr, 100 + (i%2) * 100, i * col_incr)
             self.draw_edge_rect(im, r, col=col)
 
+    def get_boundary_rects(self, step_size=40, perc_width=0.3):
+        """ Get the edge rectangles
+        @param step_size how many pixels to move along the boundary
+        @param perc_width How much of the radius to move in/out of the edge
+        """
+        rects, _ = self.boundary_rects(step_size, perc_width)
+        return rects
+
     def draw_edge_rects_markers(self, im, step_size=40, perc_width=0.3):
         """ Draw the edge rectangles
         @param im - the image

@@ -141,55 +141,84 @@ class LeaderDetector:
                 break
         return top_left, top_right, bottom_left, bottom_right
 
-
     def fit_circle_to_3d_points(self, points, quad, intrinsics, depth_frame):
         """using ransac fit a circle to the points"""
-
-        # fit circle to every z_slice
-        x_data = points[:, 0]
-        y_data = points[:, 1]
-        z_data = points[:, 2]
-        # plt.ion()
-        # plt.show()
         running_mean_raduis = []
+        rects = quad.get_boundary_rects()
 
-        # fig = plt.figure()
-        # ax1 = fig.add_subplot(1, 2, 1)
-        # ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+        ind_l = np.arange(0, len(rects), 2)
+        ind_r = np.arange(1, len(rects), 2)
+        inds = zip(ind_l, ind_r)
+        #get points with in a rectangle
+        for ind in inds:
+            rect_l = rects[ind[0]]
+            rect_r = rects[ind[1]]
+            x_top_left = rect_l[0][0]
+            y_top_left = rect_l[0][1]
+            x_bottom_right = rect_r[1][0]
+            y_bottom_right = rect_r[1][1]
+            try:
+                top =rs.rs2_deproject_pixel_to_point(intrinsics, [x_top_left,y_top_left], depth_frame.get_distance(x_top_left,y_top_left))
+                bottom = rs.rs2_deproject_pixel_to_point(intrinsics, [x_bottom_right,y_bottom_right], depth_frame.get_distance(x_bottom_right,y_bottom_right))
+                #extract points in the top and bottom rectangle
+                points_in = points[(points[:,0] > top[0]) & (points[:,0] < bottom[0]) & (points[:,1] > top[1]) & (points[:,1] < bottom[1])]
+                # fit circle to every z_slice
+                x_data = points_in[:, 0]
+                y_data = points_in[:, 1]
+                z_data = points_in[:, 2]
+                # #project points to yz plane
+                # P = [[0,0,0],[0,1,0],[0,0,1]]
+                # points_2d = np.dot(points_in,P)
+                # #project points to xy plane
+                P = [[1,0,0],[0,1,0],[0,0,0]]
+                points_2d = np.dot(points_in,P)
+                x_data_slice = points_2d[:, 0]
+                y_data_slice = points_2d[:, 1]
+                xc, yc, r1, sigma = taubinSVD(list(zip(x_data_slice, y_data_slice)))
+                running_mean_raduis.append(r1)
+                # plt.ion()
+                # plt.show()
 
 
-        # ax.scatter(x_data_slice, y_data_slice, z_slice)
-        for z_slice in np.unique(z_data):
-            x_data_slice = x_data[z_data == z_slice]
-            y_data_slice = y_data[z_data == z_slice]
-            # print(len(x_data_slice)," ",z_slice)
-            if(len(x_data_slice)>300):
-                try:
-                    # plt.cla()
-                    # fit circle to every z_slice
-                    xc, yc, r1, sigma = taubinSVD(list(zip(x_data_slice, y_data_slice)))
+                # fig = plt.figure()
+                # ax1 = fig.add_subplot(1, 2, 1)
+                # ax2 = fig.add_subplot(1, 2, 2, projection='3d')
 
-                    # ransac = RANSAC(x_data_slice, y_data_slice, 50)
-                    # ransac.execute_ransac()
-                    # a, b, r = ransac.best_model[0], ransac.best_model[1], ransac.best_model[2]
+                # ax.scatter(x_data_slice, y_data_slice, z_slice)
+                # for z_slice in np.unique(z_data):
+                #     x_data_slice = x_data[z_data == z_slice]
+                #     y_data_slice = y_data[z_data == z_slice]
+                #     # print(len(x_data_slice)," ",z_slice)
+                #     if (len(x_data_slice) > 300):
+                #         try:
+                #             # plt.cla()
+                #             # fit circle to every z_slice
+                #             xc, yc, r1, sigma = taubinSVD(list(zip(x_data_slice, y_data_slice)))
+                #
+                #             # ransac = RANSAC(x_data_slice, y_data_slice, 50)
+                #             # ransac.execute_ransac()
+                #             # a, b, r = ransac.best_model[0], ransac.best_model[1], ransac.best_model[2]
+                #
+                #             # show result
+                #             # circle = plt.Circle((xc, yc), radius=r1, color='r', fc='y', fill=False)
+                #             # ax1.add_patch(circle)
+                #             # ax1.scatter(x_data_slice, y_data_slice, s=1)
+                #             # ax1.axis('scaled')
+                #             # ax2.scatter(x_data_slice, y_data_slice, z_slice)
+                #             # ax2.set_xlabel('$X$')
+                #             # ax2.set_ylabel('$Y$')
+                #             # ax2.set_zlabel('$Z$')
+                #             # plt.pause(0.1)
+                #             # plt.draw()
+                #             running_mean_raduis.append(r1)
+                #             # plot in 3d for debugging
+                #
+                #         except np.linalg.LinAlgError:
+                #             print("Singular Matrix")
+                #             continue
+            except:
+                continue
 
-                    # show result
-                    # circle = plt.Circle((xc, yc), radius=r1, color='r', fc='y', fill=False)
-                    # ax1.add_patch(circle)
-                    # ax1.scatter(x_data_slice, y_data_slice, s=1)
-                    # ax1.axis('scaled')
-                    # ax2.scatter(x_data_slice, y_data_slice, z_slice)
-                    # ax2.set_xlabel('$X$')
-                    # ax2.set_ylabel('$Y$')
-                    # ax2.set_zlabel('$Z$')
-                    # plt.pause(0.1)
-                    # plt.draw()
-                    running_mean_raduis.append(r1)
-                    #plot in 3d for debugging
-
-                except np.linalg.LinAlgError:
-                    print("Singular Matrix")
-                    continue
 
         median_radius = np.median(running_mean_raduis)
         # running_mean_raduis = running_mean_raduis/len(np.unique(z_data))
