@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 
-# Read in one masked image, the flow image, and the two rgbd images and
-#  a) Find the most likely mask
-#  b) Fit a bezier to that mask
-#    b.1) use PCA to find the center estimate of the mask at 3 locations
-#    b.2) Fit the bezier to the horizontal slices, assuming mask is correct
-#    b.3) Fit the bezier to the edges
+# For one masked image
+#  a) Do stats
+#  b) Fit quad to mask
+#  c) Fit edges to edge image
 
 import numpy as np
 from glob import glob
@@ -17,22 +15,17 @@ from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
 
-class LeaderDetector:
-    image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
-
-    def __init__(self, path, image_name, b_output_debug=True, b_recalc=False):
+class FitQuadMask(BaseStatsImage):
+    def __init__(self, path, image_name, mask_id, b_output_debug=True, b_recalc=False):
         """ Read in the image, mask image, flow image, 2 rgb images
         @param path: Directory where files are located
         @param image_name: image number/name as a string
+        @param mask_id: mask id
+        @param b_output_debug: Do you want to output the debug images?
         @param b_recalc: Force recalculate the result, y/n"""
 
-        self.path = path
-        self.path_debug = path + "DebugImages/"
-        self.path_calculated = path + "CalculatedData/"
-        self.b_output_debug = b_output_debug
-        self.b_recalc = b_recalc
+        self.BaseStatsImage.__init__(path, image_name, mask_id, b_output_debug, b_recalc)
 
-        self.name = image_name
         # Read in all images that have name_ and are not debugging images
         self.images = self.read_images(path, image_name)
 
@@ -122,7 +115,9 @@ class LeaderDetector:
 
         for n in fnames:
             if "mask" in n:
-                images["Mask"] = BaseStatsImage(self.path, image_name, mask_id=-1, b_output_debug=self.b_output_debug, b_recalc=self.b_recalc)
+                im_mask_color = cv2.imread(n)
+                im_mask_gray = cv2.cvtColor(im_mask_color, cv2.COLOR_BGR2GRAY)
+                images["Mask"] = BaseStatsImage(self.path, image_name, im_mask_gray, self.b_debug, self.b_recalc)
             elif "rgb0" in n:
                 images["RGB0"] = cv2.imread(n)
             elif "rgb1" in n:

@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 
-# Read in one masked image, the flow image, and the two rgbd images and
-#  a) Find the most likely mask
-#  b) Fit a bezier to that mask
-#    b.1) use PCA to find the center estimate of the mask at 3 locations
-#    b.2) Fit the bezier to the horizontal slices, assuming mask is correct
-#    b.3) Fit the bezier to the edges
+# Read in one masked image, the depth image, and the rgb image. Assumes one mask'd area
+#   If no edge image, calculate edge image
+#  a) Fit the curve to the masked area
+#        Extend to boundaries of image if possible
+#  b) Calculate IoU for mask and fitted curve
+#    b.1) % pixels in center 80% of Bezier curve mask that are in original mask
+#    b.2) % pixels outside of 1.1 * Bezier curve mask that are in original mask
+#  c) Output revised mask
+#  d) Output edge curve boundaries
+#    d.1) Cut out piece of boundary
+#    b.2) Map to a rectangle
+#    b.3) See if edges
+#         If edges, use edge cut out
+#         Else use center fitted curve
 
 import numpy as np
 from glob import glob
+import csv
 import cv2
 import json
 from os.path import exists
@@ -17,37 +26,86 @@ from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
 
-class LeaderDetector:
-    image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
 
-    def __init__(self, path, image_name, b_output_debug=True, b_recalc=False):
-        """ Read in the image, mask image, flow image, 2 rgb images
+class ExtractCurves(BaseStatsImage):
+    image_type = {"RGB", "Mask", "Edge", "Depth"}
+
+    _width = 0
+    _height = 0
+
+    _x_grid = None
+    _y_grid = None
+
+    @staticmethod
+    def _init_grid_(in_im):
+        """ Initialize width, height, xgrid, etc so we don't have to keep re-making it
+        :param in_im: Input image
+        """
+        if ExtractCurves._width == in_im.shape[1] and ExtractCurves._height == in_im.shape[0]:
+            return
+        ExtractCurves._width = in_im.shape[1]
+        ExtractCurves._height = in_im.shape[0]
+
+        ExtractCurves._x_grid, ExtractCurves._y_grid = np.meshgrid(np.linspace(0.5, ExtractCurves._width - 0.5, ExtractCurves._width), np.linspace(0.5,  ExtractCurves._height -  0.5,  ExtractCurves._height))
+
+    def __init__(self, path, row_name, image_name, b_output_debug=True, b_recalc=False):
+        """ Read in the image, mask image, edge image, 2 rgb images
         @param path: Directory where files are located
         @param image_name: image number/name as a string
         @param b_recalc: Force recalculate the result, y/n"""
 
-        self.path = path
-        self.path_debug = path + "DebugImages/"
-        self.path_calculated = path + "CalculatedData/"
-        self.b_output_debug = b_output_debug
-        self.b_recalc = b_recalc
+        self.path_images = path + "\/" + row_name + "/"
+        self.path_debug = path + "DebugImages/" + row_name + "/"
+        self.path_depth = path + "depth_images/" + row_name + "_depth/"
+        self.path_curves = path + "Curves/"
+        path_calculated = path + "Curves/"
 
         self.name = image_name
         # Read in all images that have name_ and are not debugging images
-        self.images = self.read_images(path, image_name)
+        self.images = self.read_images(image_name)
+        ExtractCurves._init_grid_(self.images["RGB"])
+        self.trunk_stats = []
+        self.trunk_quads = []
 
         # For each component of the mask image, calculate or read in statistics (center, eigen vectors)
+        print("Calculating stats")
+        for i in range(0, self.images["Num masks"]):
+            mask_image = self.images["Mask" + str(i)]
+            fname_stats = path_calculated + self.name + f"_mask_{i}.json"
+            if b_recalc or not exists(fname_stats):
+                stats_dict = self.stats_image(self.images["Mask"] > 0)
+                for k, v in stats_dict.items():
+                    try:
+                        if v.size == 2:
+                            stats_dict[k] = [v[0], v[1]]
+                    except:
+                        pass
+                # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
+                with open(fname_stats, 'w') as f:
+                    json.dump(stats_dict, f)
+            elif exists(fname_stats):
+                with open(fname_stats, 'r') as f:
+                    stats_dict = json.load(f)
+
+            for k, v in stats_dict.items():
+                try:
+                    if len(v) == 2:
+                        stats_dict[k] = np.array([v[0], v[1]])
+                except:
+                    pass
+            self.trunk_stats.append(stats_dict)
+
         # For each of the masks, see if we have reasonable stats
         #   Save points in debug image
         if b_output_debug:
             self.images["Mask_Stats"] = np.copy(self.images["Mask"])
             self.images["RGB_Stats"] = np.copy(self.images["RGB1"])
-            for i, stats in enumerate(self.vertical_leader_stats):
+            for i, stats in enumerate(self.trunk_stats):
                 self.images["Mask_Stats"] = self.images["Mask"] / 2
                 try:
                     p1 = stats["lower_left"]
                     p2 = stats["upper_right"]
-                    self.images["Mask_Stats"][self.vertical_leader_masks[i]] = 255
+                    self.images["Mask_Stats"][self.trunk_masks[i]] = 255
                     draw_line(self.images["RGB_Stats"], p1, p2, (128, 128, 128), 2)
                     draw_line(self.images["Mask_Stats"], p1, p2, (128, 128, 128), 1)
 
@@ -63,11 +121,11 @@ class LeaderDetector:
 
         # Fit a quad to each vertical leader
         print("Fitting quads")
-        for i, stats in enumerate(self.vertical_leader_stats):
+        for i, stats in enumerate(self.trunk_stats):
             print(f"  {image_name}, mask {i}")
             image_mask = np.zeros(self.images["Mask"].shape, dtype=self.images["Mask"].dtype)
-            fname_quad = self.path_calculated + self.name + "_" + image_name + f"_{i}_quad.json"
-            fname_params = self.path_calculated + self.name + "_" + image_name + f"_{i}_quad_params.json"
+            fname_quad = path_calculated + self.name + "_" + image_name + f"_{i}_quad.json"
+            fname_params = path_calculated + self.name + "_" + image_name + f"_{i}_quad_params.json"
             quad = None
             if exists(fname_quad) and not b_recalc:
                 quad = Quad([0, 0], [1,1], 1)
@@ -75,12 +133,12 @@ class LeaderDetector:
                 with open(fname_params, 'r') as f:
                     params = json.load(f)
             else:
-                image_mask[self.vertical_leader_masks[i]] = 255
+                image_mask[self.trunk_masks[i]] = 255
                 quad, params = self.fit_quad(image_mask, pts=stats, b_output_debug=b_output_debug, quad_name=i)
                 quad.write_json(fname_quad)
                 with open(fname_params, 'w') as f:
                     json.dump(params, f)
-            self.vertical_leader_quads.append(quad)
+            self.trunk_quads.append(quad)
 
             if b_output_debug:
                 # Draw the edge and original image with the fitted quad and rects
@@ -102,33 +160,37 @@ class LeaderDetector:
 
                 quad.draw_quad(self.images["RGB_Stats"])
 
-        for quad in self.vertical_leader_quads:
+        for quad in self.trunk_quads:
             score = self.score_quad(quad)
             print(f"Score {score}")
 
 
-    def read_images(self, path, image_name):
-        """ Read in all of the mask, rgb, flow images
+    def read_images(self, image_name):
+        """ Read in all of the mask, rgb, edge images
         If Edge image does not exist, create it
-        @param path: Directory where files are located
         @param image_name: image number/name as a string
         @returns dictionary of images with image_type as keywords """
 
         images = {}
-        search_path = f"{path}{image_name}_*.png"
-        fnames = glob(search_path)
+        search_path1 = f"{self.path_images}{image_name}_*.png"
+        search_path2 = f"{self.path_depth}{image_name}_*.png"
+        fnames = glob(search_path1)
+        fnames.extend(glob(search_path2))
         if fnames is None:
-            raise ValueError(f"No files in directory {search_path}")
+            raise ValueError(f"No files in directory {search_path1}")
 
         for n in fnames:
             if "mask" in n:
-                images["Mask"] = BaseStatsImage(self.path, image_name, mask_id=-1, b_output_debug=self.b_output_debug, b_recalc=self.b_recalc)
-            elif "rgb0" in n:
-                images["RGB0"] = cv2.imread(n)
-            elif "rgb1" in n:
-                images["RGB1"] = cv2.imread(n)
-            elif "flow" in n:
-                images["Flow"] = cv2.imread(n)
+                im_mask_color = cv2.imread(n)
+                images["Mask" + n[-5]] = cv2.cvtColor(im_mask_color, cv2.COLOR_BGR2GRAY)
+                try:
+                    images["Num masks"] += 1
+                except KeyError:
+                    images["Num masks"] = 1
+            elif "img" in n:
+                images["RGB"] = cv2.imread(n)
+            elif "depth" in n:
+                images["Depth"] = cv2.imread(n)
             elif "edge" in n:
                 im_edge_color = cv2.imread(n)
                 images["Edge"] = cv2.cvtColor(im_edge_color, cv2.COLOR_BGR2GRAY)
@@ -141,6 +203,62 @@ class LeaderDetector:
             cv2.imwrite(path + image_name + "_edge.png", images["Edge"])
 
         return images
+
+    def stats_image(self, pixs_in_mask):
+        """ Add statistics (bounding box, left right, orientation, radius] to image
+        Note: Could probably do this without transposing image, but...
+        @param im image
+        @returns stats as a dictionary of values"""
+
+        xs = ExtractCurves._x_grid[pixs_in_mask]
+        ys = ExtractCurves._y_grid[pixs_in_mask]
+
+        stats = {}
+        stats["x_min"] = np.min(xs)
+        stats["y_min"] = np.min(ys)
+        stats["x_max"] = np.max(xs)
+        stats["y_max"] = np.max(ys)
+        stats["x_span"] = stats["x_max"] - stats["x_min"]
+        stats["y_span"] = stats["y_max"] - stats["y_min"]
+
+        avg_width = 0.0
+        count_width = 0
+        if stats["x_span"] > stats["y_span"]:
+            stats["Direction"] = "left_right"
+            stats["Length"] = stats["x_span"]
+            for r in range(0, ExtractCurves._width):
+                if sum(pixs_in_mask[:, r]) > 0:
+                    avg_width += sum(pixs_in_mask[:, r] > 0)
+                    count_width += 1
+        else:
+            stats["Direction"] = "up_down"
+            stats["Length"] = stats["y_span"]
+            for c in range(0, ExtractCurves._height):
+                if sum(pixs_in_mask[c, :]) > 0:
+                    avg_width += sum(pixs_in_mask[c, :] > 0)
+                    count_width += 1
+        stats["width"] = avg_width / count_width
+        stats["center"] = np.array([np.mean(xs), np.mean(ys)])
+
+        x_matrix = np.zeros([2, xs.shape[0]])
+        x_matrix[0, :] = xs.transpose() - stats["center"][0]
+        x_matrix[1, :] = ys.transpose() - stats["center"][1]
+        covariance_matrix = np.cov(x_matrix)
+        eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
+        if eigen_values[0] < eigen_values[1]:
+            stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
+            stats["EigenVector"] = eigen_vectors[1, :]
+        else:
+            stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
+            stats["EigenVector"] = eigen_vectors[0, :]
+        eigen_ratio = stats["EigenValues"][1] / stats["EigenValues"][0]
+        stats["EigenVector"][1] *= -1
+        stats["EigenRatio"] = eigen_ratio
+        stats["lower_left"] = stats["center"] - stats["EigenVector"] * (stats["Length"] * 0.5)
+        stats["upper_right"] = stats["center"] + stats["EigenVector"] * (stats["Length"] * 0.5)
+        print(stats)
+        print(f"Eigen ratio {eigen_ratio}")
+        return stats
 
     def fit_quad(self, im_mask, pts, b_output_debug=True, quad_name=0):
         """ Fit a quad to the mask, edge image
@@ -195,7 +313,7 @@ class LeaderDetector:
         self.flow_masks_images = []
         self.flow_masks_labels = []
         self.flow_quad = []
-        for i, quad in enumerate(self.vertical_leader_quads):
+        for i, quad in enumerate(self.trunk_quads):
             print(f"  {image_name} {i}")
 
             fname_quad_flow_mask = path_calculated + self.name + "_" + image_name + f"_{i}_quad_flow_mask.png"
@@ -326,8 +444,6 @@ class LeaderDetector:
             print(f"Warning: not consistant {self.name} {stats_slice}")
         return perc_consistant, diff / (len(stats_slice) - 1)
 
-
-def split_masks()
 
 if __name__ == '__main__':
     path = "./data/predictions/"
