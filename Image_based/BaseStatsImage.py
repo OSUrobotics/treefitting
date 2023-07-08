@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 
-# Eigen value stats for a mask image
-import os
+# Given a mask image name, read the image in and perform the following statistical calculations
+# PCA - find major and minor axes
+#  Find the bounding box, max width along the major axis
+#
+# Caches data in image name.json
+#
+
 
 import numpy as np
-from glob import glob
 import cv2
-import json
 from os.path import exists
+import json
+from line_seg_2d import LineSeg2D
+
 
 class BaseStatsImage:
     _width = 0
@@ -28,61 +34,59 @@ class BaseStatsImage:
 
         BaseStatsImage._x_grid, BaseStatsImage._y_grid = np.meshgrid(np.linspace(0.5, BaseStatsImage._width - 0.5, BaseStatsImage._width), np.linspace(0.5,  BaseStatsImage._height -  0.5,  BaseStatsImage._height))
 
-    def __init__(self, path, image_name, mask_id=-1, b_output_debug=True, b_recalc=False):
-        """ Read in the image, mask image, flow image, 2 rgb images
-        @param path: Directory where files are located
-        @param image_name: image number/name as a string
-        @param image_mask: the actual mask image
+    def __init__(self, mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+        """ Given an image, calculate the main axis and width along that axis
+          If fname_calculated is given, check to see if the data is already calculated - if so, read it in,
+          otherwise, calculate and write out
+          If fname_debug is given, the write out a debug image with the main axis and end points marked
+        @param mask_image: rgb or gray scale image with white where the mask is
+        @param fname_calculated: the file name for the saved .json file
+        @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
 
-        self.path = path
-        self.path_debug = path + "DebugImages/"
-        self.path_calculated = path + "CalculatedData/"
-
-        self.b_output_debug = b_output_debug
-        self.b_recalc = b_recalc
-
-        if not exists(self.path_debug):
-            os.mkdir(self.path_debug)
-        if not exists(self.path_calculated):
-            os.mkdir(self.path_calculated)
-
-        self.name = image_name
         self.stats_dict = None
-        self.mask_id = str(mask_id)
-        if mask_id == -1:
-            self.mask_id = ""
-        self.mask_image_name = self.path + image_name + "_mask" + self.mask_id + ".png"
-        self.image_mask = cv2.imread(self.mask_image_name)
-        if len(self.image_mask.shape) == 3:
-            im_mask = cv2.cvtColor(self.image_mask, cv2.COLOR_BGR2GRAY)
-        self._init_grid_(self.image_mask)
+        if len(mask_image.shape) == 3:
+            self.mask_image = cv2.cvtColor(mask_image, cv2.COLOR_BGR2GRAY)
+        else:
+            self.mask_image = mask_image
+        self._init_grid_(self.mask_image)
 
         # Calculate the stats for this image
-        print("Calculating stats")
-        fname_stats = self.path_calculated + self.name + f"_mask{mask_id}.json"
-        if b_recalc or not exists(fname_stats):
-            self.stats_dict = self.stats_image(self.image_mask)
-            for k, v in self.stats_dict.items():
-                try:
-                    # Convert any numpy arrays to lists
-                    if v.size == 2:
-                        self.stats_dict[k] = [v[0], v[1]]
-                except:
-                    pass
-            # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
-            with open(fname_stats, 'w') as f:
-                json.dump(self.stats_dict, f)
-        elif exists(fname_stats):
-            with open(fname_stats, 'r') as f:
+        if b_recalc or not fname_calculated or not exists(fname_calculated):
+            # Cached data doesn't exist, or we need to re-calculated
+            self.stats_dict = self.stats_image(self.mask_image)
+
+            try:
+                # Convert any numpy arrays to lists prior to writing out
+                for k, v in self.stats_dict.items():
+                    try:
+                        if v.size == 2:
+                            self.stats_dict[k] = [v[0], v[1]]
+                    except:
+                        pass
+                # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
+                with open(fname_calculated, 'w') as f:
+                    json.dump(self.stats_dict, f, indent=2)
+            except FileNotFoundError:
+                if fname_calculated:
+                    print(f"BaseStats Image: File not found {fname_calculated}")
+        else:
+            with open(fname_calculated, 'r') as f:
                 self.stats_dict = json.load(f)
 
+        # Undo the numpy array -> list
         for k, v in self.stats_dict.items():
             try:
                 if len(v) == 2:
                     self.stats_dict[k] = np.array([v[0], v[1]])
             except:
                 pass
+
+        if fname_debug:
+            im_debug = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+            self.debug_image(im_debug)
+            cv2.imwrite(fname_debug, im_debug)
+
 
     def stats_image(self, in_im):
         """ Add statistics (bounding box, left right, orientation, radius] to image
@@ -133,22 +137,46 @@ class BaseStatsImage:
         else:
             stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
             stats["EigenVector"] = eigen_vectors[0, :]
+        stats["EigenMinorVector"] = [stats["EigenVector"][1], -stats["EigenVector"][0]]
         eigen_ratio = stats["EigenValues"][1] / stats["EigenValues"][0]
         stats["EigenVector"][1] *= -1
         stats["EigenRatio"] = eigen_ratio
         stats["lower_left"] = stats["center"] - stats["EigenVector"] * (stats["Length"] * 0.5)
         stats["upper_right"] = stats["center"] + stats["EigenVector"] * (stats["Length"] * 0.5)
+        stats["left_edge"] = stats["center"] - stats["EigenMinorVector"] * (stats["width"] * 0.5)
+        stats["right_edge"] = stats["center"] + stats["EigenMinorVector"] * (stats["width"] * 0.5)
         print(stats)
         print(f"Eigen ratio {eigen_ratio}")
         return stats
 
+    def debug_image(self, in_image):
+        """ Draw the eigen vectors/points on the image. Note, this edits the image
+        @param in_image: The image to draw on top of"""
+        p1 = self.stats_dict["lower_left"]
+        p2 = self.stats_dict["upper_right"]
+        LineSeg2D.draw_line(in_image, p1, p2, (220, 128, 220), 2)
+
+        pc = self.stats_dict["center"]
+        LineSeg2D.draw_cross(in_image, pc, (256, 256, 128), 1, 2)
+
+        p1 = self.stats_dict["left_edge"]
+        p2 = self.stats_dict["right_edge"]
+        LineSeg2D.draw_line(in_image, p1, p2, (128, 128, 128), 2)
+
 
 if __name__ == '__main__':
+from glob import glob
+import os
+
     path = "./data/trunk_segmentations/"
     #path = "./forcindy/"
     for in_r in range(0, 16):
-        path_row = path + "row_" + str(in_r) + "/"
-        search_path = f"{path_row}*_mask*.png"
+        row_name = "row_" + str(in_r) + "/"
+        if not exists(path + "CalculatedData/" + row_name):
+            os.mkdir(path + "CalculatedData/" + row_name)
+        if not exists(path + "DebugData/" + row_name):
+            os.mkdir(path + "DebugData/" + row_name)
+        search_path = f"{path}{row_name}*_mask*.png"
         fnames = glob(search_path)
         if fnames is None:
             raise ValueError(f"No files in directory {search_path}")
@@ -163,5 +191,6 @@ if __name__ == '__main__':
             im_mask = cv2.imread(fname)
             if len(im_mask.shape) == 3:
                 im_mask = cv2.cvtColor(im_mask, cv2.COLOR_BGR2GRAY)
+        self.image_mask = cv2.imread(self.mask_image_name)
 
-            bp = BaseStatsImage(path, img_name, im_mask, mask_id, b_output_debug=True, b_recalc=True)
+            bp = BaseStatsImage(path + row_name, img_name, im_mask, mask_id, b_output_debug=True, b_recalc=True)

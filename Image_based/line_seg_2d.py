@@ -6,60 +6,6 @@ import numpy as np
 import cv2
 
 
-def draw_line(im, p1, p2, color, thickness=1):
-    """ Draw the line in the image using opencv
-    @param im - the image
-    @param p1 - first point
-    @param p2 - second point
-    @param color - rgb as an 0..255 tuple
-    @param thickness - thickness of line
-    """
-    try:
-        p1_int = [int(x) for x in p1]
-        p2_int = [int(x) for x in p2]
-        cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
-    except TypeError:
-        p1_int = [int(x) for x in np.transpose(p1)]
-        p2_int = [int(x) for x in np.transpose(p2)]
-        cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
-        print(f"p1 {p1} p2 {p2}")
-    """
-    p0 = p1
-    p1 = p2
-    r0 = p0[0, 0]
-    c0 = p0[0, 1]
-    r1 = p1[0, 0]
-    c1 = p1[0, 1]
-    rr, cc = draw.line(int(r0), int(r1), int(c0), int(c1))
-    rr = np.clip(rr, 0, im.shape[0]-1)
-    cc = np.clip(cc, 0, im.shape[1]-1)
-    im[rr, cc, 0:3] = (0.1, 0.9, 0.9)
-    """
-
-
-def draw_cross(im, p, color, thickness=1, length=2):
-    """ Draw the line in the image using opencv
-    @param im - the image
-    @param p - point
-    @param color - rgb as an 0..255 tuple
-    @param thickness - thickness of line
-    @param length - how long to make the cross lines
-    """
-    draw_line(im, p - np.array([0, length]), p + np.array([0, length]), color=color, thickness=thickness)
-    draw_line(im, p - np.array([length, 0]), p + np.array([length, 0]), color=color, thickness=thickness)
-
-
-def draw_box(im, p, color, width=6):
-    """ Draw the line in the image using opencv
-    @param im - the image
-    @param p - point
-    @param color - rgb as an 0..255 tuple
-    @param width - size of box
-    """
-    for r in range(-width, width):
-        draw_line(im, p - np.array([-r, width]), p + np.array([r, width]), color=color, thickness=1)
-
-
 class LineSeg2D:
     def __init__(self, p1, p2):
         """ Line segment with Ax + By + C form for closest point
@@ -128,6 +74,59 @@ class LineSeg2D:
 
         return pt_proj, t
 
+    @staticmethod
+    def draw_line(im, p1, p2, color, thickness=1):
+        """ Draw the line in the image using opencv
+        @param im - the image
+        @param p1 - first point
+        @param p2 - second point
+        @param color - rgb as an 0..255 tuple
+        @param thickness - thickness of line
+        """
+        try:
+            p1_int = [int(x) for x in p1]
+            p2_int = [int(x) for x in p2]
+            cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
+        except TypeError:
+            p1_int = [int(x) for x in np.transpose(p1)]
+            p2_int = [int(x) for x in np.transpose(p2)]
+            cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
+            print(f"p1 {p1} p2 {p2}")
+        """
+        p0 = p1
+        p1 = p2
+        r0 = p0[0, 0]
+        c0 = p0[0, 1]
+        r1 = p1[0, 0]
+        c1 = p1[0, 1]
+        rr, cc = draw.line(int(r0), int(r1), int(c0), int(c1))
+        rr = np.clip(rr, 0, im.shape[0]-1)
+        cc = np.clip(cc, 0, im.shape[1]-1)
+        im[rr, cc, 0:3] = (0.1, 0.9, 0.9)
+        """
+
+    @staticmethod
+    def draw_cross(im, p, color, thickness=1, length=2):
+        """ Draw the line in the image using opencv
+        @param im - the image
+        @param p - point
+        @param color - rgb as an 0..255 tuple
+        @param thickness - thickness of line
+        @param length - how long to make the cross lines
+        """
+        LineSeg2D.draw_line(im, p - np.array([0, length]), p + np.array([0, length]), color=color, thickness=thickness)
+        LineSeg2D.draw_line(im, p - np.array([length, 0]), p + np.array([length, 0]), color=color, thickness=thickness)
+
+    @staticmethod
+    def draw_box(im, p, color, width=6):
+        """ Draw the line in the image using opencv
+        @param im - the image
+        @param p - point
+        @param color - rgb as an 0..255 tuple
+        @param width - size of box
+        """
+        for r in range(-width, width):
+            LineSeg2D.draw_line(im, p - np.array([-r, width]), p + np.array([r, width]), color=color, thickness=1)
 
 
 if __name__ == '__main__':
