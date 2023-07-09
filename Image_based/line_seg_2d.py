@@ -128,6 +128,19 @@ class LineSeg2D:
         for r in range(-width, width):
             LineSeg2D.draw_line(im, p - np.array([-r, width]), p + np.array([r, width]), color=color, thickness=1)
 
+    @staticmethod
+    def draw_rect(im, bds, color, width=6):
+        """ Draw the line in the image using opencv
+        @param im - the image
+        @param bds - point
+        @param color - rgb as an 0..255 tuple
+        @param thickness - thickness of line
+        """
+        LineSeg2D.draw_line(im, [bds[0][0], bds[1][0]], [bds[0][0], bds[1][1]], color=color, thickness=1)
+        LineSeg2D.draw_line(im, [bds[0][1], bds[1][0]], [bds[0][1], bds[1][1]], color=color, thickness=1)
+        LineSeg2D.draw_line(im, [bds[0][0], bds[1][0]], [bds[0][1], bds[1][0]], color=color, thickness=1)
+        LineSeg2D.draw_line(im, [bds[0][0], bds[1][1]], [bds[0][1], bds[1][1]], color=color, thickness=1)
+
 
 if __name__ == '__main__':
     line = LineSeg2D(np.array([0, 0]), np.array([1, 0]))

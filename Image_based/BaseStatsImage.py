@@ -13,6 +13,7 @@ import cv2
 from os.path import exists
 import json
 from line_seg_2d import LineSeg2D
+from HandleFileNames import HandleFileNames
 
 
 class BaseStatsImage:
@@ -32,23 +33,25 @@ class BaseStatsImage:
         BaseStatsImage._width = in_im.shape[1]
         BaseStatsImage._height = in_im.shape[0]
 
-        BaseStatsImage._x_grid, BaseStatsImage._y_grid = np.meshgrid(np.linspace(0.5, BaseStatsImage._width - 0.5, BaseStatsImage._width), np.linspace(0.5,  BaseStatsImage._height -  0.5,  BaseStatsImage._height))
+        BaseStatsImage._x_grid, BaseStatsImage._y_grid = np.meshgrid(np.linspace(0.5, BaseStatsImage._width - 0.5, BaseStatsImage._width),
+                                                                     np.linspace(0.5,  BaseStatsImage._height -  0.5,  BaseStatsImage._height))
 
-    def __init__(self, mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
         """ Given an image, calculate the main axis and width along that axis
           If fname_calculated is given, check to see if the data is already calculated - if so, read it in,
           otherwise, calculate and write out
           If fname_debug is given, the write out a debug image with the main axis and end points marked
-        @param mask_image: rgb or gray scale image with white where the mask is
+        @param fname_mask_image: name of mask file, rgb or gray scale image with white where the mask is
         @param fname_calculated: the file name for the saved .json file
         @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
 
         self.stats_dict = None
-        if len(mask_image.shape) == 3:
-            self.mask_image = cv2.cvtColor(mask_image, cv2.COLOR_BGR2GRAY)
+        mask_image_rgb = cv2.imread(fname_mask_image)
+        if len(mask_image_rgb.shape) == 3:
+            self.mask_image = cv2.cvtColor(mask_image_rgb, cv2.COLOR_BGR2GRAY)
         else:
-            self.mask_image = mask_image
+            self.mask_image = mask_image_rgb
         self._init_grid_(self.mask_image)
 
         # Calculate the stats for this image
@@ -62,7 +65,7 @@ class BaseStatsImage:
                     try:
                         if v.size == 2:
                             self.stats_dict[k] = [v[0], v[1]]
-                    except:
+                    except AttributeError:
                         pass
                 # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
                 with open(fname_calculated, 'w') as f:
@@ -79,31 +82,33 @@ class BaseStatsImage:
             try:
                 if len(v) == 2:
                     self.stats_dict[k] = np.array([v[0], v[1]])
-            except:
+            except TypeError:
                 pass
 
         if fname_debug:
-            im_debug = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+            im_debug = mask_image_rgb
+            if len(mask_image_rgb.shape) == 1:
+                im_debug = cv2.cvtColor(mask_image_rgb, cv2.COLOR_GRAY2RGB)
+            # Add the lines showing the eigen vecs
             self.debug_image(im_debug)
             cv2.imwrite(fname_debug, im_debug)
 
-
-    def stats_image(self, in_im):
+    @staticmethod
+    def stats_image(in_im):
         """ Add statistics (bounding box, left right, orientation, radius] to image
         Note: Could probably do this without transposing image, but...
-        @param im image
+        Doing this as a static method so it can be used in a stand-alone pipeline
+        @param in_im gray scale image with mask non-zero
         @returns stats as a dictionary of values"""
+
+        BaseStatsImage._init_grid_(in_im)
 
         pixs_in_mask = in_im > 0
 
         xs = BaseStatsImage._x_grid[pixs_in_mask]
         ys = BaseStatsImage._y_grid[pixs_in_mask]
 
-        stats = {}
-        stats["x_min"] = np.min(xs)
-        stats["y_min"] = np.min(ys)
-        stats["x_max"] = np.max(xs)
-        stats["y_max"] = np.max(ys)
+        stats = {"x_min": np.min(xs), "y_min": np.min(ys), "x_max": np.max(xs), "y_max": np.max(ys)}
         stats["x_span"] = stats["x_max"] - stats["x_min"]
         stats["y_span"] = stats["y_max"] - stats["y_min"]
 
@@ -137,9 +142,9 @@ class BaseStatsImage:
         else:
             stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
             stats["EigenVector"] = eigen_vectors[0, :]
-        stats["EigenMinorVector"] = [stats["EigenVector"][1], -stats["EigenVector"][0]]
         eigen_ratio = stats["EigenValues"][1] / stats["EigenValues"][0]
         stats["EigenVector"][1] *= -1
+        stats["EigenMinorVector"] = np.array([stats["EigenVector"][1], -stats["EigenVector"][0]])
         stats["EigenRatio"] = eigen_ratio
         stats["lower_left"] = stats["center"] - stats["EigenVector"] * (stats["Length"] * 0.5)
         stats["upper_right"] = stats["center"] + stats["EigenVector"] * (stats["Length"] * 0.5)
@@ -156,41 +161,36 @@ class BaseStatsImage:
         p2 = self.stats_dict["upper_right"]
         LineSeg2D.draw_line(in_image, p1, p2, (220, 128, 220), 2)
 
-        pc = self.stats_dict["center"]
-        LineSeg2D.draw_cross(in_image, pc, (256, 256, 128), 1, 2)
-
         p1 = self.stats_dict["left_edge"]
         p2 = self.stats_dict["right_edge"]
         LineSeg2D.draw_line(in_image, p1, p2, (128, 128, 128), 2)
 
+        pc = self.stats_dict["center"]
+        LineSeg2D.draw_cross(in_image, pc, (256, 256, 128), 1, 2)
+
+        xmin = self.stats_dict["x_min"]
+        xmax = self.stats_dict["x_max"]
+        ymin = self.stats_dict["y_min"]
+        ymax = self.stats_dict["y_max"]
+        LineSeg2D.draw_rect(in_image, [[xmin, xmax], [ymin, ymax]], (256, 128, 128), 2)
+
 
 if __name__ == '__main__':
-from glob import glob
-import os
+    path_bpd = "./data/trunk_segmentation_names.json"
+    #path_bpd = "./data/forcindy_fnames.json"
+    all_files = HandleFileNames.read_filenames(path_bpd)
 
-    path = "./data/trunk_segmentations/"
-    #path = "./forcindy/"
-    for in_r in range(0, 16):
-        row_name = "row_" + str(in_r) + "/"
-        if not exists(path + "CalculatedData/" + row_name):
-            os.mkdir(path + "CalculatedData/" + row_name)
-        if not exists(path + "DebugData/" + row_name):
-            os.mkdir(path + "DebugData/" + row_name)
-        search_path = f"{path}{row_name}*_mask*.png"
-        fnames = glob(search_path)
-        if fnames is None:
-            raise ValueError(f"No files in directory {search_path}")
+    b_do_debug = True
+    b_do_recalc = False
+    for ind in all_files.loop_masks():
+        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
+        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=True)
+        if not b_do_debug:
+            mask_fname_debug = ""
 
-        for fname in fnames:
-            full_img_name = str.split(fname, "/")[-1]
-            img_name = str.split(full_img_name, "_")[0]
-            mask_id = str.split(full_img_name, ".")[0]
-            mask_id = int(mask_id[-1])
+        mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
+        mask_fname_calculate = mask_fname_calculate + ".json"
 
-            print(f"Image name {img_name}, mask id {mask_id}")
-            im_mask = cv2.imread(fname)
-            if len(im_mask.shape) == 3:
-                im_mask = cv2.cvtColor(im_mask, cv2.COLOR_BGR2GRAY)
-        self.image_mask = cv2.imread(self.mask_image_name)
-
-            bp = BaseStatsImage(path + row_name, img_name, im_mask, mask_id, b_output_debug=True, b_recalc=True)
+        if not exists(mask_fname):
+            raise ValueError(f"Error, file {mask_fname} does not exist")
+        b_stats = BaseStatsImage(mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
