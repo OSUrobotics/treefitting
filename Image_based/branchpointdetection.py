@@ -8,7 +8,7 @@ import csv
 import cv2
 import json
 from os.path import exists
-from cyl_fit_2d import Quad
+from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 
@@ -93,7 +93,7 @@ class BranchPointDetection:
             fname_quad = path_calculated + self.name + "_" + im["name"] + "_quad.json"
             fname_params = path_calculated + self.name + "_" + im["name"] + "_quad_params.json"
             if exists(fname_quad) and not b_recalc:
-                im["quad"] = Quad([0, 0], [1,1], 1)
+                im["quad"] = BezierCyl2D([0, 0], [1, 1], 1)
                 im["quad"].read_json(fname_quad)
                 with open(fname_params, 'r') as f:
                     params = json.load(f)
@@ -109,7 +109,7 @@ class BranchPointDetection:
                 im_orig_debug = np.copy(self.images_single["orig"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                im["quad"].draw_quad(im_orig_debug)
+                im["quad"].draw_bezier(im_orig_debug)
                 if im["quad"].is_wire():
                     draw_cross(im_orig_debug, im["quad"].p0, (255, 0, 0), thickness=2, length=10)
                     draw_cross(im_orig_debug, im["quad"].p2, (255, 0, 0), thickness=2, length=10)
@@ -121,7 +121,7 @@ class BranchPointDetection:
                 cv2.imshow("Original and edge and depth", im_both)
                 cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad.png", im_both)
 
-                im["quad"].draw_quad(self.images_single["marked points"])
+                im["quad"].draw_bezier(self.images_single["marked points"])
 
         # Use the flow image to make a better mask
         print("Quad in flow mask")
@@ -140,7 +140,7 @@ class BranchPointDetection:
             fname_quad_flow = path_calculated + self.name + "_" + im["name"] + "_quad_flow.json"
             fname_params_flow = path_calculated + self.name + "_" + im["name"] + "_quad_params_flow.json"
             if exists(fname_quad_flow) and not b_recalc:
-                im["quad_flow"] = Quad([0, 0], [1,1], 1)
+                im["quad_flow"] = BezierCyl2D([0, 0], [1, 1], 1)
                 im["quad_flow"].read_json(fname_quad_flow)
                 with open(fname_params_flow, 'r') as f:
                     params = json.load(f)
@@ -156,7 +156,7 @@ class BranchPointDetection:
                 im_orig_debug = np.copy(self.images_single["orig"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                im["quad_flow"].draw_quad(im_orig_debug)
+                im["quad_flow"].draw_bezier(im_orig_debug)
                 if im["quad_flow"].is_wire():
                     draw_cross(im_orig_debug, im["quad_flow"].p0, (255, 0, 0), thickness=2, length=10)
                     draw_cross(im_orig_debug, im["quad_flow"].p2, (255, 0, 0), thickness=2, length=10)
@@ -167,7 +167,7 @@ class BranchPointDetection:
                 im_both = np.hstack([im_orig_debug, im_covert_back])
                 cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad_flow.png", im_both)
 
-                im["quad_flow"].draw_quad(self.images_single["marked points"])
+                im["quad_flow"].draw_bezier(self.images_single["marked points"])
 
         # Now look for branch points
         fname_branch_pts = path_calculated + self.name + "_branches.csv"
@@ -330,7 +330,7 @@ class BranchPointDetection:
         pts = im["stats"]
 
         # Fit a quad to the trunk
-        quad = Quad(pts['lower_left'], pts['upper_right'], 0.5 * pts['width'])
+        quad = BezierCyl2D(pts['lower_left'], pts['upper_right'], 0.5 * pts['width'])
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
@@ -344,7 +344,7 @@ class BranchPointDetection:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im["image"], cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad_fit_mask.png", im_debug)
 
@@ -362,7 +362,7 @@ class BranchPointDetection:
         @returns fitted quad"""
 
         # Fit a quad to the trunk
-        quad = Quad(im["quad"].p0, im["quad"].p2, im["quad"].radius_2d, mid_pt=im["quad"].p1)
+        quad = BezierCyl2D(im["quad"].p0, im["quad"].p2, im["quad"].radius_2d, mid_pt=im["quad"].p1)
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
@@ -376,7 +376,7 @@ class BranchPointDetection:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im["flow_mask"], cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad_fit_mask_flow.png", im_debug)
 

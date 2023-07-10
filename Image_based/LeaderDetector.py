@@ -12,7 +12,7 @@ from glob import glob
 import cv2
 import json
 from os.path import exists
-from cyl_fit_2d import Quad
+from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
@@ -70,7 +70,7 @@ class LeaderDetector:
             fname_params = self.path_calculated + self.name + "_" + image_name + f"_{i}_quad_params.json"
             quad = None
             if exists(fname_quad) and not b_recalc:
-                quad = Quad([0, 0], [1,1], 1)
+                quad = BezierCyl2D([0, 0], [1, 1], 1)
                 quad.read_json(fname_quad)
                 with open(fname_params, 'r') as f:
                     params = json.load(f)
@@ -88,7 +88,7 @@ class LeaderDetector:
                 im_orig_debug = np.copy(self.images["RGB0"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                quad.draw_quad(im_orig_debug)
+                quad.draw_bezier(im_orig_debug)
                 if quad.is_wire():
                     draw_cross(im_orig_debug, quad.p0, (255, 0, 0), thickness=2, length=10)
                     draw_cross(im_orig_debug, quad.p2, (255, 0, 0), thickness=2, length=10)
@@ -100,7 +100,7 @@ class LeaderDetector:
                 cv2.imshow("Original and edge and depth", im_both)
                 cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_quad.png", im_both)
 
-                quad.draw_quad(self.images["RGB_Stats"])
+                quad.draw_bezier(self.images["RGB_Stats"])
 
         for quad in self.vertical_leader_quads:
             score = self.score_quad(quad)
@@ -162,7 +162,7 @@ class LeaderDetector:
             pt_upper_right = pts["center"] + pts["EigenVector"] * vec_len
             vec_len = vec_len * 1.1
 
-        quad = Quad(pt_lower_left, pt_upper_right, 0.5 * pts['width'])
+        quad = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * pts['width'])
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.25}
@@ -176,7 +176,7 @@ class LeaderDetector:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im_mask, cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + self.name + f"_{quad_name}_quad_fit_mask.png", im_debug)
 
@@ -213,7 +213,7 @@ class LeaderDetector:
             fname_params_flow = path_calculated + self.name + "_" + image_name + f"_{i}_quad_params_flow.json"
             quad_flow = None
             if exists(fname_quad_flow) and not b_recalc:
-                quad_flow = Quad([0, 0], [1,1], 1)
+                quad_flow = BezierCyl2D([0, 0], [1, 1], 1)
                 quad_flow.read_json(fname_quad_flow)
                 with open(fname_params_flow, 'r') as f:
                     params = json.load(f)
@@ -233,7 +233,7 @@ class LeaderDetector:
                 im_orig_debug = np.copy(self.images["RGB0"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                quad_flow.draw_quad(im_orig_debug)
+                quad_flow.draw_bezier(im_orig_debug)
                 if quad_flow.is_wire():
                     draw_cross(im_orig_debug, quad_flow.p0, (255, 0, 0), thickness=2, length=10)
                     draw_cross(im_orig_debug, quad_flow.p2, (255, 0, 0), thickness=2, length=10)
@@ -244,7 +244,7 @@ class LeaderDetector:
                 im_both = np.hstack([im_orig_debug, im_covert_back])
                 cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_quad_flow.png", im_both)
 
-                quad_flow.draw_quad(self.images["RGB_Stats"])
+                quad_flow.draw_bezier(self.images["RGB_Stats"])
 
     def fit_quad_flow(self, im_flow_mask, quad, b_output_debug=True):
         """ Fit a quad to the mask, edge image
@@ -254,7 +254,7 @@ class LeaderDetector:
         @returns fitted quad"""
 
         # Fit a quad to the trunk
-        quad = Quad(quad.p0, quad.p2, quad.radius_2d, mid_pt=quad.p1)
+        quad = BezierCyl2D(quad.p0, quad.p2, quad.radius_2d, mid_pt=quad.p1)
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
@@ -268,7 +268,7 @@ class LeaderDetector:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im_flow_mask, cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + self.name + f"_{i}_quad_fit_mask_flow.png", im_debug)
 

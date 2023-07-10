@@ -42,7 +42,7 @@ class BaseStatsImage:
           otherwise, calculate and write out
           If fname_debug is given, the write out a debug image with the main axis and end points marked
         @param fname_mask_image: name of mask file, rgb or gray scale image with white where the mask is
-        @param fname_calculated: the file name for the saved .json file
+        @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
 
@@ -53,6 +53,10 @@ class BaseStatsImage:
         else:
             self.mask_image = mask_image_rgb
         self._init_grid_(self.mask_image)
+
+        self.fname_calculated = None
+        if fname_calculated:
+            self.fname_calculated = fname_calculated + "_stats.json"
 
         # Calculate the stats for this image
         if b_recalc or not fname_calculated or not exists(fname_calculated):
@@ -68,13 +72,13 @@ class BaseStatsImage:
                     except AttributeError:
                         pass
                 # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
-                with open(fname_calculated, 'w') as f:
+                with open(self.fname_calculated, 'w') as f:
                     json.dump(self.stats_dict, f, indent=2)
             except FileNotFoundError:
                 if fname_calculated:
                     print(f"BaseStats Image: File not found {fname_calculated}")
         else:
-            with open(fname_calculated, 'r') as f:
+            with open(self.fname_calculated, 'r') as f:
                 self.stats_dict = json.load(f)
 
         # Undo the numpy array -> list
@@ -189,7 +193,6 @@ if __name__ == '__main__':
             mask_fname_debug = ""
 
         mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
-        mask_fname_calculate = mask_fname_calculate + ".json"
 
         if not exists(mask_fname):
             raise ValueError(f"Error, file {mask_fname} does not exist")

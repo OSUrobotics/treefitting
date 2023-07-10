@@ -8,7 +8,7 @@ from glob import glob
 import cv2
 import json
 from os.path import exists
-from cyl_fit_2d import Quad
+from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
