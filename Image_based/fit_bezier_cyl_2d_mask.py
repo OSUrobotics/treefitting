@@ -11,164 +11,94 @@ import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d import LineSeg2D
+from fit_bezier_cyl_2d import FitBezierCyl2D
 from BaseStatsImage import BaseStatsImage
 from HandleFileNames import HandleFileNames
 
-class FitBezierCyl2D(BezierCyl2D):
+
+class FitBezierCyl2DMask:
     def __init__(self, fname_mask_image, stats_image, fname_calculated=None, fname_debug=None, b_recalc=False):
         """ Read in the mask image, use the stats to start the quad fit, then fit the quad
         @param fname_mask_image: Mask image name
-        @param stats_image: name the stats for this image
+        @param stats_image: the stats for this image
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats
         self.stats_dict = BaseStatsImage(fname_mask_image, fname_calculated, fname_debug, b_recalc)
-
-        # Now initialize bezier curve with infor from stats
-        super(BezierCyl2D, self).__init__(self.stats_dict["lower_left"], self.stats_dict["upper_right"], 0.5 * self.stats_dict['width'])
+        # Now initialize bezier curve with info from stats - no need to cache this because it's so light-weight
+        p0 = self.stats_dict.stats_dict["lower_left"]
+        p2 = self.stats_dict.stats_dict["upper_right"]
+        width = 0.5 * self.stats_dict.stats_dict["width"]
+        # These are the two curves we'll create
+        #   This is the initial curve fit to the stats dictionary
+        self.bezier_crv_initial = BezierCyl2D(start_pt=p0, end_pt=p2, radius=width)
+        # This is the curve Fit to the mask
+        self.bezier_crv_fit_to_mask = FitBezierCyl2D(self.bezier_crv_initial)
 
         # Fit a quad to the mask, using the end points of the base image as a starting point
         print(f"Fitting bezier curve to mask image {fname_mask_image}")
-        self.fname_bezier_cyl = None    # The actual quadratic bezier
+        self.fname_bezier_cyl_initial = None    # The actual quadratic bezier
+        self.fname_bezier_cyl_fit_to_mask = None    # The actual quadratic bezier
         self.fname_params = None  # Parameters used to do the fit
         if fname_calculated:
-            self.fname_bezier_cyl = fname_calculated + "bezier_cyl_mask.json"
+            self.fname_bezier_cyl_initial = fname_calculated + "bezier_cyl_initial.json"
+            self.fname_bezier_cyl_fit_to_mask = fname_calculated + "bezier_cyl_fit_mask.json"
             self.fname_params = fname_calculated + "bezier_cyl_params.json"
 
-        self.quad = None
+        # Current parameters for the vertical leader fit
+        # TODO make this a parameter of this class
+        self.params = {"step_size": int(width * 1.5), "width_mask": 1.4, "width": 0.25}
 
-        # Current parameters for the vertical leader - will need to make this a parameter
-        self.params = {"step_size": int(0.5 * self.stats_dict['width'] * 1.5), "width_mask": 1.4, "width": 0.25}
-
-        if b_recalc or not fname_calculated or not exists(fname_calculated):
-            if exists(self.fname_bezier_cyl) and not b_recalc:
-                BezierCyl2D.read_json(self.fname_bezier_cyl, self)
+        # Get the initial curve
+        if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_initial):
+            # Recalculate and write
+            FitBezierCyl2DMask.create_bezier_crv_from_eigen_vectors(self.bezier_crv_initial,
+                                                                    self.stats_dict.mask_image,
+                                                                    stats=self.stats_dict,
+                                                                    params=self.params)
+            self.bezier_crv_initial.write_json(self.fname_bezier_cyl_initial)
+            if fname_calculated:
+                self.bezier_crv_initial.write_json(self.fname_bezier_cyl_initial)
                 with open(self.fname_params, 'r') as f:
                     self.params = json.load(f)
-            else:
-                self.fit_quad_to_mask(self, self.stats_dict.mask_image, stats=self.stats_dict, params=self.params)
-                self.write_json(self.fname_bezier_cyl)
-                with open(self.fname_params, 'w') as f:
-                    json.dump(self.params, f)
+        else:
+            BezierCyl2D.read_json(self.fname_bezier_cyl_initial, self.bezier_crv_initial)
+            with open(self.fname_params, 'r') as f:
+                self.params = json.load(f)
+
+        # Now do the fitted curve
+        if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_fit_to_mask):
+            # Recalculate and write
+            self.bezier_crv_fit_to_mask = FitBezierCyl2D(self.bezier_crv_initial)
+            FitBezierCyl2DMask.fit_bezier_crv_to_mask(self.bezier_crv_fit_to_mask,
+                                                      self.stats_dict.mask_image,
+                                                      params=self.params)
+            if fname_calculated:
+                self.bezier_crv_fit_to_mask.write_json(self.fname_bezier_cyl_fit_to_mask)
+        else:
+            BezierCyl2D.read_json(self.fname_bezier_cyl_fit_to_mask, self.bezier_crv_fit_to_mask)
 
         if fname_debug:
-            # Draw the edge and original image with the fitted quad and rects
+            # Draw the mask with the initial and fitted curve
             im_covert_back = cv2.cvtColor(self.stats_dict.mask_image, cv2.COLOR_GRAY2RGB)
             self.stats_dict.debug_image(im_covert_back)  # The eigen vec
-            self.debug_image_quad_fit(im_covert_back)
-            cv2.imwrite(fname_debug, im_covert_back)
+            self.bezier_crv_initial.draw_bezier(im_covert_back)
+            self.bezier_crv_initial.draw_boundary(im_covert_back)
 
-        self.score = self.score_mask_fit()
+            im_covert_back_fit = cv2.cvtColor(self.stats_dict.mask_image, cv2.COLOR_GRAY2RGB)
+            self.bezier_crv_fit_to_mask.draw_bezier(im_covert_back_fit)
+            self.bezier_crv_fit_to_mask.draw_boundary(im_covert_back_fit)
+            im_both = np.hstack([im_covert_back, im_covert_back_fit])
+            cv2.imwrite(fname_debug, im_both)
 
-    def _setup_least_squares(self, ts):
-        """Setup the least squares approximation - ts is the number of constraints to add, also
-           puts in a copule constraints to keep end points where they are
-        @param ts - t values to use
-        @returns A, B for Ax = b """
-        # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints = np.zeros((len(ts) + 3, 3))
-        ts_constraints = np.zeros((len(ts) + 3))
-        b_rhs = np.zeros((len(ts) + 3, 2))
-        ts_constraints[-3] = 0.0
-        ts_constraints[-2] = 0.5
-        ts_constraints[-1] = 1.0
-        ts_constraints[:-3] = np.transpose(ts)
-        a_constraints[:, -3] = (1-ts_constraints) * (1-ts_constraints)
-        a_constraints[:, -2] = 2 * (1-ts_constraints) * ts_constraints
-        a_constraints[:, -1] = ts_constraints * ts_constraints
-        for i, t in enumerate(ts_constraints):
-            b_rhs[i, :] = self.pt_axis(ts_constraints[i])
-        return a_constraints, b_rhs
-
-    def _extract_least_squares(self, a_constraints, b_rhs):
-        """ Do the actual Ax = b and keep horizontal/vertical end points
-        @param a_constraints the A of Ax = b
-        @param b_rhs the b of Ax = b
-        @returns fit error L0 norm"""
-        if a_constraints.shape[0] < 3:
-            return 0.0
-
-        #  a_at = a_constraints @ a_constraints.transpose()
-        #  rank = np.rank(a_at)
-        #  if rank < 3:
-        #      return 0.0
-
-        new_pts, residuals, rank, _ = np.linalg.lstsq(a_constraints, b_rhs, rcond=None)
-
-        print(f"Residuals {residuals}, rank {rank}")
-        b_rhs[1, :] = self.p1
-        pts_diffs = np.sum(np.abs(new_pts - b_rhs[0:3, :]))
-
-        # Don't let the end points contract
-        if self.orientation is "vertical":
-            new_pts[0, 1] = self.p0[1]
-            new_pts[2, 1] = self.p2[1]
-        else:
-            new_pts[0, 0] = self.p0[0]
-            new_pts[2, 0] = self.p2[0]
-        self.p0 = new_pts[0, :]
-        self.p1 = new_pts[1, :]
-        self.p2 = new_pts[2, :]
-        return pts_diffs
+        self.score = self.score_mask_fit(self.stats_dict.mask_image)
 
     @staticmethod
-    def adjust_bezier_crv_by_mask(bezier_crv, im_mask, step_size=40, perc_width=1.2):
-        """Replace the linear approximation with one based on following the mask
-        @param im_mask - mask image
-        @param step_size - how many pixels to step along
-        @param perc_width - how much wider than the radius to look in the mask
-        @param axs - optional axes to draw the cutout in
-        @returns how much the points moved"""
-        height = int(bezier_crv.radius_2d)
-        rects, ts = bezier_crv.interior_rects(step_size=step_size, perc_width=perc_width)
-
-        # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints, b_rhs = bezier_crv._setup_least_squares(ts)
-
-        x_grid, y_grid = np.meshgrid(range(0, step_size), range(0, height))
-        for i, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_mask, r, pad=2)
-
-            im_warp, tform_inv = bezier_crv._image_cutout(im_mask, r, step_size=step_size, height=height)
-            if b_rect_inside and np.sum(im_warp > 0) > 0:
-                x_mean = np.mean(x_grid[im_warp > 0])
-                y_mean = np.mean(y_grid[im_warp > 0])
-                pt_warp_back = tform_inv @ np.transpose(np.array([x_mean, y_mean, 1]))
-                print(f"{bezier_crv.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
-                b_rhs[i, :] = pt_warp_back[0:2]
-            else:
-                print(f"Empty slice {r}")
-
-        return bezier_crv._extract_least_squares(a_constraints, b_rhs)
-
-    def set_end_pts(self, pt0, pt2):
-        """ Set the end point to the new end point while trying to keep the curve the same
-        @param pt0 new p0
-        @param pt2 new p2"""
-        l0 = LineSeg2D(self.p0, self.p1)
-        l2 = LineSeg2D(self.p1, self.p2)
-        t0 = l0.projection(pt0)
-        t2 = l0.projection(pt2)
-
-        ts_mid = np.array([0.25, 0.75])
-        # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints, b_rhs = self._setup_least_squares(ts_mid)
-        b_rhs[-3, :] = pt0.transpose()
-        b_rhs[-2, :] = self.pt_axis(0.5 * (t0 + t2))
-        b_rhs[-1, :] = pt2.transpose()
-        for i, t in enumerate(ts_mid):
-            t_map = (1-t) * t0 + t * t2
-            b_rhs[i, :] = self.pt_axis(t_map)
-
-        return self._extract_least_squares(a_constraints, b_rhs)
-
-    @staticmethod
-    def fit_bezier_crv_to_mask(bezier_crv, im_mask, stats, params):
+    def create_bezier_crv_from_eigen_vectors(bezier_crv, im_mask, stats, params):
         """ Fit a quad to the mask, edge image
-        @param bezier_crv - the initial bezier curve
+        @param bezier_crv - a blank bezier curve
         @param im_mask - the image mask
         @param stats - the stats from BaseStatsImage
         @param params - the parameters to use in the fit
@@ -190,194 +120,74 @@ class FitBezierCyl2D(BezierCyl2D):
 
         bezier_crv = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * stats['width'])
 
-        # Iteratively move the quad to the center of the mask
+    @staticmethod
+    def _adjust_bezier_crv_by_mask(fit_bezier_crv, im_mask, step_size=40, perc_width=1.2):
+        """Replace the linear approximation with one based on following the mask
+        @param fit_bezier_crv - the bezier curve to move
+        @param im_mask - mask image
+        @param step_size - how many pixels to step along
+        @param perc_width - how much wider than the radius to look in the mask
+        @param axs - optional axes to draw the cutout in
+        @returns how much the points moved"""
+        height = int(fit_bezier_crv.radius_2d)
+        rects, ts = fit_bezier_crv.interior_rects(step_size=step_size, perc_width=perc_width)
+
+        # Set up the matrix - include the 3 current points plus the centers of the mask
+        a_constraints, b_rhs = fit_bezier_crv._setup_least_squares(ts)
+
+        x_grid, y_grid = np.meshgrid(range(0, step_size), range(0, height))
+        for i, r in enumerate(rects):
+            b_rect_inside = BezierCyl2D._rect_in_image(im_mask, r, pad=2)
+
+            im_warp, tform_inv = fit_bezier_crv._image_cutout(im_mask, r, step_size=step_size, height=height)
+            if b_rect_inside and np.sum(im_warp > 0) > 0:
+                x_mean = np.mean(x_grid[im_warp > 0])
+                y_mean = np.mean(y_grid[im_warp > 0])
+                pt_warp_back = tform_inv @ np.transpose(np.array([x_mean, y_mean, 1]))
+                print(f"{fit_bezier_crv.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
+                b_rhs[i, :] = pt_warp_back[0:2]
+            else:
+                print(f"Empty slice {r}")
+
+        return fit_bezier_crv._extract_least_squares(a_constraints, b_rhs)
+
+    @staticmethod
+    def fit_bezier_crv_to_mask(bezier_crv, im_mask, params):
+        """ Fit a quad to the mask, edge image
+        @param bezier_crv - the initial bezier curve to fit to the eigen vectors
+        @param im_mask - the image mask
+        @param params - the parameters to use in the fit
+        @return fitted bezier and parameters used in the fit"""
+
+        # Make a copy of the input curve and edit it
+        fit_bezier_crv = FitBezierCyl2D(bezier_crv)
         print(f"Res: ", end="")
         for i in range(0, 5):
-            res = FitBezierCyl2D.adjust_crv_by_mask(bezier_crv,
-                                                    im_mask,
-                                                    step_size=params["step_size"], perc_width=params["width_mask"])
+            res = FitBezierCyl2DMask._adjust_bezier_crv_by_mask(fit_bezier_crv,
+                                                                im_mask,
+                                                                step_size=params["step_size"],
+                                                                perc_width=params["width_mask"])
             print(f"{res} ", end="")
         print("")
-        return bezier_crv, params
+        return fit_bezier_crv, params
 
-    def find_edges_hough_transform(self, im_edge, step_size=40, perc_width=0.3, axs=None):
-        """Find the hough transform of the images in the boxes; save the line orientations
-        @param im_edge - edge image
-        @param step_size - how many pixels to use in each Hough image
-        @param perc_width - how wide a rectangle to use on the edges
-        @param axs - matplot lib axes for debug image
-        @returns center, angle for each box"""
-
-        # Size of the rectangle(s) to cutout is based on the step size and the radius
-        height = int(self.radius_2d)
-        rect_destination = np.array([[0, 0], [step_size, 0], [step_size, height], [0, height]], dtype="float32")
-        rects, ts = self.boundary_rects(step_size=step_size, perc_width=perc_width)
-
-        if axs is not None:
-            im_debug = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)
-            self.draw_edge_rects(im_debug, step_size=step_size, perc_width=perc_width)
-            axs.imshow(im_debug)
-
-        ret_segs = []
-        # For fitting y = mx + b
-        line_abc_constraints = np.ones((3, 3))
-        line_b = np.zeros((3, 1))
-        line_b[2, 0] = 1.0
-        for i_rect, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_edge, r, pad=2)
-
-            im_warp, tform3_back = self._image_cutout(im_edge, r, step_size=step_size, height=height)
-            i_seg = i_rect // 2
-            i_side = i_rect % 2
-            if i_side == 0:
-                ret_segs.append([[], []])
-
-            if axs is not None:
-                im_debug = cv2.cvtColor(im_warp, cv2.COLOR_GRAY2RGB)
-
-                i_edge = i_seg // 2
-                if i_edge % 2:
-                    p1_back = tform3_back @ np.transpose(np.array([1, height / 2, 1]))
-                    p2_back = tform3_back @ np.transpose(np.array([step_size - 1, height / 2, 1]))
-                else:
-                    p1_back = tform3_back @ np.transpose(np.array([1, 1, 1]))
-                    p2_back = tform3_back @ np.transpose(np.array([step_size - 1, 1, 1]))
-                print(f"l {p1_back}, r {p2_back}")
-
-            # Actual hough transform on the cut-out image
-            lines = cv2.HoughLines(im_warp, 1, np.pi / 180.0, 10)
-
-            if axs is not None:
-                for i, p in enumerate(r):
-                    p1_in = np.transpose(np.array([rect_destination[i][0], rect_destination[i][1], 1.0]))
-                    p1_back = tform3_back @ p1_in
-                    print(f"Orig {p}, transform back {p1_back}")
-
-            if lines is not None and b_rect_inside:
-                for rho, theta in lines[0]:
-                    a = np.cos(theta)
-                    b = np.sin(theta)
-                    x0 = a * rho
-                    y0 = b * rho
-                    x1 = x0 + 1000*(-b)
-                    y1 = y0 + 1000*(a)
-                    x2 = x0 - 1000*(-b)
-                    y2 = y0 - 1000*(a)
-                    if np.isclose(theta, 0.0):
-                        line_abc = np.zeros((3, 1))
-                        if np.isclose(rho, 1.0):
-                            line_abc[0] = 1.0
-                            line_abc[2] = -1.0
-                        else:
-                            line_abc[0] = -1.0 / (rho - 1.0)
-                            line_abc[2] = 1.0 - line_abc[0]
-                    else:
-                        line_abc_constraints[0, 0] = x1
-                        line_abc_constraints[1, 0] = x2
-                        line_abc_constraints[0, 1] = y1
-                        line_abc_constraints[1, 1] = y2
-
-                        print(f"rho {rho} theta {theta}")
-                        print(f"A {line_abc_constraints}")
-                        print(f"b {line_b}")
-                        line_abc = np.linalg.solve(line_abc_constraints, line_b)
-
-                    check1 = line_abc[0] * x1 + line_abc[1] * y1 + line_abc[2]
-                    check2 = line_abc[0] * x2 + line_abc[1] * y2 + line_abc[2]
-                    if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
-                        raise ValueError("Cyl Fit 2D: Making line, pts not on line")
-
-                    # We only care about horizontal lines anyways, so ignore vertical ones
-                    if not np.isclose(line_abc[0], 0.0):
-                        # Get where the horizontal line crosses the left/right edge
-                        y_left = -(line_abc[0] * 0.0 + line_abc[2]) / line_abc[1]
-                        y_right = -(line_abc[0] * step_size + line_abc[2]) / line_abc[1]
-
-                        # Only keep edges that DO cross the left/right edge
-                        if 0 < y_left < height and 0 < y_right < height:
-                            p1_in = np.transpose(np.array([0.0, y_left[0], 1.0]))
-                            p2_in = np.transpose(np.array([step_size, y_right[0], 1.0]))
-                            p1_back = tform3_back @ p1_in
-                            p2_back = tform3_back @ p2_in
-                            ret_segs[i_seg][i_side].append([p1_back[0:2], p2_back[0:2]])
-                    if axs is not None:
-                        cv2.line(im_debug, (x1,y1), (x2,y2), (255, 100, 100), 2)
-                if axs is not None:
-                    axs.imshow(im_debug, origin='lower')
-                    print(f"Found {len(lines[0])} lines")
-            else:
-                if axs is not None:
-                    axs.imshow(im_debug, origin='lower')
-                    print(f"Found no lines")
-
-            if axs is not None:
-                axs.clear()
-
-        return ts[0::2], ret_segs
-
-    @staticmethod
-    def adjust_quad_by_edge_image(im_edge, quad, params):
-        """ Adjust the quad to the edge image using hough transform
-        @param im_edge: The edge image
-        @param quad: The original quad fit to the mask
-        @param params: The params to use in the fit
-        @return the quad and the params"""
-
-        # Now do the hough transform - first draw the hough transform edges
-        for i in range(0, 5):
-            ret = quad.adjust_quad_by_hough_edges(im_edge, step_size=params["step_size"], perc_width=params["width"], axs=None)
-            print(f"Res Hough {ret}")
-
-        return quad
-
-    def check_interior_depth(self, im_depth, step_size=40, perc_width=0.3):
-        """ Find which pixels are valid depth and fit average depth
-        @param im_depth - depth image
-        @param step_size how many pixels to move along the boundary
-        @param perc_width How much of the radius to move in/out of the edge
+    def score_mask_fit(self, im_mask):
+        """ A modified intersection over union that discounts pixels along the bezier cylinder mask
+        @param in_mask - the mask image
         """
-        height = int(self.radius_2d)
-        rects, ts = self.interior_rects(step_size=step_size, perc_width=perc_width)
 
-        stats = []
-        perc_consistant = 0.0
-        for i, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_depth, r, pad=2)
-
-            im_warp, tform_inv = self._image_cutout(im_depth, r, step_size=step_size, height=height)
-
-            stats_slice = {"Min": np.min(im_warp),
-                           "Max": np.max(im_warp),
-                           "Median": np.median(im_warp)}
-            stats_slice["Perc_in_range"] = np.count_nonzero(np.abs(im_warp - stats_slice["Median"]) < 10) / (im_warp.size)
-            perc_consistant += stats_slice["Perc_in_range"]
-            stats.append(stats_slice)
-        perc_consistant /= len(rects)
-        return perc_consistant, stats
-
-    @staticmethod
-    def adjust_quad_by_flow_image(im_flow, quad, params):
-        """ Not really useful now - fixes the mask by calculating the average depth in the flow mask under the bezier
-        the trimming off mask pixels that don't belong
-        @param im_flow: Flow or depth image (gray scale)
-        @param quad: The quad to adjust
-        @param params: Parameters to use for adjust
-        @return the adjusted quad"""
-
-        print("Quad adjust res: ", end="")
-        for i in range(0, 5):
-            res = quad.adjust_quad_by_mask(im_flow,
-                                           step_size=params["step_size"], perc_width=params["width_mask"],
-                                           axs=None)
-            print(f"{res} ")
-        print(" done")
-
-        return quad
-
-    def score_quad(self, im_flow, quad):
-        """ See if the quad makes sense over the optical flow image
-        @quad - the quad
-        """
+        # First, make a mask that is black where no cylinder, white in middle 75% of cylinder, and grey around the
+        # edges
+        im_bezier_mask = np.zeros((im_mask.shape[0], im_mask.shape[1]), np.uint8)
+        self.bezier_crv_fit_to_mask.draw_interior_rects_filled(im_bezier_mask, b_solid=True,
+                                                               col_solid=(255, 255, 255),
+                                                               step_size=10,
+                                                               perc_width=0.75)
+        self.bezier_crv_fit_to_mask.draw_edge_rects_filled(im_bezier_mask, b_solid=True,
+                                                           col_solid=(255, 255, 255),
+                                                           step_size=10,
+                                                           perc_width=0.75)
+        self.bezier_crv_fit_to_mask.draw_edge_rects_filled
 
         # Two checks: one, are the depth/optical fow values largely consistent under the quad center
         #  Are there boundaries in the optical flow image where the edge of the quad is?
@@ -394,10 +204,10 @@ class FitBezierCyl2D(BezierCyl2D):
             print(f"Warning: not consistant {self.fname_quad} {stats_slice}")
         return perc_consistant, diff / (len(stats_slice) - 1)
 
-    def debug_image_quad_fit(self, image_debug):
+    def debug_image_bezier_fit(self, image_debug):
         """ Draw the fitted quad on the image
         @param image_debug - rgb image"""
-        # Draw the original, the edges, and the depth mask with the fitted quad
+        # Draw the bezier curve with the two boundary curves
         self.quad.draw_bezier(image_debug)
         if self.quad.is_wire():
             LineSeg2D.(image_debug, self.quad.p0, (255, 0, 0), thickness=2, length=10)

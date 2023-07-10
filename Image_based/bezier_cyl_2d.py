@@ -310,16 +310,8 @@ class BezierCyl2D:
         @param rect - the rect as a 4x2 np array
         @param col - the color to use
         """
-        xs = [p[0] for p in rect]
-        ys = [p[1] for p in rect]
-        diff_x = max(xs) - min(xs)
-        diff_y = max(ys) - min(ys)
-        for s in np.linspace(0.0, 1.0, int(np.ceil(diff_x))):
-            for t in np.linspace(0, 1, int(np.ceil(diff_y))):
-                xy = (1-s) * (1-t) * rect[0] + (1-s) * t * rect[1] + s * t * rect[2] + s * (1-t) * rect[3]
-                xy[0], xy[1] = xy[1], xy[0]
-                if 0 < int(xy[0]) < im.shape[0] and 0 < int(xy[1]) < im.shape[1]:
-                    im[int(xy[0]), int(xy[1])] = col
+        points = np.int32(rect)
+        cv2.fillPoly(im, pts=[points], color=col)
 
     def draw_edge_rects(self, im, step_size=40, perc_width=0.3):
         """ Draw the edge rectangles
@@ -388,6 +380,38 @@ class BezierCyl2D:
                 col = (128 + i * col_incr, 100 + (i % 2) * 100, 128 + i * col_incr)
             self.draw_rect_filled(im, r, col=col)
 
+    def draw_boundary_rects_filled(self, im, b_solid=True, col_solid=(255, 255, 255), step_size=40, perc_width=0.5):
+        """ Draw the edge rectangles filled
+        @param im - the image
+        @param b_solid - use a solid color or alternate in order to see rects and order
+        @param col_solid - the solid color to use.
+        @param step_size how many pixels to move along the boundary
+        @param perc_width How much of the radius to move in/out of the edge
+        """
+        rects, _ = self.boundary_rects(step_size, perc_width)
+        col_incr = 128 // len(rects)
+        for i, r in enumerate(rects):
+            if b_solid:
+                col = col_solid
+            else:
+                col = (128 + i * col_incr, 100 + (i % 4) * 50, 128 + i * col_incr)
+            self.draw_rect_filled(im, r, col=col)
+
+    def make_mask_image(self, im_mask, step_size=20, perc_fuzzy=0.2):
+        """ Create a mask that is white in the middle, grey along the boundaries
+        @param im_mask - the image
+        @param step_size how many pixels to move along the boundary
+        @param perc_fuzzy How much of the boundary to make fuzzy
+        """
+        self.draw_interior_rects_filled(im_mask, b_solid=True,
+                                                 col_solid=(255, 255, 255),
+                                                 step_size=step_size,
+                                                 perc_width=1.0)
+        self.draw_boundary_rects_filled(im_mask, b_solid=True,
+                                        col_solid=(128, 128, 128),
+                                        step_size=step_size,
+                                        perc_width=perc_fuzzy)
+
     def write_json(self, fname):
         """Convert to array and write out
         @param fname file name to write to"""
@@ -436,7 +460,7 @@ if __name__ == '__main__':
     assert(not bezier_crv_vert.is_wire())
 
     import matplotlib.pyplot as plt
-    fig, axs = plt.subplots(2, 2)
+    fig, axs = plt.subplots(3, 2)
     perc_width_interior = 0.5
     perc_width_edge = 0.2
     for i_row, crv in enumerate([bezier_crv_horiz, bezier_crv_vert]):
@@ -455,10 +479,15 @@ if __name__ == '__main__':
         axs[1, i_row].imshow(im_debug)
         axs[1, i_row].set_title(crv.orientation + f" filled {perc_width_interior}")
 
-        fname = "./Data/test_crv.json"
-        crv.write_json(fname)
+        im_debug = np.zeros((480, 640, 3), np.uint8)
+        crv.make_mask_image(im_debug, perc_fuzzy=0.25)
+        axs[2, i_row].imshow(im_debug)
+        axs[2, i_row].set_title(crv.orientation + f" mask 0.25")
 
-        read_back_in_crv = BezierCyl2D.read_json(fname)
+        fname_test = "./Data/test_crv.json"
+        crv.write_json(fname_test)
+
+        read_back_in_crv = BezierCyl2D.read_json(fname_test)
     plt.tight_layout()
 
     print("Done")
