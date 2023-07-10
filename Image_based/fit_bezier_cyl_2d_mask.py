@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 # Fit a Bezier cylinder to a mask
-#  Adds least squares fit to bezier_cyl_2d
 #  Adds fitting the bezier_cyl_2d to the mask by trying to place the Bezier curve's middle in the center of
 #    the mask. Also adjusts the width
 #  Essentially, chunk up the mask into pieces, find the average center, then set up a LS fit that (gradually)

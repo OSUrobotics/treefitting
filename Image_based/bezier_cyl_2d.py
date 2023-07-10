@@ -45,7 +45,6 @@ class BezierCyl2D:
             self.p1 = 0.5 * (self.p0 + self.p2)
         else:
             self.p1 = np.array(mid_pt)
-        self.depth_values = []
         self.radius_2d = radius
 
     @staticmethod
@@ -392,19 +391,37 @@ class BezierCyl2D:
     def write_json(self, fname):
         """Convert to array and write out
         @param fname file name to write to"""
+        fix_nparray = []
+        for k, v in self.__dict__.items():
+            try:
+                if v.size > 1:
+                    fix_nparray.append([k, v])
+                    setattr(self, k, [float(x) for x in v])
+            except AttributeError:
+                pass
+
         with open(fname, "w") as f:
             json.dump(self.__dict__, f, indent=2)
+
+        for fix in fix_nparray:
+            setattr(self, fix[0], fix[1])
 
     @staticmethod
     def read_json(fname, bezier_crv=None):
         """ Read back in from json file
-        @param fname file name to read from"""
+        @param fname file name to read from
+        @param bezier_crv - an existing bezier curve to put the data in"""
         with open(fname, 'r') as f:
             my_data = json.load(f)
             if not bezier_crv:
                 bezier_crv = BezierCyl2D([0, 0], [1, 1], 1)
             for k, v in my_data.items():
-                setattr(bezier_crv, k, v)
+                try:
+                    if len(v) > 1:
+                        setattr(bezier_crv, k, np.array(v))
+                except TypeError:
+                    setattr(bezier_crv, k, v)
+
         return bezier_crv
 
 
@@ -437,6 +454,11 @@ if __name__ == '__main__':
         crv.draw_interior_rects_filled(im_debug, b_solid=False, step_size=40, perc_width=perc_width_interior)
         axs[1, i_row].imshow(im_debug)
         axs[1, i_row].set_title(crv.orientation + f" filled {perc_width_interior}")
+
+        fname = "./Data/test_crv.json"
+        crv.write_json(fname)
+
+        read_back_in_crv = BezierCyl2D.read_json(fname)
     plt.tight_layout()
 
     print("Done")
