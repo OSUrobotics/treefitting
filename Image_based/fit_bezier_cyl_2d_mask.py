@@ -17,10 +17,9 @@ from HandleFileNames import HandleFileNames
 
 
 class FitBezierCyl2DMask:
-    def __init__(self, fname_mask_image, stats_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
         """ Read in the mask image, use the stats to start the quad fit, then fit the quad
         @param fname_mask_image: Mask image name
-        @param stats_image: the stats for this image
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
@@ -98,11 +97,11 @@ class FitBezierCyl2DMask:
     @staticmethod
     def create_bezier_crv_from_eigen_vectors(bezier_crv, im_mask, stats, params):
         """ Fit a quad to the mask, edge image
-        @param bezier_crv - a blank bezier curve
+        @param bezier_crv - a blank bezier curve (class BezierCyl2D)
         @param im_mask - the image mask
-        @param stats - the stats from BaseStatsImage
+        @param stats - the stats from BaseStatsImage (class BaseStatsImage)
         @param params - the parameters to use in the fit
-        @return fitted quad and parameters used in the fit"""
+        @return fitted Bezier and parameters used in the fit"""
 
         # Fit a Bezier curve to the mask - this does a bit of tweaking to try to extend the end points as
         #  far as possible
@@ -119,6 +118,7 @@ class FitBezierCyl2DMask:
             vec_len = vec_len * 1.1
 
         bezier_crv = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * stats['width'])
+        return bezier_crv, params
 
     @staticmethod
     def _adjust_bezier_crv_by_mask(fit_bezier_crv, im_mask, step_size=40, perc_width=1.2):

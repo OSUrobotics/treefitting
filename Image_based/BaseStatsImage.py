@@ -63,6 +63,7 @@ class BaseStatsImage:
             # Cached data doesn't exist, or we need to re-calculated
             self.stats_dict = self.stats_image(self.mask_image)
 
+            # TODO pull out into a read/write method
             try:
                 # Convert any numpy arrays to lists prior to writing out
                 for k, v in self.stats_dict.items():

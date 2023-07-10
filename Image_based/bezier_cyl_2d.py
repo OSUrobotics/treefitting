@@ -454,6 +454,7 @@ if __name__ == '__main__':
     bezier_crv_horiz = BezierCyl2D([10, 130], [620, 60], 40, [320, 190])
     assert(bezier_crv_horiz.orientation == "horizontal")
     assert(not bezier_crv_horiz.is_wire())
+    # TODO set the two radii to be different and check that it renders corectly
     # Make a vertical curve
     bezier_crv_vert = BezierCyl2D([320, 30], [290, 470], 40, [310, 210])
     assert(bezier_crv_vert.orientation == "vertical")
