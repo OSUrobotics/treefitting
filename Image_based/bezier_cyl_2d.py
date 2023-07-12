@@ -27,6 +27,7 @@ from line_seg_2d import LineSeg2D
 
 
 class BezierCyl2D:
+
     def __init__(self, start_pt=None, end_pt=None, radius=1, mid_pt=None):
         """ Create a bezier from 2 points or an optional mid point
         @param start_pt - start point
@@ -45,8 +46,13 @@ class BezierCyl2D:
             self.p1 = 0.5 * (self.p0 + self.p2)
         else:
             self.p1 = np.array(mid_pt)
-        self.radius_2d = radius
-
+        self.start_radius = radius
+        self.end_radius = 100
+    #want to pass every single point from start to end and return radius along that path
+    def radius(self, t):
+        return (1-t)*(self.start_radius) + (t*self.end_radius)
+        
+    
     @staticmethod
     def _orientation(start_pt, end_pt):
         """Set the orientation and ensure left-right or down-up
@@ -92,7 +98,7 @@ class BezierCyl2D:
         @return 2d pts, left and right edge"""
         pt = self.pt_axis(t)
         vec = self.tangent_axis(t)
-        vec_step = self.radius_2d * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
+        vec_step = self.radius(pt) * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
         left_pt = [pt[0] - vec_step[1], pt[1] + vec_step[0]]
         right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
         return left_pt, right_pt
@@ -122,7 +128,7 @@ class BezierCyl2D:
         edge_left1, edge_right1 = self.edge_pts(t1)
         edge_left2, edge_right2 = self.edge_pts(t2)
 
-        vec_step = perc_width * self.radius_2d * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
+        vec_step = perc_width * self.radius(t1) * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
         rect_left = np.array([[edge_left1[0] + vec_step[1], edge_left1[1] - vec_step[0]],
                               [edge_left2[0] + vec_step[1], edge_left2[1] - vec_step[0]],
                               [edge_left2[0] - vec_step[1], edge_left2[1] + vec_step[0]],
@@ -144,7 +150,7 @@ class BezierCyl2D:
         pt1 = self.pt_axis(t1)
         pt2 = self.pt_axis(t2)
 
-        vec_step = perc_width * self.radius_2d * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
+        vec_step = perc_width * self.radius(t1) * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
         rect = np.array([[pt1[0] + vec_step[1], pt1[1] - vec_step[0]],
                          [pt2[0] + vec_step[1], pt2[1] - vec_step[0]],
                          [pt2[0] - vec_step[1], pt2[1] + vec_step[0]],
@@ -231,7 +237,7 @@ class BezierCyl2D:
         @return True/False
         """
         rad_clip = 3
-        if self.radius_2d > rad_clip:
+        if self.end_radius > rad_clip or self.start_radius > rad_clip:
             return False
 
         line_axis = LineSeg2D(self.p0, self.p2)
@@ -487,10 +493,11 @@ if __name__ == '__main__':
         axs[2, i_row].imshow(im_debug)
         axs[2, i_row].set_title(crv.orientation + f" mask 0.25")
 
-        fname_test = "./Data/test_crv.json"
+        fname_test = "./data/test_crv.json"
         crv.write_json(fname_test)
 
         read_back_in_crv = BezierCyl2D.read_json(fname_test)
     plt.tight_layout()
+    plt.show()
 
     print("Done")
