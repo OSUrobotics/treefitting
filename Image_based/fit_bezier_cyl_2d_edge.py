@@ -16,133 +16,11 @@ from line_seg_2d import LineSeg2D
 from BaseStatsImage import BaseStatsImage
 from HandleFileNames import HandleFileNames
 
-class FitBezierCyl2D(BaseStatsImage):
+class FitBezierCyl2DEdge:
     def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Read in the mask image, use the stats to start the quad fit, then fit the quad
-        @param fname_mask_image: name of mask file, rgb or gray scale image with white where the mask is
-        @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
-        @param fname_debug: the file name for a debug image showing the bounding box, etc
-        @param b_recalc: Force recalculate the result, y/n"""
+        # TODO: Make this look like fit_bezier_cyl_2d_mask, creating a FitBezierCyl2DMask then using the
+        # output of that to do the fit to the edge process
 
-        # Initializes the base stats image class, which does the image read and calculates the stats
-        self.BaseStatsImage.__init__(fname_mask_image, fname_calculated, fname_debug, b_recalc)
-
-        # Fit a quad to the mask, using the end points of the base image as a starting point
-        print("Fitting quads")
-        self.fname_quad = None    # The actual quadratic bezier
-        self.fname_params = None  # Parameters used to do the fit
-        if fname_calculated:
-            self.fname_quad = fname_calculated + "quad.json"
-            self.fname_params = fname_calculated + "quad_params.json"
-
-        self.quad = None
-
-        # Current parameters for the vertical leader - will need to make this a parameter
-        self.params = {"step_size": int(0.5 * self.stats_dict['width'] * 1.5), "width_mask": 1.4, "width": 0.25}
-
-        if b_recalc or not fname_calculated or not exists(fname_calculated):
-            if exists(self.fname_quad) and not b_recalc:
-                self.quad = BezierCyl2D.read_json(self.fname_quad)
-                with open(self.fname_params, 'r') as f:
-                    self.params = json.load(f)
-            else:
-                self.quad = self.fit_quad_to_mask(self.mask_image, stats=self.stats_dict, params=self.params)
-                self.quad.write_json(self.fname_quad)
-                with open(self.fname_params, 'w') as f:
-                    json.dump(self.params, f)
-
-        if fname_debug:
-            # Draw the edge and original image with the fitted quad and rects
-            im_covert_back = cv2.cvtColor(self.mask_image, cv2.COLOR_GRAY2RGB)
-            self.debug_image(im_covert_back)  # The eigen vec
-            self.debug_image_quad_fit(im_covert_back)
-            cv2.imwrite(fname_debug, im_covert_back)
-
-        self.score = self.score_quad(self.quad)
-
-    def _setup_least_squares(self, ts, ):
-        """Setup the least squares approximation
-        @param ts - t values to use
-        @returns A, B for Ax = b """
-        # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints = np.zeros((len(ts) + 3, 3))
-        ts_constraints = np.zeros((len(ts) + 3))
-        b_rhs = np.zeros((len(ts) + 3, 2))
-        ts_constraints[-3] = 0.0
-        ts_constraints[-2] = 0.5
-        ts_constraints[-1] = 1.0
-        ts_constraints[:-3] = np.transpose(ts)
-        a_constraints[:, -3] = (1-ts_constraints) * (1-ts_constraints)
-        a_constraints[:, -2] = 2 * (1-ts_constraints) * ts_constraints
-        a_constraints[:, -1] = ts_constraints * ts_constraints
-        for i, t in enumerate(ts_constraints):
-            b_rhs[i, :] = self.pt_axis(ts_constraints[i])
-        return a_constraints, b_rhs
-
-    def _extract_least_squares(self, a_constraints, b_rhs):
-        """ Do the actual Ax = b and keep horizontal/vertical end points
-        @param a_constraints the A of Ax = b
-        @param b_rhs the b of Ax = b
-        @returns fit error L0 norm"""
-        if a_constraints.shape[0] < 3:
-            return 0.0
-
-        #  a_at = a_constraints @ a_constraints.transpose()
-        #  rank = np.rank(a_at)
-        #  if rank < 3:
-        #      return 0.0
-
-        new_pts, residuals, rank, _ = np.linalg.lstsq(a_constraints, b_rhs, rcond=None)
-
-        print(f"Residuals {residuals}, rank {rank}")
-        b_rhs[1, :] = self.p1
-        pts_diffs = np.sum(np.abs(new_pts - b_rhs[0:3, :]))
-
-        if self.orientation is "vertical":
-            new_pts[0, 1] = self.p0[1]
-            new_pts[2, 1] = self.p2[1]
-        else:
-            new_pts[0, 0] = self.p0[0]
-            new_pts[2, 0] = self.p2[0]
-        self.p0 = new_pts[0, :]
-        self.p1 = new_pts[1, :]
-        self.p2 = new_pts[2, :]
-        return pts_diffs
-
-    def adjust_quad_by_mask(self, im_mask, step_size=40, perc_width=1.2, axs=None):
-        """Replace the linear approximation with one based on following the mask
-        @param im_mask - mask image
-        @param step_size - how many pixels to step along
-        @param perc_width - how much wider than the radius to look in the mask
-        @param axs - optional axes to draw the cutout in
-        @returns how much the points moved"""
-        height = int(self.radius_2d)
-        rects, ts = self.interior_rects(step_size=step_size, perc_width=perc_width)
-
-        # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints, b_rhs = self._setup_least_squares(ts)
-
-        x_grid, y_grid = np.meshgrid(range(0, step_size), range(0, height))
-        if axs is not None:
-            axs.imshow(im_mask, origin='lower')
-        for i, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_mask, r, pad=2)
-
-            im_warp, tform_inv = self._image_cutout(im_mask, r, step_size=step_size, height=height)
-            if b_rect_inside and np.sum(im_warp > 0) > 0:
-                x_mean = np.mean(x_grid[im_warp > 0])
-                y_mean = np.mean(y_grid[im_warp > 0])
-                pt_warp_back = tform_inv @ np.transpose(np.array([x_mean, y_mean, 1]))
-                print(f"{self.pt_axis(ts[i])} ({x_mean}, {y_mean}), {pt_warp_back}")
-                b_rhs[i, :] = pt_warp_back[0:2]
-            else:
-                print(f"Empty slice {r}")
-
-            if axs is not None:
-                axs.clear()
-                axs.imshow(im_warp, origin='lower')
-
-        return self._extract_least_squares(a_constraints, b_rhs)
 
     def _hough_edge_to_middle(self, p1, p2):
         """ Convert the two end points to an estimate of the mid-point and the pt on the spine
@@ -157,6 +35,10 @@ class FitBezierCyl2D(BaseStatsImage):
         return mid_pt, pt_middle
 
     def adjust_quad_by_hough_edges(self, im_edge, step_size=40, perc_width=0.3, axs=None):
+        # TODO Make this look like fit_bezier_crv_to_mask in FitBezierCyl2DMask
+        # TODO rename quad to Beier
+        # TODO Like adjust, create a FitBezierCrv2D from an input Bezier crv (the setup_least_squares etc will work)
+        # TODO change self.ls etc to fit_bezier_crv
         """Replace the linear approximation with one based on following the mask
         @param im_mask - mask image
         @param step_size - how many pixels to step along
@@ -241,7 +123,8 @@ class FitBezierCyl2D(BaseStatsImage):
         return self._extract_least_squares(a_constraints, b_rhs)
 
     def set_end_pts(self, pt0, pt2):
-        """ Set the end point to the new end point while trying to keep the curve the same
+        """ TODO: pass in the curve and set the crv's end points
+        Set the end point to the new end point while trying to keep the curve the same
         @param pt0 new p0
         @param pt2 new p2"""
         l0 = LineSeg2D(self.p0, self.p1)
@@ -260,39 +143,6 @@ class FitBezierCyl2D(BaseStatsImage):
             b_rhs[i, :] = self.pt_axis(t_map)
 
         return self._extract_least_squares(a_constraints, b_rhs)
-
-    @staticmethod
-    def fit_quad_to_mask(self, im_mask, stats, params):
-        """ Fit a quad to the mask, edge image
-        @param im_mask - the image mask
-        @param stats - the stats from BaseStatsImage
-        @param params - the parameters to use in the fit
-        @returns fitted quad and stats used in the fit"""
-
-        # Fit a quad to the trunk
-        pt_lower_left = stats['center']
-        vec_len = stats["Length"] * 0.4
-        while pt_lower_left[0] > 2 + stats['x_min'] and pt_lower_left[1] > 2 + stats['y_min']:
-            pt_lower_left = stats["center"] - stats["EigenVector"] * vec_len
-            vec_len = vec_len * 1.1
-
-        pt_upper_right = stats['center']
-        vec_len = stats["Length"] * 0.4
-        while pt_upper_right[0] < -2 + stats['x_max'] and pt_upper_right[1] < -2 + stats['y_max']:
-            pt_upper_right = stats["center"] + stats["EigenVector"] * vec_len
-            vec_len = vec_len * 1.1
-
-        quad = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * stats['width'])
-
-        # Iteratively move the quad to the center of the mask
-        print(f"Res: ", end="")
-        for i in range(0, 5):
-            res = quad.adjust_quad_by_mask(im_mask,
-                                           step_size=params["step_size"], perc_width=params["width_mask"],
-                                           axs=None)
-            print(f"{res} ", end="")
-        print("")
-        return quad, params
 
     def find_edges_hough_transform(self, im_edge, step_size=40, perc_width=0.3, axs=None):
         """Find the hough transform of the images in the boxes; save the line orientations
@@ -424,71 +274,7 @@ class FitBezierCyl2D(BaseStatsImage):
 
         return quad
 
-    def check_interior_depth(self, im_depth, step_size=40, perc_width=0.3):
-        """ Find which pixels are valid depth and fit average depth
-        @param im_depth - depth image
-        @param step_size how many pixels to move along the boundary
-        @param perc_width How much of the radius to move in/out of the edge
-        """
-        height = int(self.radius_2d)
-        rects, ts = self.interior_rects(step_size=step_size, perc_width=perc_width)
-
-        stats = []
-        perc_consistant = 0.0
-        for i, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_depth, r, pad=2)
-
-            im_warp, tform_inv = self._image_cutout(im_depth, r, step_size=step_size, height=height)
-
-            stats_slice = {"Min": np.min(im_warp),
-                           "Max": np.max(im_warp),
-                           "Median": np.median(im_warp)}
-            stats_slice["Perc_in_range"] = np.count_nonzero(np.abs(im_warp - stats_slice["Median"]) < 10) / (im_warp.size)
-            perc_consistant += stats_slice["Perc_in_range"]
-            stats.append(stats_slice)
-        perc_consistant /= len(rects)
-        return perc_consistant, stats
-
-    @staticmethod
-    def adjust_quad_by_flow_image(im_flow, quad, params):
-        """ Not really useful now - fixes the mask by calculating the average depth in the flow mask under the bezier
-        the trimming off mask pixels that don't belong
-        @param im_flow: Flow or depth image (gray scale)
-        @param quad: The quad to adjust
-        @param params: Parameters to use for adjust
-        @return the adjusted quad"""
-
-        print("Quad adjust res: ", end="")
-        for i in range(0, 5):
-            res = quad.adjust_quad_by_mask(im_flow,
-                                           step_size=params["step_size"], perc_width=params["width_mask"],
-                                           axs=None)
-            print(f"{res} ")
-        print(" done")
-
-        return quad
-
-    def score_quad(self, im_flow, quad):
-        """ See if the quad makes sense over the optical flow image
-        @quad - the quad
-        """
-
-        # Two checks: one, are the depth/optical fow values largely consistent under the quad center
-        #  Are there boundaries in the optical flow image where the edge of the quad is?
-        im_flow_mask = cv2.cvtColor(im_flow, cv2.COLOR_BGR2GRAY)
-        perc_consistant, stats_slice = quad.check_interior_depth(im_flow_mask)
-
-        diff = 0
-        for i in range(1, len(stats_slice)):
-            diff_slices = np.abs(stats_slice[i]["Median"] - stats_slice[i-1]["Median"])
-            if diff_slices > 20:
-                print(f"Warning: Depth values not consistant from slice {self.fname_quad} {i} {stats_slice}")
-            diff += diff_slices
-        if perc_consistant < 0.9:
-            print(f"Warning: not consistant {self.fname_quad} {stats_slice}")
-        return perc_consistant, diff / (len(stats_slice) - 1)
-
-    def debug_image_quad_fit(self, image_debug):
+    def debug_image_edge_fit(self, image_debug):
         """ Draw the fitted quad on the image
         @param image_debug - rgb image"""
         # Draw the original, the edges, and the depth mask with the fitted quad
