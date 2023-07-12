@@ -34,7 +34,7 @@ class BezierCyl2D:
         @param radius - width in the image
         @param mid_pt - optional mid point (otherwise set to halfway between start_pt and end_pt)"""
 
-        if not start_pt or not end_pt:
+        if start_pt is None or end_pt is None:
             self.p0 = np.array([0, 0])
             self.p2 = np.array([1, 0])
             self.orientation = "Horizontal"
@@ -441,8 +441,10 @@ class BezierCyl2D:
                 bezier_crv = BezierCyl2D([0, 0], [1, 1], 1)
             for k, v in my_data.items():
                 try:
-                    if len(v) > 1:
+                    if len(v) == 2:
                         setattr(bezier_crv, k, np.array(v))
+                    else:
+                        setattr(bezier_crv, k, v)
                 except TypeError:
                     setattr(bezier_crv, k, v)
 

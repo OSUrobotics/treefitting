@@ -181,8 +181,8 @@ class BaseStatsImage:
 
 
 if __name__ == '__main__':
-    path_bpd = "./data/trunk_segmentation_names.json"
-    #path_bpd = "./data/forcindy_fnames.json"
+    #path_bpd = "./data/trunk_segmentation_names.json"
+    path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True

@@ -591,3 +591,77 @@ if __name__ == '__main__':
     cv2.imwrite('data/forcindy/0_quad.png', im_orig)
 
     print("foo")
+
+    from branchpointdetection import BranchPointDetection
+
+    # Compute all the branch points/approximate lines for branches
+    bp = BranchPointDetection("data/forcindy/", "0")
+
+    # Read in/compute the additional images we need for debugging
+    #   Original image, convert to canny edge
+    #   Mask image
+    #   Depth image
+    im_orig = cv2.imread('data/forcindy/0.png')
+    im_depth = cv2.imread('data/forcindy/0_depth.png')
+    im_mask_color = cv2.imread('data/forcindy/0_trunk_0.png')
+    im_mask = cv2.cvtColor(im_mask_color, cv2.COLOR_BGR2GRAY)
+    im_gray = cv2.cvtColor(im_orig, cv2.COLOR_BGR2GRAY)
+    im_edge = cv2.Canny(im_gray, 50, 150, apertureSize=3)
+    im_depth_color = cv2.cvtColor(im_depth, cv2.COLOR_BGR2RGB)
+    im_covert_back = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)
+
+    # Write out edge image
+    cv2.imwrite('data/forcindy/0_edges.png', im_edge)
+
+    # For the vertical leader...
+    trunk_pts = bp.trunks[0]["stats"]
+    # Fit a quad to the trunk
+    quad = BezierCyl2D(trunk_pts['lower_left'], trunk_pts['upper_right'], 0.5 * trunk_pts['width'])
+
+    # Current parameters for the vertical leader
+    step_size_to_use = int(quad.radius_2d * 1.5)  # Go along the edge at 1.5 * the estimated radius
+    perc_width_to_use = 0.3  # How "fat" to make the edge rectangles
+    perc_width_to_use_mask = 1.4  # How "fat" a rectangle to cover the mask
+
+    # Debugging image - draw the interior rects
+    quad.draw_interior_rects(im_mask_color, step_size=step_size_to_use, perc_width=perc_width_to_use_mask)
+    cv2.imwrite('data/forcindy/0_mask.png', im_mask_color)
+
+    # For debugging images
+    fig, axs = plt.subplots(2, 2)
+    axs[0, 0].imshow(im_orig)
+    axs[0, 1].imshow(im_mask_color)
+    plt.tight_layout()
+
+    # Iteratively move the quad to the center of the mask
+    for i in range(0, 5):
+        res = quad.adjust_quad_by_mask(im_mask,
+                                       step_size=step_size_to_use, perc_width=perc_width_to_use_mask,
+                                       axs=axs[1, 0])
+        print(f"Res {res}")
+
+    # Draw the original, the edges, and the depth mask with the fitted quad
+    quad.draw_bezier(im_orig)
+    quad.draw_boundary(im_orig, 10)
+    quad.draw_bezier(im_covert_back)
+
+    quad.draw_edge_rects(im_orig, step_size=step_size_to_use, perc_width=perc_width_to_use)
+    quad.draw_edge_rects(im_covert_back, step_size=step_size_to_use, perc_width=perc_width_to_use)
+    #quad.draw_edge_rects_markers(im_edge, step_size=step_size_to_use, perc_width=perc_width_to_use)
+    quad.draw_interior_rects(im_depth_color, step_size=step_size_to_use, perc_width=perc_width_to_use)
+
+    im_both = np.hstack([im_orig, im_covert_back, im_depth_color])
+    cv2.imshow("Original and edge and depth", im_both)
+    cv2.imwrite('data/forcindy/0_rects.png', im_both)
+
+    # Now do the hough transform - first draw the hough transform edges
+    for i in range(0, 5):
+        ret = quad.adjust_quad_by_hough_edges(im_edge, step_size=step_size_to_use, perc_width=perc_width_to_use, axs=axs[1, 1])
+        print(f"Res Hough {ret}")
+
+    im_orig = cv2.imread('data/forcindy/0.png')
+    quad.draw_bezier(im_orig)
+    quad.draw_boundary(im_orig, 10)
+    cv2.imwrite('data/forcindy/0_quad.png', im_orig)
+
+    print("foo")

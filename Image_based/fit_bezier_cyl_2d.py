@@ -29,7 +29,7 @@ class FitBezierCyl2D(BezierCyl2D):
         else:
             super(BezierCyl2D, self).__init__()
 
-    def _setup_least_squares(self, ts):
+    def setup_least_squares(self, ts):
         """Setup the least squares approximation - ts is the number of constraints to add, also
            puts in a copule constraints to keep end points where they are
         @param ts - t values to use
@@ -49,7 +49,7 @@ class FitBezierCyl2D(BezierCyl2D):
             b_rhs[i, :] = self.pt_axis(ts_constraints[i])
         return a_constraints, b_rhs
 
-    def _extract_least_squares(self, a_constraints, b_rhs):
+    def extract_least_squares(self, a_constraints, b_rhs):
         """ Do the actual Ax = b and keep horizontal/vertical end points
         @param a_constraints the A of Ax = b
         @param b_rhs the b of Ax = b
@@ -91,7 +91,7 @@ class FitBezierCyl2D(BezierCyl2D):
 
         ts_mid = np.array([0.25, 0.75])
         # Set up the matrix - include the 3 current points plus the centers of the mask
-        a_constraints, b_rhs = self._setup_least_squares(ts_mid)
+        a_constraints, b_rhs = self.setup_least_squares(ts_mid)
         b_rhs[-3, :] = pt0.transpose()
         b_rhs[-2, :] = self.pt_axis(0.5 * (t0 + t2))
         b_rhs[-1, :] = pt2.transpose()
@@ -99,7 +99,7 @@ class FitBezierCyl2D(BezierCyl2D):
             t_map = (1-t) * t0 + t * t2
             b_rhs[i, :] = self.pt_axis(t_map)
 
-        return self._extract_least_squares(a_constraints, b_rhs)
+        return self.extract_least_squares(a_constraints, b_rhs)
 
 
 if __name__ == '__main__':
