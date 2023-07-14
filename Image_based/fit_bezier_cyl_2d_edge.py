@@ -29,7 +29,7 @@ from BaseStatsImage import BaseStatsImage
 from HandleFileNames import HandleFileNames
 
 class FitBezierCyl2DEdge:
-    def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self, fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
         # TODO: Make this look like fit_bezier_cyl_2d_mask, creating a FitBezierCyl2DMask then using the
         # output of that to do the fit to the edge process
 
