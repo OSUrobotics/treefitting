@@ -6,7 +6,19 @@
 #    the mask. Also adjusts the width
 #  Essentially, chunk up the mask into pieces, find the average center, then set up a LS fit that (gradually)
 #    moves the center by using each chunk's recommendation for where the center should be
-
+# If no edge image, calculate edge image
+#  a) Fit the curve to the masked area
+#        Extend to boundaries of image if possible
+#  b) Calculate IoU for mask and fitted curve
+#    b.1) % pixels in center 80% of Bezier curve mask that are in original mask
+#    b.2) % pixels outside of 1.1 * Bezier curve mask that are in original mask
+#  c) Output revised mask
+#  d) Output edge curve boundaries
+#    d.1) Cut out piece of boundary
+#    b.2) Map to a rectangle
+#    b.3) See if edges
+#         If edges, use edge cut out
+#         Else use center fitted curve
 import numpy as np
 import cv2
 import json

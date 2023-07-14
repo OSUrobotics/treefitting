@@ -103,6 +103,20 @@ class BezierCyl2D:
         right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
         return left_pt, right_pt
 
+    def edge_offset_pt(self, t, perc_in_out, dir):
+        """ Go in/out of the edge point a given percentage
+        @param t - t value along the curve (in range 0, 1)
+        @param perc_in_out - if 1, get point on edge. If 0.5, get halfway to centerline. If 2.0 get 2 width
+        @param dir - 'Left' is the left direction, 'Right' is the right direction
+        @return numpy array x,y """
+        pt_edge = self.pt_axis(t)
+        vec_tang = self.tangent_axis(t)
+        vec_step = perc_in_out * self.radius(t) * vec_tang / np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
+
+        if dir == "Left":
+            return np.array([pt_edge[0] + vec_step[1], pt_edge[1] - vec_step[0]])
+        return np.array([pt_edge[0] - vec_step[1], pt_edge[1] + vec_step[0]])
+
     @staticmethod
     def _rect_in_image(im, r, pad=2):
         """ See if the rectangle is within the image boundaries
@@ -157,11 +171,12 @@ class BezierCyl2D:
                          [pt1[0] - vec_step[1], pt1[1] + vec_step[0]]], dtype="float32")
         return rect
 
-    def boundary_rects(self, step_size=40, perc_width=0.3):
+    def boundary_rects(self, step_size=40, perc_width=0.3, offset=False):
         """ Get a set of rectangles covering the left/right expected edges of the cylinder/tube
            March along the edges at the given image step size and produce rectangles in pairs
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
+        @param offset - if True, start at 0.5 of step_size and end at 1-0.5
         @returns a list of pairs of left,right rectangles - evens are left, odds right"""
 
         t_step = self._time_step_from_im_step(step_size)
@@ -169,7 +184,12 @@ class BezierCyl2D:
         t_step_exact = 1.0 / n_boxes
         rects = []
         ts = []
-        for t in np.arange(0, 1.0, step=t_step_exact):
+        t_start = 0
+        t_end = 1
+        if offset:
+            t_start = 0.5 * t_step_exact
+            t_end = 1.0 - 0.5 * t_step_exact
+        for t in np.arange(t_start, t_end, step=t_step_exact):
             rect_left, rect_right = self._rect_corners(t, t + t_step_exact, perc_width=perc_width)
             rects.append(rect_left)
             rects.append(rect_right)

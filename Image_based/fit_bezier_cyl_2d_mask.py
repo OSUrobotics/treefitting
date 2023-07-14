@@ -5,6 +5,10 @@
 #    the mask. Also adjusts the width
 #  Essentially, chunk up the mask into pieces, find the average center, then set up a LS fit that (gradually)
 #    moves the center by using each chunk's recommendation for where the center should be
+#  Calculate IoU for mask and fitted curve
+#    b.1) % pixels in center 80% of Bezier curve mask that are in original mask
+#    b.2) % pixels outside of 1.1 * Bezier curve mask that are in original mask
+#      Essentially, exclude the edge pixels from the intersection/union calculation
 
 import numpy as np
 import cv2
@@ -18,9 +22,9 @@ from HandleFileNames import HandleFileNames
 
 class FitBezierCyl2DMask:
     def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Read in the mask image, use the stats to start the quad fit, then fit the quad
+        """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_mask_image: Mask image name
-        @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
+        @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc
         @param b_recalc: Force recalculate the result, y/n"""
 
