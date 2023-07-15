@@ -33,8 +33,7 @@ class HandleFileNames:
     def __init__(self, path, img_type="png"):
         """Make directories/filenames
         @param path: the top level path
-        @param b_output_debug: Do debug y/n
-        @param b_recalc: Do recalc, y/n"""
+        @param img_type: the .png or .jpg or whatever"""
         self.path = path
         self.path_debug = path + "DebugImages/"
         self.path_calculated = path + "CalculatedData/"
@@ -77,7 +76,7 @@ class HandleFileNames:
             if name_separator:
                 im_name_split = str.split(im_name_split, name_separator)[0]
 
-            if not im_name_split in ret_names:
+            if im_name_split not in ret_names:
                 ret_names.append(im_name_split)
 
         ret_names.sort()
@@ -226,8 +225,8 @@ class HandleFileNames:
             for j, _ in enumerate(self.image_names[i]):
                 for k, m in enumerate(self.mask_names[i][j]):
                     if mask_type == "" or mask_type == m:
-                        for l, _ in enumerate(self.mask_ids[i][j][k]):
-                            yield i, j, k, l
+                        for mask_id, _ in enumerate(self.mask_ids[i][j][k]):
+                            yield i, j, k, mask_id
 
     def check_names(self):
         """ Run through all the image/mask names and make sure they exist"""
@@ -261,6 +260,7 @@ class HandleFileNames:
                 setattr(handle_files, k, v)
         return handle_files
 
+
 if __name__ == '__main__':
     # Example 2
     path_bpd = "./data/forcindy/"
@@ -271,11 +271,11 @@ if __name__ == '__main__':
     all_files.write_filenames("./data/forcindy_fnames.json")
     all_files.check_names()
 
-    for ind in all_files.loop_images():
-        print(f"{all_files.get_image_name(all_files.path, index=ind, b_add_tag=True)}")
+    for ind_img in all_files.loop_images():
+        print(f"{all_files.get_image_name(all_files.path, index=ind_img, b_add_tag=True)}")
 
-    for ind in all_files.loop_masks("trunk"):
-        print(f"{all_files.get_mask_name(all_files.path_calculated, index=ind, )}")
+    for ind_msk in all_files.loop_masks("trunk"):
+        print(f"{all_files.get_mask_name(all_files.path_calculated, index=ind_msk, )}")
 
     # Example 1
     path_trunk_seg = "./data/trunk_segmentations/"
@@ -287,4 +287,3 @@ if __name__ == '__main__':
     all_files_trunk.check_names()
 
     check_read = HandleFileNames.read_filenames("./data/trunk_segmentation_names.json")
-
