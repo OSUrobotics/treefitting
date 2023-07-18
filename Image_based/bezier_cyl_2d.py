@@ -47,12 +47,13 @@ class BezierCyl2D:
         else:
             self.p1 = np.array(mid_pt)
         self.start_radius = radius
-        self.end_radius = 100
-    #want to pass every single point from start to end and return radius along that path
+        self.end_radius = radius
+
     def radius(self, t):
-        return (1-t)*(self.start_radius) + (t*self.end_radius)
-        
-    
+        """ Radius is a linear interpolation of two end radii
+        @param t - t between 0 and 1"""
+        return (1 - t) * self.start_radius + t * self.end_radius
+
     @staticmethod
     def _orientation(start_pt, end_pt):
         """Set the orientation and ensure left-right or down-up
@@ -103,22 +104,22 @@ class BezierCyl2D:
         right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
         return left_pt, right_pt
 
-    def edge_offset_pt(self, t, perc_in_out, dir):
+    def edge_offset_pt(self, t, perc_in_out, direction):
         """ Go in/out of the edge point a given percentage
         @param t - t value along the curve (in range 0, 1)
         @param perc_in_out - if 1, get point on edge. If 0.5, get halfway to centerline. If 2.0 get 2 width
-        @param dir - 'Left' is the left direction, 'Right' is the right direction
+        @param direction - 'Left' is the left direction, 'Right' is the right direction
         @return numpy array x,y """
         pt_edge = self.pt_axis(t)
         vec_tang = self.tangent_axis(t)
         vec_step = perc_in_out * self.radius(t) * vec_tang / np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
 
-        if dir == "Left":
+        if direction == "Left":
             return np.array([pt_edge[0] + vec_step[1], pt_edge[1] - vec_step[0]])
         return np.array([pt_edge[0] - vec_step[1], pt_edge[1] + vec_step[0]])
 
     @staticmethod
-    def _rect_in_image(im, r, pad=2):
+    def rect_in_image(im, r, pad=2):
         """ See if the rectangle is within the image boundaries
         @im - image (for width and height)
         @r - the rectangle
@@ -233,7 +234,7 @@ class BezierCyl2D:
         return ret_im_mask
 
     @staticmethod
-    def _image_cutout(im, rect, step_size, height):
+    def image_cutout(im, rect, step_size, height):
         """Cutout a warped bit of the image and return it
         @param im - the image rect is in
         @param rect - four corners of the rectangle to cut out
@@ -430,9 +431,9 @@ class BezierCyl2D:
         @param perc_fuzzy How much of the boundary to make fuzzy
         """
         self.draw_interior_rects_filled(im_mask, b_solid=True,
-                                                 col_solid=(255, 255, 255),
-                                                 step_size=step_size,
-                                                 perc_width=1.0)
+                                        col_solid=(255, 255, 255),
+                                        step_size=step_size,
+                                        perc_width=1.0)
         self.draw_boundary_rects_filled(im_mask, b_solid=True,
                                         col_solid=(128, 128, 128),
                                         step_size=step_size,

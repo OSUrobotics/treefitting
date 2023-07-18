@@ -41,7 +41,7 @@ class FitBezierCyl2DMask:
         #   This is the curve that will be fit to the mask
         self.bezier_crv_fit_to_mask = FitBezierCyl2D(self.bezier_crv_initial)
 
-        # Fit a quad to the mask, using the end points of the base image as a starting point
+        # Create the calculated file names
         print(f"Fitting bezier curve to mask image {fname_mask_image}")
         self.fname_bezier_cyl_initial = None    # The actual quadratic bezier
         self.fname_bezier_cyl_fit_to_mask = None    # The actual quadratic bezier
@@ -98,7 +98,7 @@ class FitBezierCyl2DMask:
             cv2.imwrite(fname_debug, im_both)
 
         self.score = self.score_mask_fit(self.stats_dict.mask_image)
-        print(f"Mask {mask_fname}, score {self.score}")
+        print(f"Mask {fname_mask_image}, score {self.score}")
 
     @staticmethod
     def create_bezier_crv_from_eigen_vectors(stats):
@@ -131,7 +131,7 @@ class FitBezierCyl2DMask:
         @param step_size - how many pixels to step along
         @param perc_width - how much wider than the radius to look in the mask
         @returns how much the points moved"""
-        height = int(fit_bezier_crv.radius_2d)
+        height = int(fit_bezier_crv.radius(0.5))
         rects, ts = fit_bezier_crv.interior_rects(step_size=step_size, perc_width=perc_width)
 
         # Set up the matrix - include the 3 current points plus the centers of the mask
@@ -139,9 +139,9 @@ class FitBezierCyl2DMask:
 
         x_grid, y_grid = np.meshgrid(range(0, step_size), range(0, height))
         for i, r in enumerate(rects):
-            b_rect_inside = BezierCyl2D._rect_in_image(im_mask, r, pad=2)
+            b_rect_inside = BezierCyl2D.rect_in_image(im_mask, r, pad=2)
 
-            im_warp, tform_inv = fit_bezier_crv._image_cutout(im_mask, r, step_size=step_size, height=height)
+            im_warp, tform_inv = fit_bezier_crv.image_cutout(im_mask, r, step_size=step_size, height=height)
             if b_rect_inside and np.sum(im_warp > 0) > 0:
                 x_mean = np.mean(x_grid[im_warp > 0])
                 y_mean = np.mean(y_grid[im_warp > 0])
@@ -182,17 +182,12 @@ class FitBezierCyl2DMask:
         # edges
         im_bezier_mask = np.zeros((self.stats_dict.mask_image.shape[0], self.stats_dict.mask_image.shape[1]), np.uint8)
 
-        self.bezier_crv_fit_to_mask.make_mask_image(im_bezier_mask,
-                                                     step_size=10,
-                                                     perc_fuzzy=0.25)
+        self.bezier_crv_fit_to_mask.make_mask_image(im_bezier_mask, step_size=10, perc_fuzzy=0.25)
 
         pixs_in_mask_not_bezier = np.logical_and(im_mask > 0, im_bezier_mask == 0)
         pixs_in_bezier_not_mask = np.logical_and(im_mask == 0, im_bezier_mask == 255)
         pixs_in_both_masks = np.logical_and(im_mask > 0, im_bezier_mask == 255)
         pixs_in_union = np.logical_or(np.logical_or(pixs_in_bezier_not_mask, pixs_in_mask_not_bezier), pixs_in_both_masks)
-        n_in_mask_not_bezier = np.count_nonzero(pixs_in_mask_not_bezier)
-        n_in_bezier_not_mask = np.count_nonzero(pixs_in_bezier_not_mask)
-        n_in_both_masks = np.count_nonzero(pixs_in_both_masks)
         n_in_union = np.count_nonzero(pixs_in_union)
         if n_in_union == 0:
             return 0
@@ -201,7 +196,7 @@ class FitBezierCyl2DMask:
 
 
 if __name__ == '__main__':
-    #path_bpd = "./data/trunk_segmentation_names.json"
+    # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 

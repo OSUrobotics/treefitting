@@ -24,9 +24,9 @@ class BezierCyl3D:
         @param end_radius - ending radius"""
 
         # Information about the current branch/trunk
-        self.pt1 = p1
-        self.pt2 = p2
-        self.pt3 = p3
+        self.pt1 = np.array(p1)
+        self.pt2 = np.array(p2)
+        self.pt3 = np.array(p3)
         self.start_radii = start_radius
         self.end_radii = end_radius
 
@@ -36,6 +36,24 @@ class BezierCyl3D:
 
         self.vertex_locs = np.zeros((self.n_along, self.n_around, 3))
         self.make_mesh()
+
+    def copy(self, bezier_crv=None, b_compute_mesh=False):
+        """Return a copy of self - mostly just copy, rather than =, the points/vertices
+        @param bezier_crv - use this bezier curve versus making a new one
+        @param b_compute_mesh - compute/copy the mesh, y/n
+        @return: New curve"""
+        if bezier_crv is None:
+            bezier_crv = BezierCyl3D(np.copy(self.pt1), np.copy(self.pt2), np.copy(self.pt3), self.start_radii, self.end_radii)
+        for k, v in self.__dict__:
+            try:
+                if v.size > 1:
+                    pass
+            except TypeError:
+                setattr(bezier_crv, k, v)
+
+        if b_compute_mesh:
+            bezier_crv.vertex_locs = np.copy(self.vertex_locs)
+        return bezier_crv
 
     def n_vertices(self):
         return self.n_along * self.n_around
@@ -51,9 +69,9 @@ class BezierCyl3D:
         @param pt2 Mid point
         @param pt3 End point
         """
-        self.pt1 = pt1
-        self.pt2 = pt2
-        self.pt3 = pt3
+        self.pt1 = np.array(pt1)
+        self.pt2 = np.array(pt2)
+        self.pt3 = np.array(pt3)
 
     def set_pts_from_pt_tangent(self, pt1, vec1, pt3):
         """Set the points from a starting point/tangent
@@ -132,7 +150,7 @@ class BezierCyl3D:
 
     def _calc_cyl_vertices(self):
         """Calculate the cylinder vertices"""
-        pt = np.ones(shape=(4))
+        pt = np.ones(shape=(4,))
         radii = self._calc_radii()
 
         for it, t in enumerate(np.linspace(0, 1.0, self.n_along)):
@@ -175,6 +193,8 @@ class BezierCyl3D:
         @param fname - file name"""
         fix_nparray = []
         for k, v in self.__dict__.items():
+            if k == "vertex_locs":
+                continue
             try:
                 if v.size == 3:
                     fix_nparray.append([k, v])
@@ -207,7 +227,7 @@ class BezierCyl3D:
                         setattr(bezier_crv, k, v)
                 except TypeError:
                     setattr(bezier_crv, k, v)
-
+        bezier_crv.set_dims(bezier_crv.n_along, bezier_crv.n_around)
         if compute_mesh:
             bezier_crv.make_mesh()
         return bezier_crv

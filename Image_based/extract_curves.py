@@ -8,15 +8,12 @@
 #     - Store as t, percentage in/out from radius (so we can re-use at different scales)
 
 import numpy as np
-from glob import glob
-import csv
 import cv2
 import json
 from os.path import exists
-from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import LineSeg2D
-from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from HandleFileNames import HandleFileNames
+from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 
 
 class ExtractCurves:
@@ -53,7 +50,7 @@ class ExtractCurves:
         if b_recalc or not fname_calculated or not exists(self.fname_full_edge_stats):
             # Recalculate and write
             self.edge_stats = ExtractCurves.full_edge_stats(self.bezier_edge.image_edge,
-                                                            self.bezier_edge.fit_bezier_edge,
+                                                            self.bezier_edge.bezier_crv_fit_to_edge,
                                                             self.params)
             # Write out the bezier curve
             if fname_calculated:
@@ -83,22 +80,23 @@ class ExtractCurves:
 
         if fname_debug:
             # Draw the mask with the initial and fitted curve
-            im_covert_back = cv2.cvtColor(self.bezier_edge.edge_image, cv2.COLOR_GRAY2RGB)
-            im_rgb = cv2.copyTo(self.bezier_edge.rgb_image)
+            im_covert_back = cv2.cvtColor(self.bezier_edge.image_edge, cv2.COLOR_GRAY2RGB)
+            im_rgb = np.copy(self.bezier_edge.image_rgb)
             for pix in self.edge_stats["pixs_edge"]:
                 im_covert_back[pix[0], pix[1], :] = (255, 0, 0)
                 im_rgb[pix[0], pix[1], :] = (255, 255, 255)
 
             for do_both_crv, do_both_name in [(self.left_curve, "Left"), (self.right_curve, "Right")]:
                 for pt_e1, pt_e2 in zip(do_both_crv[0:-1], do_both_crv[1:]):
-                    pt1 = self.bezier_edge.bezier_fit.edge_offset_pt(pt_e1[0], pt_e1[1], do_both_name)
-                    pt2 = self.bezier_edge.bezier_fit.edge_offset_pt(pt_e2[0], pt_e2[1], do_both_name)
+                    pt1 = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(pt_e1[0], pt_e1[1], do_both_name)
+                    pt2 = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(pt_e2[0], pt_e2[1], do_both_name)
                     LineSeg2D.draw_line(im_covert_back, pt1, pt2, color=(255, 255, 0))
                     LineSeg2D.draw_line(im_rgb, pt1, pt2, color=(255, 255, 0))
             im_both = np.hstack([im_covert_back, im_rgb])
             cv2.imwrite(fname_debug, im_both)
 
-    @staticmethod def full_edge_stats(image_edge, bezier_edge, params):
+    @staticmethod
+    def full_edge_stats(image_edge, bezier_edge, params):
         """ Get the best pixel offset (if any) for each point along the edge
         @param image_edge - the edge image
         @param bezier_edge - the Bezier curve
@@ -106,7 +104,10 @@ class ExtractCurves:
         bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"])
         bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"], offset=True)
         n_bdry1 = len(bdry_rects1)
-        t_step = (ts1[-1] - ts1[0]) / (len(bdry_rects1) // 2)
+        try:
+            t_step = ts1[2] - ts1[0]
+        except IndexError:
+            t_step = 1.0
 
         bdry_rects1.extend(bdry_rects2)
         ts1.extend(ts2)
@@ -120,22 +121,30 @@ class ExtractCurves:
         for i_rect, r in enumerate(bdry_rects1):
             # b_rect_inside = BezierCyl2D._rect_in_image(image_edge, r, pad=2)
 
-            im_warp, tform3_back = bezier_edge._image_cutout(image_edge, r, step_size=width, height=height)
+            im_warp, tform3_back = bezier_edge.image_cutout(image_edge, r, step_size=width, height=height)
             # Actual hough transform on the cut-out image
             lines = cv2.HoughLines(im_warp, 1, np.pi / 180.0, 10)
 
+            # Check for any lines in the cutout image
+            if lines is None:
+                continue
+            # .. and check if any of those are horizontal
+            ret_pts = FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, width, height)
+            if ret_pts is []:
+                continue
             i_side = i_rect % 2
 
             if i_rect == n_bdry1:
-                t_step = (ts2[-1] - ts2[0]) / (len(bdry_rects2) // 2)
+                try:
+                    t_step = ts2[2] - ts2[0]
+                except IndexError:
+                    t_step = 1.0
 
-            if not lines:
-                continue
             max_y = im_warp.max(axis=0)
 
-            ts_seg = np.linspace(ts1[i_rect] - t_step * 0.5, ts1[i_rect] - t_step * 0.5, len(max_y))
+            ts_seg = np.linspace(ts1[i_rect] - t_step * 0.5, ts1[i_rect] + t_step * 0.5, len(max_y))
             for i_col, y in enumerate(max_y):
-                if max_y > params["edge_max"]:
+                if y > params["edge_max"]:
                     ids = np.where(im_warp[:, i_col] == y)
                     if i_side == 0:
                         tag = "left"
@@ -146,13 +155,17 @@ class ExtractCurves:
                     h_max = (1 + params["perc_width"]) * bezier_edge.radius(ts1[i_col])
                     ret_stats[tag + "_perc"].append(h_min + h_max + ids[0] / width)
 
-                    p1_in = np.transpose(np.array([ids[0], i_col, 1.0]))
+                    p1_in = np.transpose(np.array([ids[0][0], i_col, 1.0]))
                     p1_back = tform3_back @ p1_in
 
                     ret_stats["pixs_edge"].append([p1_back[0], p1_back[1]])
 
-        sort(zip(ret_stats["ts_left"], ret_stats["left_perc"]), key=0)
-        sort(zip(ret_stats["ts_right"], ret_stats["right"]), key=0)
+        np.array([ret_stats["ts_left"], ret_stats["left_perc"]])
+        np.sort(axis=0)
+        ret_stats["ts_left"] = list(np.array[0, :])
+        ret_stats["left_perc"] = list(np.array[1, :])
+        # sort(zip(ret_stats["ts_left"], ret_stats["left_perc"]), key=0)
+        # sort(zip(ret_stats["ts_right"], ret_stats["right"]), key=0)
         return ret_stats
 
     @staticmethod
@@ -168,7 +181,7 @@ class ExtractCurves:
         for ts, ps in [(stats_edge["ts_left"], stats_edge["Left_perc"]), (stats_edge["ts_right"], stats_edge["Right_perc"])]:
             ps_filter = np.array(ps)
             for i_filter in range(0, params["n_filter"]):
-                np.filter(ps_filter)
+                # np.filter(ps_filter)
                 ts_crvs = np.linspace(0, 1, params["n_samples"])
                 ps_crvs = np.interp(ts_crvs, ts, ps_filter)
                 crvs.append([(t, p) for t, p in zip(ts_crvs, ps_crvs)])
@@ -176,27 +189,29 @@ class ExtractCurves:
 
 
 if __name__ == '__main__':
-    #path_bpd = "./data/trunk_segmentation_names.json"
+    # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
-    b_do_recalc = False
+    b_do_recalc = True
     for ind in all_files.loop_masks():
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname = all_files.get_image_name(path=all_files.path_calculated, index=ind, b_add_tag=False) + "_edge.png"
-        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
+        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_add_tag=True)
+        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
+        ec_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
-            mask_fname_debug = ""
+            ec_fname_debug = ""
         else:
-            mask_fname_debug = mask_fname_debug + "_crv.png"
+            ec_fname_debug = ec_fname_debug + "_extract_profile.png"
 
-        mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
+        ec_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
 
         if not exists(mask_fname):
             raise ValueError(f"Error, file {mask_fname} does not exist")
         if not exists(rgb_fname):
             raise ValueError(f"Error, file {rgb_fname} does not exist")
 
-        b_stats = ExtractCurves(rgb_fname, edge_fname, mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
+        profile_crvs = ExtractCurves(rgb_fname, edge_fname, mask_fname,
+                                     fname_calculated=ec_fname_calculate,
+                                     fname_debug=ec_fname_debug, b_recalc=b_do_recalc)
