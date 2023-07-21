@@ -60,7 +60,8 @@ class FitBezierCyl2DEdge:
             cv2.imwrite(fname_edge_image, self.image_edge)
 
         # Create the calculated file names
-        print(f"Fitting bezier curve to edge image {fname_edge_image}")
+        if fname_debug:
+            print(f"Fitting bezier curve to edge image {fname_edge_image}")
         self.fname_bezier_cyl_edge = None    # The actual quadratic bezier
         self.fname_params = None  # Parameters used to do the fit
         # Create the file names for the calculated data that we'll store (initial curve, curve fit to mask, parameters)
@@ -121,12 +122,13 @@ class FitBezierCyl2DEdge:
         return mid_pt_on_edge, pt_on_spine
 
     @staticmethod
-    def get_horizontal_lines_from_hough(lines, tform3_back, width, height):
+    def get_horizontal_lines_from_hough(lines, tform3_back, width, height, b_debug=False):
         """ Get left and right edge points from the lines returned from Hough transform
         @param lines - the rho, theta returned from Hough
         @param tform3_back - undo the warp transform
         @param width - width of the cutout
         @param height - height of the cutout
+        @param b_debug - print out debug messages if True
         @return list of pairs of left,right points where line crosses cutout image"""
         # For fitting y = mx + b
 
@@ -146,9 +148,11 @@ class FitBezierCyl2DEdge:
             if np.isclose(theta, 0.0):
                 if np.isclose(rho, 1.0):
                     FitBezierCyl2DEdge._line_abc[0] = 1.0
+                    FitBezierCyl2DEdge._line_abc[1] = 0.0
                     FitBezierCyl2DEdge._line_abc[2] = -1.0
                 else:
                     FitBezierCyl2DEdge._line_abc[0] = -1.0 / (rho - 1.0)
+                    FitBezierCyl2DEdge._line_abc[1] = 0.0
                     FitBezierCyl2DEdge._line_abc[2] = 1.0 - FitBezierCyl2DEdge._line_abc[0]
             else:
                 FitBezierCyl2DEdge._line_abc_constraints[0, 0] = x1
@@ -156,9 +160,10 @@ class FitBezierCyl2DEdge:
                 FitBezierCyl2DEdge._line_abc_constraints[0, 1] = y1
                 FitBezierCyl2DEdge._line_abc_constraints[1, 1] = y2
 
-                print(f"rho {rho} theta {theta}")
-                print(f"A {FitBezierCyl2DEdge._line_abc_constraints}")
-                print(f"b {FitBezierCyl2DEdge._line_b}")
+                if b_debug:
+                    print(f"rho {rho} theta {theta}")
+                    print(f"A {FitBezierCyl2DEdge._line_abc_constraints}")
+                    print(f"b {FitBezierCyl2DEdge._line_b}")
                 FitBezierCyl2DEdge._line_abc = np.linalg.solve(FitBezierCyl2DEdge._line_abc_constraints, FitBezierCyl2DEdge._line_b)
 
             check1 = FitBezierCyl2DEdge._line_abc[0] * x1 + FitBezierCyl2DEdge._line_abc[1] * y1 + FitBezierCyl2DEdge._line_abc[2]
@@ -182,16 +187,19 @@ class FitBezierCyl2DEdge:
                     p2_back = tform3_back @ p2_in
                     # iseg is per segment, iside is left and right
                     ret_pts.append([p1_back[0:2], p2_back[0:2]])
-        print(f"Found {len(lines[0])} lines")
+
+        if b_debug:
+            print(f"Found {len(lines[0])} lines")
         return ret_pts
 
     @staticmethod
-    def find_edges_hough_transform(bezier_crv, im_edge, step_size=40, perc_width=0.3):
+    def find_edges_hough_transform(bezier_crv, im_edge, step_size=40, perc_width=0.3, b_debug=False):
         """Find the hough transform of the images in the boxes; save the line orientations
         @param bezier_crv - curve
         @param im_edge - edge image
         @param step_size - how many pixels to use in each Hough image
         @param perc_width - how wide a rectangle to use on the edges
+        @param b_debug - print out debug messages True/False
         @returns center, angle for each box"""
 
         # Size of the rectangle(s) to cutout is based on the step size and the radius
@@ -222,26 +230,28 @@ class FitBezierCyl2DEdge:
 
             if lines is not None and b_rect_inside:
                 ret_segs[i_seg][i_side] = \
-                    FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, step_size, height)
+                    FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, step_size, height, b_debug)
             else:
-                print(f"No lines or rect outside {r} im shape {im_edge.shape}")
+                if b_debug:
+                    print(f"No lines or rect outside {r} im shape {im_edge.shape}")
 
         # Grab every other t value, since we're returning left right edges in pairs
         return ts[0::2], ret_segs
 
     @staticmethod
-    def _adjust_bezier_by_hough_edges(fit_bezier_crv, im_edge, step_size=40, perc_width=0.3):
+    def _adjust_bezier_by_hough_edges(fit_bezier_crv, im_edge, step_size=40, perc_width=0.3, b_debug=False):
         """Fit the bezier curve bounaries to the edges in the edge image
         @param fit_bezier_crv - the bezier fit curve
         @param im_edge - edge image
         @param step_size - how many pixels to step along
         @param perc_width - how much wider than the radius to look in the mask
-        @perc_orig - percent to keep original pts (weitght in least squares)
+        @param b_debug - do debug True/False
         @returns how much the points moved"""
 
         # Find all the edge rectangles that have points
         ts, seg_edges = FitBezierCyl2DEdge.find_edges_hough_transform(fit_bezier_crv, im_edge,
-                                                                      step_size=step_size, perc_width=perc_width)
+                                                                      step_size=step_size, perc_width=perc_width,
+                                                                      b_debug=b_debug)
 
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints, b_rhs = fit_bezier_crv.setup_least_squares(ts)
@@ -277,7 +287,8 @@ class FitBezierCyl2DEdge:
                 mid_pt_on_edge_right = mid_pt_on_edge_right / len(s2)
 
                 pt_on_spine = 0.5 * (mid_pt_on_edge_left + mid_pt_on_edge_right)
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine}")
+                if b_debug:
+                    print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine}")
                 b_rhs[i_seg, :] = pt_on_spine
 
                 radius_avg.append([0.5 * np.linalg.norm(mid_pt_on_edge_right - mid_pt_on_edge_left), ts[i_seg]])
@@ -286,7 +297,8 @@ class FitBezierCyl2DEdge:
                 pt_on_spine_from_left = pt_on_spine_from_left / len(s1)
                 mid_pt_on_edge_left = mid_pt_on_edge_left / len(s1)
 
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_left}")
+                if b_debug:
+                    print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_left}")
                 b_rhs[i_seg, :] = pt_on_spine_from_left
 
                 radius_avg.append([np.linalg.norm(pt_on_spine_from_left - mid_pt_on_edge_left), ts[i_seg]])
@@ -294,7 +306,8 @@ class FitBezierCyl2DEdge:
                 pt_on_spine_from_right = pt_on_spine_from_right / len(s2)
                 mid_pt_on_edge_right = mid_pt_on_edge_right / len(s2)
 
-                print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_right}")
+                if b_debug:
+                    print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_right}")
                 b_rhs[i_seg, :] = pt_on_spine_from_right
                 radius_avg.append([np.linalg.norm(pt_on_spine_from_right - mid_pt_on_edge_right), ts[i_seg]])
 
@@ -308,21 +321,25 @@ class FitBezierCyl2DEdge:
                 b_radius_rhs[i_row] = r
 
             new_radii, residuals, rank, _ = np.linalg.lstsq(a_radius_constraints, b_radius_rhs, rcond=None)
-            print(f"Residuals {residuals}, rank {rank}")
+            if b_debug:
+                print(f"Residuals {residuals}, rank {rank}")
 
-            print(f"Radius before {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
+            if b_debug:
+                print(f"Radius before {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
             fit_bezier_crv.start_radius = 0.5 * (fit_bezier_crv.start_radius + new_radii[0][0])
             fit_bezier_crv.end_radius = 0.5 * (fit_bezier_crv.start_radius + new_radii[1][0])
-            print(f"Radius after {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
+            if b_debug:
+                print(f"Radius after {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
 
         return fit_bezier_crv.extract_least_squares(a_constraints, b_rhs)
 
     @staticmethod
-    def fit_bezier_crv_to_edge(bezier_crv, im_edge, params):
+    def fit_bezier_crv_to_edge(bezier_crv, im_edge, params, b_debug=False):
         """ Adjust the quad to the edge image using hough transform
         @param bezier_crv: Bezier curve to start with
         @param im_edge: The edge image
         @param params: The params to use in the fit
+        @param b_debug: Print debug statements y/n
         @return the quad and the params"""
 
         # Make a fit bezier curve
@@ -331,8 +348,10 @@ class FitBezierCyl2DEdge:
         # Now do the hough transform - first draw the hough transform edges
         for i in range(0, 5):
             ret = FitBezierCyl2DEdge._adjust_bezier_by_hough_edges(fit_bezier_crv, im_edge,
-                                                                   step_size=params["step_size"], perc_width=params["width"])
-            print(f"Res Hough {ret}")
+                                                                   step_size=params["step_size"], perc_width=params["width"],
+                                                                   b_debug=b_debug)
+            if b_debug:
+                print(f"Res Hough {ret}")
 
         return bezier_crv
 
