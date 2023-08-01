@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pythoRGB_Statsn3
 
 # Read in one masked image, the flow image, and the two rgbd images and
 #  a) Find the most likely mask
@@ -13,7 +13,7 @@ import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
+from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
 
@@ -48,12 +48,12 @@ class LeaderDetector:
                     p1 = stats["lower_left"]
                     p2 = stats["upper_right"]
                     self.images["Mask_Stats"][self.vertical_leader_masks[i]] = 255
-                    draw_line(self.images["RGB_Stats"], p1, p2, (128, 128, 128), 2)
-                    draw_line(self.images["Mask_Stats"], p1, p2, (128, 128, 128), 1)
+                    LineSeg2D.draw_line(self.images["RGB_Stats"], p1, p2, (128, 128, 128), 2)
+                    LineSeg2D.draw_line(self.images["Mask_Stats"], p1, p2, (128, 128, 128), 1)
 
                     pc = ["center"]
-                    draw_cross(self.images["RGB_Stats"], pc, (128, 128, 128), 1, 2)
-                    draw_cross(self.images["Mask_Stats"], pc, (180, 180, 128), 1, 3)
+                    LineSeg2D.draw_cross(self.images["RGB_Stats"], pc, (128, 128, 128), 1, 2)
+                    LineSeg2D.draw_cross(self.images["Mask_Stats"], pc, (180, 180, 128), 1, 3)
 
                 except:
                     pass
@@ -90,8 +90,8 @@ class LeaderDetector:
                 # Draw the original, the edges, and the depth mask with the fitted quad
                 quad.draw_bezier(im_orig_debug)
                 if quad.is_wire():
-                    draw_cross(im_orig_debug, quad.p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, quad.p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad.p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad.p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     quad.draw_boundary(im_orig_debug, 10)
                     quad.draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
@@ -235,8 +235,8 @@ class LeaderDetector:
                 # Draw the original, the edges, and the depth mask with the fitted quad
                 quad_flow.draw_bezier(im_orig_debug)
                 if quad_flow.is_wire():
-                    draw_cross(im_orig_debug, quad_flow.p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, quad_flow.p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad_flow.p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad_flow.p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     quad_flow.draw_boundary(im_orig_debug, 10)
                     quad_flow.draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])

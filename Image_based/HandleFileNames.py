@@ -279,12 +279,14 @@ class HandleFileNames:
 
 if __name__ == '__main__':
     # Example 2
-    path_bpd = "./data/forcindy/"
+    import os
+    __here__ = os.path.dirname(__file__)
+    path_bpd = f"{__here__}/data/forcindy/"
     all_files = HandleFileNames(path_bpd)
     # Filename is, eg, 0.png
     all_files.add_directory(name_separator="_")
     all_files.add_mask_images(["trunk", "sidebranch"])
-    all_files.write_filenames("./data/forcindy_fnames.json")
+    all_files.write_filenames(f"{__here__}/data/forcindy_fnames.json")
     all_files.check_names()
 
     for ind_img in all_files.loop_images():
@@ -294,12 +296,12 @@ if __name__ == '__main__':
         print(f"{all_files.get_mask_name(all_files.path_calculated, index=ind_msk, )}")
 
     # Example 1
-    path_trunk_seg = "./data/trunk_segmentations/"
+    path_trunk_seg = f"{__here__}/data/trunk_segmentations/"
     all_files_trunk = HandleFileNames(path_trunk_seg)
     all_files_trunk.image_tag = "_img.png"
     all_files_trunk.add_sub_directories(dir_name_filter="row", im_name_separator="_")
     all_files_trunk.add_mask_images(["mask"])
-    all_files_trunk.write_filenames("./data/trunk_segmentation_names.json")
+    all_files_trunk.write_filenames(f"{__here__}/data/trunk_segmentation_names.json")
     all_files_trunk.check_names()
 
-    check_read = HandleFileNames.read_filenames("./data/trunk_segmentation_names.json")
+    check_read = HandleFileNames.read_filenames(f"{__here__}/data/trunk_segmentation_names.json")
