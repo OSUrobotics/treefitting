@@ -25,8 +25,6 @@ class FitBezierCyl3DDepth:
     
     @staticmethod
     def create_bezier_crv_from_eigen_vectors(stats) -> BezierCyl3D:
-
+        
         return
     
-    def score_mask_fit(self, im_mask):
-        return
