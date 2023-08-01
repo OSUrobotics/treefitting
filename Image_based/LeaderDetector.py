@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pythoRGB_Statsn3
 
 # Read in one masked image, the flow image, and the two rgbd images and
 #  a) Find the most likely mask
@@ -9,34 +9,16 @@
 
 import numpy as np
 from glob import glob
-import csv
 import cv2
 import json
 from os.path import exists
-from cyl_fit_2d import Quad
-from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
+from bezier_cyl_2d import BezierCyl2D
+from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
+from BaseStatsImage import BaseStatsImage
 
 class LeaderDetector:
     image_type = {"Mask", "Flow", "RGB1", "RGB2", "Edge", "RGB_Stats", "Mask_Stats", "Edge_debug"}
-
-    _width = 0
-    _height = 0
-
-    _x_grid = None
-    _y_grid = None
-
-    @staticmethod
-    def _init_grid_(in_im):
-        """ INitialize width, height, xgrid, etc so we don't have to keep re-making it
-        :param in_im: Input image
-        """
-        if LeaderDetector._width == in_im.shape[1] and LeaderDetector._height == in_im.shape[0]:
-            return
-        LeaderDetector._width = in_im.shape[1]
-        LeaderDetector._height = in_im.shape[0]
-
-        LeaderDetector._x_grid, LeaderDetector._y_grid = np.meshgrid(np.linspace(0.5, LeaderDetector._width - 0.5, LeaderDetector._width), np.linspace(0.5,  LeaderDetector._height -  0.5,  LeaderDetector._height))
 
     def __init__(self, path, image_name, b_output_debug=True, b_recalc=False):
         """ Read in the image, mask image, flow image, 2 rgb images
@@ -44,44 +26,17 @@ class LeaderDetector:
         @param image_name: image number/name as a string
         @param b_recalc: Force recalculate the result, y/n"""
 
+        self.path = path
         self.path_debug = path + "DebugImages/"
-        path_calculated = path + "CalculatedData/"
+        self.path_calculated = path + "CalculatedData/"
+        self.b_output_debug = b_output_debug
+        self.b_recalc = b_recalc
 
         self.name = image_name
         # Read in all images that have name_ and are not debugging images
         self.images = self.read_images(path, image_name)
-        # Split the mask into connected components, each of which might be a vertical leader
-        self.vertical_leader_masks = self.split_mask(self.images["Mask"], b_one_mask=True, b_debug=b_output_debug)
-        self.vertical_leader_stats = []
-        self.vertical_leader_quads = []
 
         # For each component of the mask image, calculate or read in statistics (center, eigen vectors)
-        print("Calculating stats")
-        for i, mask in enumerate(self.vertical_leader_masks):
-            fname_stats = path_calculated + self.name + f"_mask_{i}.json"
-            if b_recalc or not exists(fname_stats):
-                stats_dict = self.stats_image(self.images["Mask"], mask)
-                for k, v in stats_dict.items():
-                    try:
-                        if v.size == 2:
-                            stats_dict[k] = [v[0], v[1]]
-                    except:
-                        pass
-                # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
-                with open(fname_stats, 'w') as f:
-                    json.dump(stats_dict, f)
-            elif exists(fname_stats):
-                with open(fname_stats, 'r') as f:
-                    stats_dict = json.load(f)
-
-            for k, v in stats_dict.items():
-                try:
-                    if len(v) == 2:
-                        stats_dict[k] = np.array([v[0], v[1]])
-                except:
-                    pass
-            self.vertical_leader_stats.append(stats_dict)
-
         # For each of the masks, see if we have reasonable stats
         #   Save points in debug image
         if b_output_debug:
@@ -93,12 +48,12 @@ class LeaderDetector:
                     p1 = stats["lower_left"]
                     p2 = stats["upper_right"]
                     self.images["Mask_Stats"][self.vertical_leader_masks[i]] = 255
-                    draw_line(self.images["RGB_Stats"], p1, p2, (128, 128, 128), 2)
-                    draw_line(self.images["Mask_Stats"], p1, p2, (128, 128, 128), 1)
+                    LineSeg2D.draw_line(self.images["RGB_Stats"], p1, p2, (128, 128, 128), 2)
+                    LineSeg2D.draw_line(self.images["Mask_Stats"], p1, p2, (128, 128, 128), 1)
 
                     pc = ["center"]
-                    draw_cross(self.images["RGB_Stats"], pc, (128, 128, 128), 1, 2)
-                    draw_cross(self.images["Mask_Stats"], pc, (180, 180, 128), 1, 3)
+                    LineSeg2D.draw_cross(self.images["RGB_Stats"], pc, (128, 128, 128), 1, 2)
+                    LineSeg2D.draw_cross(self.images["Mask_Stats"], pc, (180, 180, 128), 1, 3)
 
                 except:
                     pass
@@ -111,11 +66,11 @@ class LeaderDetector:
         for i, stats in enumerate(self.vertical_leader_stats):
             print(f"  {image_name}, mask {i}")
             image_mask = np.zeros(self.images["Mask"].shape, dtype=self.images["Mask"].dtype)
-            fname_quad = path_calculated + self.name + "_" + image_name + f"_{i}_quad.json"
-            fname_params = path_calculated + self.name + "_" + image_name + f"_{i}_quad_params.json"
+            fname_quad = self.path_calculated + self.name + "_" + image_name + f"_{i}_quad.json"
+            fname_params = self.path_calculated + self.name + "_" + image_name + f"_{i}_quad_params.json"
             quad = None
             if exists(fname_quad) and not b_recalc:
-                quad = Quad([0, 0], [1,1], 1)
+                quad = BezierCyl2D([0, 0], [1, 1], 1)
                 quad.read_json(fname_quad)
                 with open(fname_params, 'r') as f:
                     params = json.load(f)
@@ -133,10 +88,10 @@ class LeaderDetector:
                 im_orig_debug = np.copy(self.images["RGB0"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                quad.draw_quad(im_orig_debug)
+                quad.draw_bezier(im_orig_debug)
                 if quad.is_wire():
-                    draw_cross(im_orig_debug, quad.p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, quad.p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad.p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad.p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     quad.draw_boundary(im_orig_debug, 10)
                     quad.draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
@@ -145,7 +100,7 @@ class LeaderDetector:
                 cv2.imshow("Original and edge and depth", im_both)
                 cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_quad.png", im_both)
 
-                quad.draw_quad(self.images["RGB_Stats"])
+                quad.draw_bezier(self.images["RGB_Stats"])
 
         for quad in self.vertical_leader_quads:
             score = self.score_quad(quad)
@@ -167,8 +122,7 @@ class LeaderDetector:
 
         for n in fnames:
             if "mask" in n:
-                im_mask_color = cv2.imread(n)
-                images["Mask"] = cv2.cvtColor(im_mask_color, cv2.COLOR_BGR2GRAY)
+                images["Mask"] = BaseStatsImage(self.path, image_name, mask_id=-1, b_output_debug=self.b_output_debug, b_recalc=self.b_recalc)
             elif "rgb0" in n:
                 images["RGB0"] = cv2.imread(n)
             elif "rgb1" in n:
@@ -187,100 +141,6 @@ class LeaderDetector:
             cv2.imwrite(path + image_name + "_edge.png", images["Edge"])
 
         return images
-
-    def split_mask(self, in_im_mask, b_one_mask=True, b_debug=False):
-        """Split the mask image up into connected components, discarding anything really small
-        @param in_im_mask - the mask image
-        @param b_debug - print out mask labeled image
-        @return a list of boolean indices for each component"""
-        output = cv2.connectedComponentsWithStats(in_im_mask)
-        labels = output[1]
-        stats = output[2]
-
-        ret_masks = []
-        i_widest = 0
-        i_area = 0
-        for i, stat in enumerate(stats):
-            if np.sum(in_im_mask[labels == i]) == 0:
-                continue
-
-            if stat[cv2.CC_STAT_WIDTH] < 5:
-                continue
-            if stat[cv2.CC_STAT_HEIGHT] < 0.5 * in_im_mask.shape[1]:
-                continue
-            if i_area < stat[cv2.CC_STAT_AREA]:
-                i_widest = len(ret_masks)
-                i_area = stat[cv2.CC_STAT_AREA]
-            ret_masks.append(labels == i)
-
-        if b_debug:
-            labels = 128 + labels * (120 // output[0])
-            cv2.imwrite(self.path_debug + self.name + "_" + "labels.png", labels)
-
-        try:
-            if b_one_mask:
-                return [ret_masks[i_widest]]
-        except:
-            pass
-        return ret_masks
-
-    def stats_image(self, in_im, pixs_in_mask):
-        """ Add statistics (bounding box, left right, orientation, radius] to image
-        Note: Could probably do this without transposing image, but...
-        @param im image
-        @returns stats as a dictionary of values"""
-
-        LeaderDetector._init_grid_(in_im)
-
-        xs = LeaderDetector._x_grid[pixs_in_mask]
-        ys = LeaderDetector._y_grid[pixs_in_mask]
-
-        stats = {}
-        stats["x_min"] = np.min(xs)
-        stats["y_min"] = np.min(ys)
-        stats["x_max"] = np.max(xs)
-        stats["y_max"] = np.max(ys)
-        stats["x_span"] = stats["x_max"] - stats["x_min"]
-        stats["y_span"] = stats["y_max"] - stats["y_min"]
-
-        avg_width = 0.0
-        count_width = 0
-        if stats["x_span"] > stats["y_span"]:
-            stats["Direction"] = "left_right"
-            stats["Length"] = stats["x_span"]
-            for r in range(0, LeaderDetector._width):
-                if sum(pixs_in_mask[:, r]) > 0:
-                    avg_width += sum(pixs_in_mask[:, r] > 0)
-                    count_width += 1
-        else:
-            stats["Direction"] = "up_down"
-            stats["Length"] = stats["y_span"]
-            for c in range(0, LeaderDetector._height):
-                if sum(pixs_in_mask[c, :]) > 0:
-                    avg_width += sum(pixs_in_mask[c, :] > 0)
-                    count_width += 1
-        stats["width"] = avg_width / count_width
-        stats["center"] = np.array([np.mean(xs), np.mean(ys)])
-
-        x_matrix = np.zeros([2, xs.shape[0]])
-        x_matrix[0, :] = xs.transpose() - stats["center"][0]
-        x_matrix[1, :] = ys.transpose() - stats["center"][1]
-        covariance_matrix = np.cov(x_matrix)
-        eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
-        if eigen_values[0] < eigen_values[1]:
-            stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
-            stats["EigenVector"] = eigen_vectors[1, :]
-        else:
-            stats["EigenValues"] = [np.min(eigen_values), np.max(eigen_values)]
-            stats["EigenVector"] = eigen_vectors[0, :]
-        eigen_ratio = stats["EigenValues"][1] / stats["EigenValues"][0]
-        stats["EigenVector"][1] *= -1
-        stats["EigenRatio"] = eigen_ratio
-        stats["lower_left"] = stats["center"] - stats["EigenVector"] * (stats["Length"] * 0.5)
-        stats["upper_right"] = stats["center"] + stats["EigenVector"] * (stats["Length"] * 0.5)
-        print(stats)
-        print(f"Eigen ratio {eigen_ratio}")
-        return stats
 
     def fit_quad(self, im_mask, pts, b_output_debug=True, quad_name=0):
         """ Fit a quad to the mask, edge image
@@ -302,7 +162,7 @@ class LeaderDetector:
             pt_upper_right = pts["center"] + pts["EigenVector"] * vec_len
             vec_len = vec_len * 1.1
 
-        quad = Quad(pt_lower_left, pt_upper_right, 0.5 * pts['width'])
+        quad = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * pts['width'])
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.25}
@@ -316,7 +176,7 @@ class LeaderDetector:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im_mask, cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + self.name + f"_{quad_name}_quad_fit_mask.png", im_debug)
 
@@ -353,7 +213,7 @@ class LeaderDetector:
             fname_params_flow = path_calculated + self.name + "_" + image_name + f"_{i}_quad_params_flow.json"
             quad_flow = None
             if exists(fname_quad_flow) and not b_recalc:
-                quad_flow = Quad([0, 0], [1,1], 1)
+                quad_flow = BezierCyl2D([0, 0], [1, 1], 1)
                 quad_flow.read_json(fname_quad_flow)
                 with open(fname_params_flow, 'r') as f:
                     params = json.load(f)
@@ -373,10 +233,10 @@ class LeaderDetector:
                 im_orig_debug = np.copy(self.images["RGB0"])
 
                 # Draw the original, the edges, and the depth mask with the fitted quad
-                quad_flow.draw_quad(im_orig_debug)
+                quad_flow.draw_bezier(im_orig_debug)
                 if quad_flow.is_wire():
-                    draw_cross(im_orig_debug, quad_flow.p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, quad_flow.p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad_flow.p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, quad_flow.p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     quad_flow.draw_boundary(im_orig_debug, 10)
                     quad_flow.draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
@@ -384,7 +244,7 @@ class LeaderDetector:
                 im_both = np.hstack([im_orig_debug, im_covert_back])
                 cv2.imwrite(self.path_debug + self.name + "_" + image_name + f"_{i}_quad_flow.png", im_both)
 
-                quad_flow.draw_quad(self.images["RGB_Stats"])
+                quad_flow.draw_bezier(self.images["RGB_Stats"])
 
     def fit_quad_flow(self, im_flow_mask, quad, b_output_debug=True):
         """ Fit a quad to the mask, edge image
@@ -394,7 +254,7 @@ class LeaderDetector:
         @returns fitted quad"""
 
         # Fit a quad to the trunk
-        quad = Quad(quad.p0, quad.p2, quad.radius_2d, mid_pt=quad.p1)
+        quad = BezierCyl2D(quad.p0, quad.p2, quad.radius_2d, mid_pt=quad.p1)
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
@@ -408,7 +268,7 @@ class LeaderDetector:
 
         if b_output_debug:
             im_debug = cv2.cvtColor(im_flow_mask, cv2.COLOR_GRAY2RGB)
-            quad.draw_quad(im_debug)
+            quad.draw_bezier(im_debug)
             quad.draw_boundary(im_debug)
             cv2.imwrite(self.path_debug + self.name + "_" + self.name + f"_{i}_quad_fit_mask_flow.png", im_debug)
 
@@ -466,6 +326,8 @@ class LeaderDetector:
             print(f"Warning: not consistant {self.name} {stats_slice}")
         return perc_consistant, diff / (len(stats_slice) - 1)
 
+
+def split_masks()
 
 if __name__ == '__main__':
     path = "./data/predictions/"
