@@ -46,10 +46,10 @@ class HandleFileNames:
         # List of sub directoriew
         self.sub_dirs = []
         self.image_names = []  # List of image names in each sub directory (list of lists)
-        self.mask_names = []   # List of mask name(s) for each image (list of lists of lists)
-        self.mask_ids = []     # Mask ids for each mask_name (0, 1, etc) (list of lists of lists of lists)
-        self.flow_name = ""    # What is the tag (eg, _flow) for the flow images
-        self.depth_name = ""   # What is the tag (eg, _depth) for the depth images
+        self.mask_names = []  # List of mask name(s) for each image (list of lists of lists)
+        self.mask_ids = []  # Mask ids for each mask_name (0, 1, etc) (list of lists of lists of lists)
+        self.flow_name = ""  # What is the tag (eg, _flow) for the flow images
+        self.depth_name = ""  # What is the tag (eg, _depth) for the depth images
 
         # For if all the images are, eg, RGB.jpg
         self.image_tag = "." + img_type
@@ -57,7 +57,7 @@ class HandleFileNames:
         self.mask_id_separator = ""  # Could be _, set in add masks
 
     def _find_files(self, path, name_filter="", name_separator=""):
-        """ Find all of the image files in the given directory
+        """Find all of the image files in the given directory
         Example 1: If the name is name.png, and all other files are name_blah.png, then set name_separator to .
         #Example 2: If the name has an RGB in it, then set name_filter to be RGB
         @param path: The directory to look in
@@ -72,7 +72,7 @@ class HandleFileNames:
         ret_names = []
         for n in fnames:
             im_name = str.split(n, "/")[-1]
-            im_name_split = im_name[0:-len(self.image_tag)]
+            im_name_split = im_name[0 : -len(self.image_tag)]
             if name_separator:
                 im_name_split = str.split(im_name_split, name_separator)[0]
 
@@ -165,7 +165,7 @@ class HandleFileNames:
                             else:
                                 raise ValueError("Multiple files with same mask name but not different ids {fnames}")
                         else:
-                            mask_bit_left = mask_name_im[len(mask_name):]
+                            mask_bit_left = mask_name_im[len(mask_name) :]
                             if not b_found_mask_name:
                                 # Add the mask name and the index
                                 if not str.isnumeric(mask_bit_left):
@@ -178,7 +178,7 @@ class HandleFileNames:
                     self.mask_ids[i][j][k].sort()
 
     def get_image_name(self, path, index, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+        """Get the image name corresponding to the index given by (subdirectory index, image index, -)
         @param path should be one of self.path, self.path_calculated, or path_debug
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_add_tag - add the image tag, y/n
@@ -194,7 +194,7 @@ class HandleFileNames:
         return im_name
 
     def get_edge_image_name(self, path, index, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+        """Get the image name corresponding to the index given by (subdirectory index, image index, -)
         @param path should be one of self.path, self.path_calculated, or path_debug
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_add_tag - add the image tag, y/n
@@ -210,7 +210,7 @@ class HandleFileNames:
         return im_name
 
     def get_mask_name(self, path, index, b_add_tag=True):
-        """ Get the mask name corresponding to the index given by (subdirectory index, image index, mask name, mask id)
+        """Get the mask name corresponding to the index given by (subdirectory index, image index, mask name, mask id)
         @param path should be one of self.path, self.path_calculated, or path_debug
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_add_tag - add the image tag, y/n
@@ -223,9 +223,17 @@ class HandleFileNames:
         if b_add_tag:
             im_name = im_name + self.mask_tag
         return im_name
+    
+    def get_depth_name(self, path, index, b_add_tag=True):
+        """Get the depth image name corresponding to the index given by (subdirectory index, image index)"""
+        im_name = self.get_image_name(path, index, b_add_tag=False)
+        depth_name = im_name + "_depth"
+        if b_add_tag:
+            depth_name = depth_name + self.image_tag
+        return depth_name
 
     def loop_images(self):
-        """ A generator that loops over all of the images and generates an index for each
+        """A generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
         for i, _ in enumerate(self.sub_dirs):
@@ -233,7 +241,7 @@ class HandleFileNames:
                 yield i, j
 
     def loop_masks(self, mask_type=""):
-        """ A generator that loops over all of the masks and generates an index for each
+        """A generator that loops over all of the masks and generates an index for each
         The index can be passed to get_mask_name to get the actual mask name
         @param mask_type: Optional parameter; if set, return only masks of the given name (eg trunk)
         @return a tuple that can be used to get the mask name"""
@@ -245,7 +253,7 @@ class HandleFileNames:
                             yield i, j, k, mask_id
 
     def check_names(self):
-        """ Run through all the image/mask names and make sure they exist"""
+        """Run through all the image/mask names and make sure they exist"""
         for ind in self.loop_images():
             im_name = self.get_image_name(self.path, ind, b_add_tag=True)
             if not exists(im_name):
@@ -265,7 +273,7 @@ class HandleFileNames:
 
     @staticmethod
     def read_filenames(fname):
-        """ Read in all the variables and put them back in the class
+        """Read in all the variables and put them back in the class
         @param fname file to read from
         @return a Handle File Names instance"""
         with open(fname, "r") as f:
@@ -277,9 +285,10 @@ class HandleFileNames:
         return handle_files
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example 2
     import os
+
     __here__ = os.path.dirname(__file__)
     path_bpd = f"{__here__}/data/forcindy/"
     all_files = HandleFileNames(path_bpd)
@@ -295,13 +304,13 @@ if __name__ == '__main__':
     for ind_msk in all_files.loop_masks("trunk"):
         print(f"{all_files.get_mask_name(all_files.path_calculated, index=ind_msk, )}")
 
-    # Example 1
-    path_trunk_seg = f"{__here__}/data/trunk_segmentations/"
-    all_files_trunk = HandleFileNames(path_trunk_seg)
-    all_files_trunk.image_tag = "_img.png"
-    all_files_trunk.add_sub_directories(dir_name_filter="row", im_name_separator="_")
-    all_files_trunk.add_mask_images(["mask"])
-    all_files_trunk.write_filenames(f"{__here__}/data/trunk_segmentation_names.json")
-    all_files_trunk.check_names()
+    # # Example 1
+    # path_trunk_seg = f"{__here__}/data/trunk_segmentations/"
+    # all_files_trunk = HandleFileNames(path_trunk_seg)
+    # all_files_trunk.image_tag = "_img.png"
+    # all_files_trunk.add_sub_directories(dir_name_filter="row", im_name_separator="_")
+    # all_files_trunk.add_mask_images(["mask"])
+    # all_files_trunk.write_filenames(f"{__here__}/data/trunk_segmentation_names.json")
+    # all_files_trunk.check_names()
 
     check_read = HandleFileNames.read_filenames(f"{__here__}/data/trunk_segmentation_names.json")

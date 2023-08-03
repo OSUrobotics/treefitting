@@ -17,8 +17,17 @@ from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 
 
 class ExtractCurves:
-    def __init__(self, fname_rgb_image, fname_edge_image, fname_mask_image, params=None, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Read in the mask image, use the stats to start the quad fit, then fit the quad
+    def __init__(
+        self,
+        fname_rgb_image,
+        fname_edge_image,
+        fname_mask_image,
+        params=None,
+        fname_calculated=None,
+        fname_debug=None,
+        b_recalc=False,
+    ):
+        """Read in the mask image, use the stats to start the quad fit, then fit the quad
         @param fname_rgb_image: Edge image name
         @param fname_edge_image: Edge image name
         @param fname_mask_image: Mask image name
@@ -28,7 +37,9 @@ class ExtractCurves:
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats - this also reads the image in
-        self.bezier_edge = FitBezierCyl2DEdge(fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated, fname_debug, b_recalc)
+        self.bezier_edge = FitBezierCyl2DEdge(
+            fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated, fname_debug, b_recalc
+        )
 
         # List o pairs (t, plus/minus)
         self.left_curve = []
@@ -42,27 +53,27 @@ class ExtractCurves:
 
         # Current parameters for trunk extraction
         if params is None:
-            self.params = {"step_size": 20, "perc_width": 0.2, "edge_max":128, "n_avg": 10}
+            self.params = {"step_size": 20, "perc_width": 0.2, "edge_max": 128, "n_avg": 10}
         else:
             self.params = params
 
         # Get the raw edge data
         if b_recalc or not fname_calculated or not exists(self.fname_full_edge_stats):
             # Recalculate and write
-            self.edge_stats = ExtractCurves.full_edge_stats(self.bezier_edge.image_edge,
-                                                            self.bezier_edge.bezier_crv_fit_to_edge,
-                                                            self.params)
+            self.edge_stats = ExtractCurves.full_edge_stats(
+                self.bezier_edge.image_edge, self.bezier_edge.bezier_crv_fit_to_edge, self.params
+            )
             # Write out the bezier curve
             if fname_calculated:
-                with open(self.fname_full_edge_stats, 'w') as f:
+                with open(self.fname_full_edge_stats, "w") as f:
                     json.dump(self.edge_stats, f, indent=" ")
-                with open(self.fname_params, 'w') as f:
+                with open(self.fname_params, "w") as f:
                     json.dump(self.params, f, indent=" ")
         else:
             # Read in the stored data
-            with open(self.fname_full_edge_stats, 'r') as f:
+            with open(self.fname_full_edge_stats, "r") as f:
                 self.edge_stats = json.load(f)
-            with open(self.fname_params, 'r') as f:
+            with open(self.fname_params, "r") as f:
                 self.params = json.load(f)
 
         # Now use the params to filter the raw edge location data - produces the left, right edge curves
@@ -70,11 +81,11 @@ class ExtractCurves:
             # Recalculate and write
             self.left_curve, self.right_curve = ExtractCurves.curves_from_stats(self.edge_stats, self.params)
             if fname_calculated:
-                with open(self.fname_edge_curves, 'w') as f:
+                with open(self.fname_edge_curves, "w") as f:
                     json.dump((self.left_curve, self.right_curve), f, indent=" ")
         else:
             # Read in the pre-calculated edge curves
-            with open(self.fname_edge_curves, 'r') as f:
+            with open(self.fname_edge_curves, "r") as f:
                 curves = json.load(f)
                 self.left_curve, self.right_curve = curves
 
@@ -97,12 +108,14 @@ class ExtractCurves:
 
     @staticmethod
     def full_edge_stats(image_edge, bezier_edge, params):
-        """ Get the best pixel offset (if any) for each point along the edge
+        """Get the best pixel offset (if any) for each point along the edge
         @param image_edge - the edge image
         @param bezier_edge - the Bezier curve
         @param params - parameters for extraction"""
         bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"])
-        bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"], offset=True)
+        bdry_rects2, ts2 = bezier_edge.boundary_rects(
+            step_size=params["step_size"], perc_width=params["perc_width"], offset=True
+        )
         n_bdry1 = len(bdry_rects1)
         try:
             t_step = ts1[2] - ts1[0]
@@ -117,7 +130,7 @@ class ExtractCurves:
         width = params["step_size"]
         # rect_destination = np.array([[0, 0], [width, 0], [width, height], [0, height]], dtype="float32")
 
-        ret_stats = {"ts_left":[], "left_perc":[], "ts_right":[], "right_perc":[], "pixs_edge":[]}
+        ret_stats = {"ts_left": [], "left_perc": [], "ts_right": [], "right_perc": [], "pixs_edge": []}
         for i_rect, r in enumerate(bdry_rects1):
             # b_rect_inside = BezierCyl2D._rect_in_image(image_edge, r, pad=2)
 
@@ -178,7 +191,10 @@ class ExtractCurves:
         """
 
         crvs = []
-        for ts, ps in [(stats_edge["ts_left"], stats_edge["Left_perc"]), (stats_edge["ts_right"], stats_edge["Right_perc"])]:
+        for ts, ps in [
+            (stats_edge["ts_left"], stats_edge["Left_perc"]),
+            (stats_edge["ts_right"], stats_edge["Right_perc"]),
+        ]:
             ps_filter = np.array(ps)
             for i_filter in range(0, params["n_filter"]):
                 # np.filter(ps_filter)
@@ -188,7 +204,7 @@ class ExtractCurves:
         return crvs[0], crvs[1]
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
@@ -212,6 +228,11 @@ if __name__ == '__main__':
         if not exists(rgb_fname):
             raise ValueError(f"Error, file {rgb_fname} does not exist")
 
-        profile_crvs = ExtractCurves(rgb_fname, edge_fname, mask_fname,
-                                     fname_calculated=ec_fname_calculate,
-                                     fname_debug=ec_fname_debug, b_recalc=b_do_recalc)
+        profile_crvs = ExtractCurves(
+            rgb_fname,
+            edge_fname,
+            mask_fname,
+            fname_calculated=ec_fname_calculate,
+            fname_debug=ec_fname_debug,
+            b_recalc=b_do_recalc,
+        )

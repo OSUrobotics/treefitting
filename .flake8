@@ -1,0 +1,9 @@
+[flake8]
+max-line-length = 120
+exclude = 
+    .git, 
+    __pycache__, 
+    ./picar/sim_robot_hat.py # too many errors for a file we never use
+    build,
+    dist,
+    old

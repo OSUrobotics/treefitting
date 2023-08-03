@@ -52,7 +52,7 @@ def split_mask(in_im_mask, b_one_mask=True):
 
 
 def split_masks(path, im_name, b_one_mask=True, b_output_debug=True):
-    """ Create mask images
+    """Create mask images
     @param path: where the image is located
     @param im_name: name of the image
     @return: None
@@ -72,9 +72,9 @@ def split_masks(path, im_name, b_one_mask=True, b_output_debug=True):
         cv2.imwrite(im_mask_name, m)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     path = "./data/predictions/"
-    #path = "./forcindy/"
+    # path = "./forcindy/"
     for im_i in range(0, 49):
         name = str(im_i)
         print(name)

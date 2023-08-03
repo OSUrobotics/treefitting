@@ -25,7 +25,7 @@ class BaseStatsImage:
 
     @staticmethod
     def _init_grid_(in_im):
-        """ INitialize width, height, xgrid, etc so we don't have to keep re-making it
+        """INitialize width, height, xgrid, etc so we don't have to keep re-making it
         :param in_im: Input image
         """
         if BaseStatsImage._width == in_im.shape[1] and BaseStatsImage._height == in_im.shape[0]:
@@ -33,11 +33,13 @@ class BaseStatsImage:
         BaseStatsImage._width = in_im.shape[1]
         BaseStatsImage._height = in_im.shape[0]
 
-        BaseStatsImage._x_grid, BaseStatsImage._y_grid = np.meshgrid(np.linspace(0.5, BaseStatsImage._width - 0.5, BaseStatsImage._width),
-                                                                     np.linspace(0.5,  BaseStatsImage._height -  0.5,  BaseStatsImage._height))
+        BaseStatsImage._x_grid, BaseStatsImage._y_grid = np.meshgrid(
+            np.linspace(0.5, BaseStatsImage._width - 0.5, BaseStatsImage._width),
+            np.linspace(0.5, BaseStatsImage._height - 0.5, BaseStatsImage._height),
+        )
 
     def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Given an image, calculate the main axis and width along that axis
+        """Given an image, calculate the main axis and width along that axis
           If fname_calculated is given, check to see if the data is already calculated - if so, read it in,
           otherwise, calculate and write out
           If fname_debug is given, the write out a debug image with the main axis and end points marked
@@ -73,13 +75,13 @@ class BaseStatsImage:
                     except AttributeError:
                         pass
                 # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
-                with open(self.fname_calculated, 'w') as f:
+                with open(self.fname_calculated, "w") as f:
                     json.dump(self.stats_dict, f, indent=2)
             except FileNotFoundError:
                 if fname_calculated:
                     print(f"BaseStats Image: File not found {fname_calculated}")
         else:
-            with open(self.fname_calculated, 'r') as f:
+            with open(self.fname_calculated, "r") as f:
                 self.stats_dict = json.load(f)
 
         # Undo the numpy array -> list
@@ -100,7 +102,7 @@ class BaseStatsImage:
 
     @staticmethod
     def stats_image(in_im):
-        """ Add statistics (bounding box, left right, orientation, radius] to image
+        """Add statistics (bounding box, left right, orientation, radius] to image
         Note: Could probably do this without transposing image, but...
         Doing this as a static method so it can be used in a stand-alone pipeline
         @param in_im gray scale image with mask non-zero
@@ -160,7 +162,7 @@ class BaseStatsImage:
         return stats
 
     def debug_image(self, in_image):
-        """ Draw the eigen vectors/points on the image. Note, this edits the image
+        """Draw the eigen vectors/points on the image. Note, this edits the image
         @param in_image: The image to draw on top of"""
         p1 = self.stats_dict["lower_left"]
         p2 = self.stats_dict["upper_right"]
@@ -180,8 +182,8 @@ class BaseStatsImage:
         LineSeg2D.draw_rect(in_image, [[xmin, xmax], [ymin, ymax]], (256, 128, 128), 2)
 
 
-if __name__ == '__main__':
-    #path_bpd = "./data/trunk_segmentation_names.json"
+if __name__ == "__main__":
+    # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 

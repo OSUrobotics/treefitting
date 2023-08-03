@@ -12,9 +12,10 @@ from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 
+
 class BranchPointDetection:
     def __init__(self, path, image_name, b_output_debug=True, b_recalc=False):
-        """ Detect possible branch points where side branch touches trunk
+        """Detect possible branch points where side branch touches trunk
         @param path: Directory where files are located
         @param image_name: image number/name as a string
         @param b_recalc: Force recalculate the result, y/n"""
@@ -45,10 +46,10 @@ class BranchPointDetection:
                     except:
                         pass
                 # If this fails, make a CalculatedData and DebugImages folder in the data/forcindy folder
-                with open(fname_stats, 'w') as f:
+                with open(fname_stats, "w") as f:
                     json.dump(stats_dict, f)
             elif exists(fname_stats):
-                with open(fname_stats, 'r') as f:
+                with open(fname_stats, "r") as f:
                     stats_dict = json.load(f)
 
             for k, v in stats_dict.items():
@@ -95,12 +96,12 @@ class BranchPointDetection:
             if exists(fname_quad) and not b_recalc:
                 im["quad"] = BezierCyl2D([0, 0], [1, 1], 1)
                 im["quad"].read_json(fname_quad)
-                with open(fname_params, 'r') as f:
+                with open(fname_params, "r") as f:
                     params = json.load(f)
             else:
                 im["quad"], params = self.fit_quad(im)
                 im["quad"].write_json(fname_quad)
-                with open(fname_params, 'w') as f:
+                with open(fname_params, "w") as f:
                     json.dump(params, f)
 
             if b_output_debug:
@@ -115,7 +116,9 @@ class BranchPointDetection:
                     LineSeg2D.draw_cross(im_orig_debug, im["quad"].p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     im["quad"].draw_boundary(im_orig_debug, 10)
-                    im["quad"].draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
+                    im["quad"].draw_edge_rects(
+                        im_covert_back, step_size=params["step_size"], perc_width=params["width"]
+                    )
 
                 im_both = np.hstack([im_orig_debug, im_covert_back])
                 cv2.imshow("Original and edge and depth", im_both)
@@ -134,7 +137,9 @@ class BranchPointDetection:
             else:
                 im["flow_mask"], im_flow_mask_labels = self.flow_mask(im)
                 if b_output_debug:
-                    cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad_flow_labels.png", im_flow_mask_labels)
+                    cv2.imwrite(
+                        self.path_debug + self.name + "_" + im["name"] + "_quad_flow_labels.png", im_flow_mask_labels
+                    )
                 cv2.imwrite(fname_quad_flow_mask, im["flow_mask"])
 
             fname_quad_flow = path_calculated + self.name + "_" + im["name"] + "_quad_flow.json"
@@ -142,12 +147,12 @@ class BranchPointDetection:
             if exists(fname_quad_flow) and not b_recalc:
                 im["quad_flow"] = BezierCyl2D([0, 0], [1, 1], 1)
                 im["quad_flow"].read_json(fname_quad_flow)
-                with open(fname_params_flow, 'r') as f:
+                with open(fname_params_flow, "r") as f:
                     params = json.load(f)
             else:
                 im["quad_flow"], params = self.fit_quad_flow(im)
                 im["quad_flow"].write_json(fname_quad_flow)
-                with open(fname_params_flow, 'w') as f:
+                with open(fname_params_flow, "w") as f:
                     json.dump(params, f)
 
             if b_output_debug:
@@ -162,7 +167,9 @@ class BranchPointDetection:
                     LineSeg2D.draw_cross(im_orig_debug, im["quad_flow"].p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     im["quad_flow"].draw_boundary(im_orig_debug, 10)
-                    im["quad_flow"].draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
+                    im["quad_flow"].draw_edge_rects(
+                        im_covert_back, step_size=params["step_size"], perc_width=params["width"]
+                    )
 
                 im_both = np.hstack([im_orig_debug, im_covert_back])
                 cv2.imwrite(self.path_debug + self.name + "_" + im["name"] + "_quad_flow.png", im_both)
@@ -180,7 +187,7 @@ class BranchPointDetection:
                         if bp is not None:
                             self.branch_points.append(bp)
 
-            with open(fname_branch_pts, 'w') as f:
+            with open(fname_branch_pts, "w") as f:
                 csv_file = csv.writer(f)
                 data_row = ["x", "y", "vx", "vy"]
                 csv_file.writerow(data_row)
@@ -205,10 +212,12 @@ class BranchPointDetection:
                 LineSeg2D.draw_box(self.images_single["marked points"], p, (254, 128, 254), 6)
                 LineSeg2D.draw_line(self.images_single["marked points"], p, p + v, (128, 254, 254), 1)
 
-            cv2.imwrite(self.path_debug + image_name + "_" + "_marked_joins_points.png", self.images_single["marked points"])
+            cv2.imwrite(
+                self.path_debug + image_name + "_" + "_marked_joins_points.png", self.images_single["marked points"]
+            )
 
     def read_images(self, path, image_name):
-        """ Read in all of the trunk/sidebranch/edge/depth/orig images, labeled by name
+        """Read in all of the trunk/sidebranch/edge/depth/orig images, labeled by name
         If Edge image does not exist, create it
         Store all of the trunk/sidebranch images in the im data structure
         Store the others as just images
@@ -259,7 +268,7 @@ class BranchPointDetection:
         return images, images_single
 
     def stats_image(self, in_im):
-        """ Add statistics (bounding box, left right, orientation, radius] to image
+        """Add statistics (bounding box, left right, orientation, radius] to image
         Note: Could probably do this without transposing image, but...
         @param im image
         @returns stats as a dictionary of values"""
@@ -268,7 +277,7 @@ class BranchPointDetection:
         width = im.shape[0]
         height = im.shape[1]
 
-        y_grid, x_grid = np.meshgrid(np.linspace(0.5, height - 0.5, height), np.linspace(0.5, width -  0.5, width))
+        y_grid, x_grid = np.meshgrid(np.linspace(0.5, height - 0.5, height), np.linspace(0.5, width - 0.5, width))
 
         xs = x_grid[im > 0]
         ys = y_grid[im > 0]
@@ -321,7 +330,7 @@ class BranchPointDetection:
         return stats
 
     def fit_quad(self, im, b_output_debug=True):
-        """ Fit a quad to the mask, edge image
+        """Fit a quad to the mask, edge image
         @param im - the image and the stats
         @param b_output_debug - output mask with quad at the intermediate step
         @returns fitted quad"""
@@ -330,16 +339,16 @@ class BranchPointDetection:
         pts = im["stats"]
 
         # Fit a quad to the trunk
-        quad = BezierCyl2D(pts['lower_left'], pts['upper_right'], 0.5 * pts['width'])
+        quad = BezierCyl2D(pts["lower_left"], pts["upper_right"], 0.5 * pts["width"])
 
         # Current parameters for the vertical leader
         params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
 
         # Iteratively move the quad to the center of the mask
         for i in range(0, 5):
-            res = quad.adjust_quad_by_mask(im["image"],
-                                           step_size=params["step_size"], perc_width=params["width_mask"],
-                                           axs=None)
+            res = quad.adjust_quad_by_mask(
+                im["image"], step_size=params["step_size"], perc_width=params["width_mask"], axs=None
+            )
             print(f"Res {res}")
 
         if b_output_debug:
@@ -350,13 +359,15 @@ class BranchPointDetection:
 
         # Now do the hough transform - first draw the hough transform edges
         for i in range(0, 5):
-            ret = quad.adjust_quad_by_hough_edges(self.images_single["edge"], step_size=params["step_size"], perc_width=params["width"], axs=None)
+            ret = quad.adjust_quad_by_hough_edges(
+                self.images_single["edge"], step_size=params["step_size"], perc_width=params["width"], axs=None
+            )
             print(f"Res Hough {ret}")
 
         return quad, params
 
     def fit_quad_flow(self, im, b_output_debug=True):
-        """ Fit a quad to the mask, edge image
+        """Fit a quad to the mask, edge image
         @param im - the image and the stats
         @param b_output_debug - output mask with quad at the intermediate step
         @returns fitted quad"""
@@ -369,9 +380,9 @@ class BranchPointDetection:
 
         # Iteratively move the quad to the center of the mask
         for i in range(0, 5):
-            res = quad.adjust_quad_by_mask(im["flow_mask"],
-                                           step_size=params["step_size"], perc_width=params["width_mask"],
-                                           axs=None)
+            res = quad.adjust_quad_by_mask(
+                im["flow_mask"], step_size=params["step_size"], perc_width=params["width_mask"], axs=None
+            )
             print(f"Res {res}")
 
         if b_output_debug:
@@ -382,13 +393,15 @@ class BranchPointDetection:
 
         # Now do the hough transform - first draw the hough transform edges
         for i in range(0, 5):
-            ret = quad.adjust_quad_by_hough_edges(self.images_single["edge"], step_size=params["step_size"], perc_width=params["width"], axs=None)
+            ret = quad.adjust_quad_by_hough_edges(
+                self.images_single["edge"], step_size=params["step_size"], perc_width=params["width"], axs=None
+            )
             print(f"Res Hough {ret}")
 
         return quad, params
 
     def flow_mask(self, im):
-        """ Use the fitted quad and the original mask to extract a better mask from the flow image
+        """Use the fitted quad and the original mask to extract a better mask from the flow image
         @param im - image data structure
         @param quad - the quad we've fitted so far
         @return im_mask - a better image mask"""
@@ -403,7 +416,9 @@ class BranchPointDetection:
         color_centers = kmeans(im_flow_whiten, 4)
 
         pixel_labels = vq(im_flow_whiten, color_centers[0])
-        label_count = [(np.count_nonzero(np.logical_and(pixel_labels[0] == i, im_inside == True)), i) for i in range(0, 4)]
+        label_count = [
+            (np.count_nonzero(np.logical_and(pixel_labels[0] == i, im_inside == True)), i) for i in range(0, 4)
+        ]
         label_count.sort()
 
         im_mask_labels = np.zeros(im_inside.shape, dtype=im_flow.dtype)
@@ -413,10 +428,12 @@ class BranchPointDetection:
             im_mask_labels[np.logical_and(pixel_labels[0] == label[1], im_inside == True)] = 125 + int(i * n_div)
             im_mask_labels[np.logical_and(pixel_labels[0] == label[1], im_inside == False)] = int(i * n_div)
         im_mask[pixel_labels[0] == label_count[-1][1]] = 255
-        return im_mask.reshape((im_flow.shape[0], im_flow.shape[1])), im_mask_labels.reshape((im_flow.shape[0], im_flow.shape[1]))
+        return im_mask.reshape((im_flow.shape[0], im_flow.shape[1])), im_mask_labels.reshape(
+            (im_flow.shape[0], im_flow.shape[1])
+        )
 
     def find_branch_point(self, im_trunk, im_sidebranch):
-        """ See if it makes sense to connect trunk to side branch
+        """See if it makes sense to connect trunk to side branch
         @param im_trunk Trunk image and stats
         @param im_sidebranch Side branch image and stats
         @returns x,y location in image if connection, zero otherwise"""
@@ -431,17 +448,17 @@ class BranchPointDetection:
         for end in ["lower_left", "upper_right"]:
             xy = stats_branch[end]
 
-            l2 = np.sum((stats_trunk["upper_right"]-stats_trunk["lower_left"])**2)
+            l2 = np.sum((stats_trunk["upper_right"] - stats_trunk["lower_left"]) ** 2)
             if abs(l2) < 0.0001:
                 continue
 
-            #The line extending the segment is parameterized as p1 + t (p2 - p1).
-            #The projection falls where t = [(p3-p1) . (p2-p1)] / |p2-p1|^2
+            # The line extending the segment is parameterized as p1 + t (p2 - p1).
+            # The projection falls where t = [(p3-p1) . (p2-p1)] / |p2-p1|^2
 
-            #if you need the point to project on line extention connecting p1 and p2
+            # if you need the point to project on line extention connecting p1 and p2
             t = np.sum((xy - stats_trunk["lower_left"]) * (stats_trunk["upper_right"] - stats_trunk["lower_left"])) / l2
 
-            #if you need to ignore if p3 does not project onto line segment
+            # if you need to ignore if p3 does not project onto line segment
             if t > 1 or t < 0:
                 print("   Not on trunk")
                 continue
@@ -453,19 +470,29 @@ class BranchPointDetection:
             if pt_trunk is None:
                 pt_trunk = stats_trunk["lower_left"] + t * (stats_trunk["upper_right"] - stats_trunk["lower_left"])
 
-            dist_to_trunk = np.sqrt(np.sum((pt_trunk - xy)**2))
-            print(f"Trunk {im_trunk['name']} branch {im_sidebranch['name']} dist {dist_to_trunk}, {stats_trunk['width']}")
+            dist_to_trunk = np.sqrt(np.sum((pt_trunk - xy) ** 2))
+            print(
+                f"Trunk {im_trunk['name']} branch {im_sidebranch['name']} dist {dist_to_trunk}, {stats_trunk['width']}"
+            )
             vec_to_trunk = xy - pt_trunk
             if 0.25 * stats_trunk["width"] < dist_to_trunk < 1.75 * stats_trunk["width"]:
                 if "lower_left" in end:
-                    if vec_to_trunk[0] * stats_branch["EigenVector"][0] + vec_to_trunk[1] * stats_branch["EigenVector"][1] > 0:
+                    if (
+                        vec_to_trunk[0] * stats_branch["EigenVector"][0]
+                        + vec_to_trunk[1] * stats_branch["EigenVector"][1]
+                        > 0
+                    ):
                         print("  lower left")
                         pt_join = pt_trunk + stats_branch["EigenVector"] * stats_trunk["width"] * 0.5
                         return pt_join, stats_branch["EigenVector"]
                     else:
                         print("   Pointing wrong way")
                 else:
-                    if vec_to_trunk[0] * stats_branch["EigenVector"][0] + vec_to_trunk[1] * stats_branch["EigenVector"][1] < 0:
+                    if (
+                        vec_to_trunk[0] * stats_branch["EigenVector"][0]
+                        + vec_to_trunk[1] * stats_branch["EigenVector"][1]
+                        < 0
+                    ):
                         print("  upper right")
                         pt_join = pt_trunk + stats_branch["EigenVector"] * stats_trunk["width"] * -0.5
                         return pt_join, -stats_branch["EigenVector"]
@@ -476,11 +503,12 @@ class BranchPointDetection:
         return None
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import os
+
     __here__ = os.path.dirname(__file__)
     path = f"{__here__}/data/forcindy/"
-    #path = "./forcindy/"
+    # path = "./forcindy/"
     for im_i in range(0, 18):
         name = str(im_i)
         print(name)

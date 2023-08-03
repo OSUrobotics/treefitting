@@ -35,8 +35,16 @@ class FitBezierCyl2DEdge:
     _line_b = np.array([0.0, 0.0, 1.0])
     _line_abc = np.zeros((3, 1))
 
-    def __init__(self, fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
+    def __init__(
+        self,
+        fname_rgb_image,
+        fname_edge_image,
+        fname_mask_image,
+        fname_calculated=None,
+        fname_debug=None,
+        b_recalc=False,
+    ):
+        """Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
         @param fname_edge_image: Create and store the edge image, or read it in if it exists
         @param fname_mask_image: Mask image name - for the base stats image
@@ -62,7 +70,7 @@ class FitBezierCyl2DEdge:
         # Create the calculated file names
         if fname_debug:
             print(f"Fitting bezier curve to edge image {fname_edge_image}")
-        self.fname_bezier_cyl_edge = None    # The actual quadratic bezier
+        self.fname_bezier_cyl_edge = None  # The actual quadratic bezier
         self.fname_params = None  # Parameters used to do the fit
         # Create the file names for the calculated data that we'll store (initial curve, curve fit to mask, parameters)
         if fname_calculated:
@@ -74,14 +82,18 @@ class FitBezierCyl2DEdge:
 
         # Current parameters for the vertical leader fit
         # TODO make this a parameter in the init function
-        self.params = {"step_size": int(self.mask_crv.bezier_crv_fit_to_mask.radius(0.5) * 1.5), "width_mask": 1.4, "width": 0.25}
+        self.params = {
+            "step_size": int(self.mask_crv.bezier_crv_fit_to_mask.radius(0.5) * 1.5),
+            "width_mask": 1.4,
+            "width": 0.25,
+        }
 
         # Fit the curve to the edges
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_edge):
             # Recalculate and write
-            self.bezier_crv_fit_to_edge =\
-                FitBezierCyl2DEdge.fit_bezier_crv_to_edge(self.mask_crv.bezier_crv_fit_to_mask,
-                                                          self.image_edge, self.params)
+            self.bezier_crv_fit_to_edge = FitBezierCyl2DEdge.fit_bezier_crv_to_edge(
+                self.mask_crv.bezier_crv_fit_to_mask, self.image_edge, self.params
+            )
             if fname_calculated:
                 self.bezier_crv_fit_to_edge.write_json(self.fname_bezier_cyl_edge)
         else:
@@ -105,7 +117,7 @@ class FitBezierCyl2DEdge:
 
     @staticmethod
     def _hough_edge_to_middle(bezier_crv, p1, p2, t):
-        """ Convert the two end points to an estimate of the mid-point and the pt on the spine
+        """Convert the two end points to an estimate of the mid-point and the pt on the spine
         Two points are the end points of where the edge crosses the rectangle
         @param bezier_crv - the bezier curve
         @param p1 upper left [if left edge] or lower right (if right edge)
@@ -123,7 +135,7 @@ class FitBezierCyl2DEdge:
 
     @staticmethod
     def get_horizontal_lines_from_hough(lines, tform3_back, width, height, b_debug=False):
-        """ Get left and right edge points from the lines returned from Hough transform
+        """Get left and right edge points from the lines returned from Hough transform
         @param lines - the rho, theta returned from Hough
         @param tform3_back - undo the warp transform
         @param width - width of the cutout
@@ -164,10 +176,20 @@ class FitBezierCyl2DEdge:
                     print(f"rho {rho} theta {theta}")
                     print(f"A {FitBezierCyl2DEdge._line_abc_constraints}")
                     print(f"b {FitBezierCyl2DEdge._line_b}")
-                FitBezierCyl2DEdge._line_abc = np.linalg.solve(FitBezierCyl2DEdge._line_abc_constraints, FitBezierCyl2DEdge._line_b)
+                FitBezierCyl2DEdge._line_abc = np.linalg.solve(
+                    FitBezierCyl2DEdge._line_abc_constraints, FitBezierCyl2DEdge._line_b
+                )
 
-            check1 = FitBezierCyl2DEdge._line_abc[0] * x1 + FitBezierCyl2DEdge._line_abc[1] * y1 + FitBezierCyl2DEdge._line_abc[2]
-            check2 = FitBezierCyl2DEdge._line_abc[0] * x2 + FitBezierCyl2DEdge._line_abc[1] * y2 + FitBezierCyl2DEdge._line_abc[2]
+            check1 = (
+                FitBezierCyl2DEdge._line_abc[0] * x1
+                + FitBezierCyl2DEdge._line_abc[1] * y1
+                + FitBezierCyl2DEdge._line_abc[2]
+            )
+            check2 = (
+                FitBezierCyl2DEdge._line_abc[0] * x2
+                + FitBezierCyl2DEdge._line_abc[1] * y2
+                + FitBezierCyl2DEdge._line_abc[2]
+            )
             if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
                 raise ValueError("FitBezierCyl2DEdge: Making line, pts not on line")
 
@@ -175,8 +197,14 @@ class FitBezierCyl2DEdge:
             #   Don't have to check for a divide by 0
             if not np.isclose(FitBezierCyl2DEdge._line_abc[0], 0.0):
                 # Get where the horizontal line crosses the left/right edge
-                y_left = -(FitBezierCyl2DEdge._line_abc[0] * 0.0 + FitBezierCyl2DEdge._line_abc[2]) / FitBezierCyl2DEdge._line_abc[1]
-                y_right = -(FitBezierCyl2DEdge._line_abc[0] * width + FitBezierCyl2DEdge._line_abc[2]) / FitBezierCyl2DEdge._line_abc[1]
+                y_left = (
+                    -(FitBezierCyl2DEdge._line_abc[0] * 0.0 + FitBezierCyl2DEdge._line_abc[2])
+                    / FitBezierCyl2DEdge._line_abc[1]
+                )
+                y_right = (
+                    -(FitBezierCyl2DEdge._line_abc[0] * width + FitBezierCyl2DEdge._line_abc[2])
+                    / FitBezierCyl2DEdge._line_abc[1]
+                )
 
                 # Only keep edges that DO cross the left/right edge
                 if 0 < y_left < height and 0 < y_right < height:
@@ -229,8 +257,9 @@ class FitBezierCyl2DEdge:
             lines = cv2.HoughLines(im_warp, 1, np.pi / 180.0, 10)
 
             if lines is not None and b_rect_inside:
-                ret_segs[i_seg][i_side] = \
-                    FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, step_size, height, b_debug)
+                ret_segs[i_seg][i_side] = FitBezierCyl2DEdge.get_horizontal_lines_from_hough(
+                    lines, tform3_back, step_size, height, b_debug
+                )
             else:
                 if b_debug:
                     print(f"No lines or rect outside {r} im shape {im_edge.shape}")
@@ -249,9 +278,9 @@ class FitBezierCyl2DEdge:
         @returns how much the points moved"""
 
         # Find all the edge rectangles that have points
-        ts, seg_edges = FitBezierCyl2DEdge.find_edges_hough_transform(fit_bezier_crv, im_edge,
-                                                                      step_size=step_size, perc_width=perc_width,
-                                                                      b_debug=b_debug)
+        ts, seg_edges = FitBezierCyl2DEdge.find_edges_hough_transform(
+            fit_bezier_crv, im_edge, step_size=step_size, perc_width=perc_width, b_debug=b_debug
+        )
 
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints, b_rhs = fit_bezier_crv.setup_least_squares(ts)
@@ -335,7 +364,7 @@ class FitBezierCyl2DEdge:
 
     @staticmethod
     def fit_bezier_crv_to_edge(bezier_crv, im_edge, params, b_debug=False):
-        """ Adjust the quad to the edge image using hough transform
+        """Adjust the quad to the edge image using hough transform
         @param bezier_crv: Bezier curve to start with
         @param im_edge: The edge image
         @param params: The params to use in the fit
@@ -347,16 +376,16 @@ class FitBezierCyl2DEdge:
 
         # Now do the hough transform - first draw the hough transform edges
         for i in range(0, 5):
-            ret = FitBezierCyl2DEdge._adjust_bezier_by_hough_edges(fit_bezier_crv, im_edge,
-                                                                   step_size=params["step_size"], perc_width=params["width"],
-                                                                   b_debug=b_debug)
+            ret = FitBezierCyl2DEdge._adjust_bezier_by_hough_edges(
+                fit_bezier_crv, im_edge, step_size=params["step_size"], perc_width=params["width"], b_debug=b_debug
+            )
             if b_debug:
                 print(f"Res Hough {ret}")
 
         return bezier_crv
 
     def debug_image_edge_fit(self, image_debug):
-        """ Draw the fitted quad on the image
+        """Draw the fitted quad on the image
         @param image_debug - rgb image"""
         # Draw the original, the edges, and the depth mask with the fitted quad
         self.bezier_crv_fit_to_edge.draw_bezier(image_debug)
@@ -367,9 +396,12 @@ class FitBezierCyl2DEdge:
             self.bezier_crv_fit_to_edge.draw_boundary(image_debug, 10)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # path_bpd = "./data/trunk_segmentation_names.json"
-    path_bpd = "./data/forcindy_fnames.json"
+    import os
+
+    __here__ = os.path.dirname(__file__)
+    path_bpd = f"{__here__}/data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
@@ -391,5 +423,7 @@ if __name__ == '__main__':
         if not exists(rgb_fname):
             raise ValueError(f"Error, file {rgb_fname} does not exist")
 
-        edge_crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=b_do_recalc)
+        edge_crv = FitBezierCyl2DEdge(
+            rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=b_do_recalc
+        )
     print("foo")
