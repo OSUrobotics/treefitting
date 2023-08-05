@@ -11,7 +11,7 @@
 #   Image name is everything before the . or _ (given by name_separator)
 #   Masks: Mask images are image name_mask with an optional number after the mask (if there's more than one)
 #   Edge: image name_edge, stored in CalculatedData
-#   Flow; image name_flow
+#   Flow; image name_flow   
 #   Depth: image name_depth
 # The only image files in the directory are either images, masks, edge, flow or depth
 #
@@ -25,8 +25,8 @@
 
 from glob import glob
 import json
-from os.path import exists, isdir
-from os import mkdir
+import os
+import sys
 
 
 class HandleFileNames:
@@ -38,10 +38,12 @@ class HandleFileNames:
         self.path_debug = path + "DebugImages/"
         self.path_calculated = path + "CalculatedData/"
 
-        if not exists(self.path_debug):
-            mkdir(self.path_debug)
-        if not exists(self.path_calculated):
-            mkdir(self.path_calculated)
+        if not os.path.exists(self.path_debug):
+            # print(self.path_debug)
+            # sys.exit()
+            os.mkdir(self.path_debug)
+        if not os.path.exists(self.path_calculated):
+            os.mkdir(self.path_calculated)
 
         # List of sub directoriew
         self.sub_dirs = []
@@ -111,7 +113,7 @@ class HandleFileNames:
         self.mask_ids = []
         fnames.sort()
         for n in fnames:
-            if not isdir(n):
+            if not os.path.isdir(n):
                 continue
 
             im_names = self._find_files(n + "/", name_filter=im_name_filter, name_separator=im_name_separator)
@@ -124,12 +126,12 @@ class HandleFileNames:
                 self.mask_ids.append([[] for _ in self.image_names[-1]])
 
                 path_debug = self.path_debug + self.sub_dirs[-1]
-                if not exists(path_debug):
-                    mkdir(path_debug)
+                if not os.path.exists(path_debug):
+                    os.mkdir(path_debug)
 
                 path_calculated = self.path_calculated + self.sub_dirs[-1]
-                if not exists(path_calculated):
-                    mkdir(path_calculated)
+                if not os.path.exists(path_calculated):
+                    os.mkdir(path_calculated)
 
     def add_mask_images(self, mask_names):
         """Loop over all of the images and find all the mask images that go with it
@@ -256,12 +258,12 @@ class HandleFileNames:
         """Run through all the image/mask names and make sure they exist"""
         for ind in self.loop_images():
             im_name = self.get_image_name(self.path, ind, b_add_tag=True)
-            if not exists(im_name):
+            if not os.path.exists(im_name):
                 raise ValueError(f"Filename {im_name} does not exist")
 
         for ind in self.loop_masks():
             im_name = self.get_mask_name(self.path, ind, b_add_tag=True)
-            if not exists(im_name):
+            if not os.path.exists(im_name):
                 raise ValueError(f"Filename {im_name} does not exist")
 
     def write_filenames(self, fname):
@@ -313,4 +315,4 @@ if __name__ == "__main__":
     # all_files_trunk.write_filenames(f"{__here__}/data/trunk_segmentation_names.json")
     # all_files_trunk.check_names()
 
-    check_read = HandleFileNames.read_filenames(f"{__here__}/data/trunk_segmentation_names.json")
+    # check_read = HandleFileNames.read_filenames(f"./data/trunk_segmentation_names.json")

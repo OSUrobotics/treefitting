@@ -61,6 +61,9 @@ class FitBezierCyl3DDepth:
         self.depth_im_mask = cv2.imread(fname_depth_image)
         self.depth_im = self._reverse_depth_mask(self.depth_im_mask)
 
+        # Estimate the depth data
+        self._estimate_bezier_crv_depths()
+
         # Get depth data at each point to add `z` dimension
         self.bezier_crv.p0 = np.concatenate((self.bezier_crv.p0, np.array([0])))
         self.bezier_crv.p1 = np.concatenate((self.bezier_crv.p1, np.array([0])))
@@ -90,39 +93,18 @@ class FitBezierCyl3DDepth:
         # convertScaleAbs(): takes values and returns a single 8-bit value
         #       dst(I) = saturate\_cast<uchar>(|src(I)*alpha + beta|)
         
-        # Assuming color maps are linear...
-        # cv2.imshow('window', depth_image_rgb)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        # depth_image_mask = depth_image_mask / 0.03
-
-        import pprint
-        # create an inverse from the colormap to gray values
-        # gray_values = np.arange(256, dtype=np.uint8)
-        # color_values = map(tuple, cv2.applyColorMap(gray_values, cv2.COLORMAP_JET).reshape(256,3))
-        # color_to_gray_map = dict(zip(color_values, gray_values))
-
-        # # apply inverse map to the RGB image to reconstruct the grayscale image
-        # gray_image = np.apply_along_axis(lambda bgr: color_to_gray_map[tuple(bgr)], 2, depth_image_rgb)
-
-        # gray_im = np.empty((depth_image_rgb.shape[0], depth_image_rgb.shape[1]), dtype=np.uint8)
-
-        gray_im = np.apply_along_axis(lambda brg: 0.299*brg[2]+0.587*brg[1]+0.114*brg[0], 2, depth_image_rgb)
         
-        depth_vals = gray_im / 0.03
 
-        depth_gray = np.interp(depth_vals, [0,1300], [0,255])
-
-        # pprint.pprint(depth_vals)
-        # with open("depth_values_test.txt", 'w') as file:
-        #     for line in depth_vals:
-        #         file.write(str(line)+'\n')
-        
-        cv2.imshow('window', depth_gray)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
         return
 
+    def _estimate_bezier_crv_depths(self):
+        # Triangulation..
+        # vertical branches: 3/4 - 1.5 in thick
+        # camera ~3/4 - 1.5m away
+        camera_dist = 1.0 # m
+
+        
+        return
 
 def main():
     # import pymesh
