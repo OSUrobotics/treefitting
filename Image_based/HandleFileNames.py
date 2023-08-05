@@ -26,6 +26,7 @@
 from glob import glob
 import json
 import os
+from pathlib import PurePath
 import sys
 
 
@@ -73,6 +74,7 @@ class HandleFileNames:
 
         ret_names = []
         for n in fnames:
+            n = PurePath(n).as_posix()
             im_name = str.split(n, "/")[-1]
             im_name_split = im_name[0 : -len(self.image_tag)]
             if name_separator:

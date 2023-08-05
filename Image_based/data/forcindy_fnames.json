@@ -1,7 +1,7 @@
 {
-  "path": "C:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/",
-  "path_debug": "C:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/DebugImages/",
-  "path_calculated": "C:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/CalculatedData/",
+  "path": "c:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/",
+  "path_debug": "c:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/DebugImages/",
+  "path_calculated": "c:\\Users\\lukes\\Documents\\dev\\treefitting\\Image_based/data/forcindy/CalculatedData/",
   "sub_dirs": [
     ""
   ],
