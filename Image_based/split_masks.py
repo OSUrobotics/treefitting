@@ -32,7 +32,7 @@ def split_mask(in_im_mask, b_one_mask=True):
             continue
 
         if stat[cv2.CC_STAT_WIDTH] < 5:
-            continue
+            continue 
         if stat[cv2.CC_STAT_HEIGHT] < 0.5 * in_im_mask.shape[1]:
             continue
         if i_area < stat[cv2.CC_STAT_AREA]:

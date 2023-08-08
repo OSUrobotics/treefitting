@@ -12,7 +12,7 @@ from line_seg_2d import LineSeg2D
 
 class FitBezierCyl2D(BezierCyl2D):
     def __init__(self, bezier_crv_start=None):
-        """Read in the mask image, use the stats to start the quad fit, then fit the quad
+        """ Read in the mask image, use the stats to start the quad fit, then fit the quad
         @param bezier_crv_start: Curve to copy to start with
         """
 
@@ -33,7 +33,7 @@ class FitBezierCyl2D(BezierCyl2D):
         """Setup the least squares approximation - ts is the number of constraints to add, also
            puts in a copule constraints to keep end points where they are
         @param ts - t values to use
-        @returns A, B for Ax = b"""
+        @returns A, B for Ax = b """
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints = np.zeros((len(ts) + 3, 3))
         ts_constraints = np.zeros((len(ts) + 3))
@@ -42,15 +42,15 @@ class FitBezierCyl2D(BezierCyl2D):
         ts_constraints[-2] = 0.5
         ts_constraints[-1] = 1.0
         ts_constraints[:-3] = np.transpose(ts)
-        a_constraints[:, -3] = (1 - ts_constraints) * (1 - ts_constraints)
-        a_constraints[:, -2] = 2 * (1 - ts_constraints) * ts_constraints
+        a_constraints[:, -3] = (1-ts_constraints) * (1-ts_constraints)
+        a_constraints[:, -2] = 2 * (1-ts_constraints) * ts_constraints
         a_constraints[:, -1] = ts_constraints * ts_constraints
         for i, t in enumerate(ts_constraints):
             b_rhs[i, :] = self.pt_axis(ts_constraints[i])
         return a_constraints, b_rhs
 
     def extract_least_squares(self, a_constraints, b_rhs):
-        """Do the actual Ax = b and keep horizontal/vertical end points
+        """ Do the actual Ax = b and keep horizontal/vertical end points
         @param a_constraints the A of Ax = b
         @param b_rhs the b of Ax = b
         @returns fit error L0 norm"""
@@ -69,7 +69,7 @@ class FitBezierCyl2D(BezierCyl2D):
         pts_diffs = np.sum(np.abs(new_pts - b_rhs[0:3, :]))
 
         # Don't let the end points contract
-        if self.orientation == "vertical":
+        if self.orientation is "vertical":
             new_pts[0, 1] = self.p0[1]
             new_pts[2, 1] = self.p2[1]
         else:
@@ -81,7 +81,7 @@ class FitBezierCyl2D(BezierCyl2D):
         return pts_diffs
 
     def set_end_pts(self, pt0, pt2):
-        """Set the end point to the new end point while trying to keep the curve the same
+        """ Set the end point to the new end point while trying to keep the curve the same
         @param pt0 new p0
         @param pt2 new p2"""
         l0 = LineSeg2D(self.p0, self.p1)
@@ -96,24 +96,37 @@ class FitBezierCyl2D(BezierCyl2D):
         b_rhs[-2, :] = self.pt_axis(0.5 * (t0 + t2))
         b_rhs[-1, :] = pt2.transpose()
         for i, t in enumerate(ts_mid):
-            t_map = (1 - t) * t0 + t * t2
+            t_map = (1-t) * t0 + t * t2
             b_rhs[i, :] = self.pt_axis(t_map)
 
         return self.extract_least_squares(a_constraints, b_rhs)
 
+    def get_copy_of_2d_bezier_curve(self):
+        """ Get a copy of the internal curve as a Bezier Cyl 2D
+        @return BezierCyl2D"""
+        ret_crv = BezierCyl2D(start_pt=self.p0, mid_pt=self.p1, end_pt=self.p2, radius=self.start_radius)
 
-if __name__ == "__main__":
+        for k, v in ret_crv.__dict__.items():
+            try:
+                setattr(ret_crv, k, getattr(self, k).copy())
+            except AttributeError:
+                setattr(ret_crv, k, getattr(self, k))
+
+        return ret_crv
+
+
+
+if __name__ == '__main__':
     # Make a horizontal curve
     bezier_crv_horiz = BezierCyl2D([50, 230], [600, 60], 40, [310, 190])
-    assert bezier_crv_horiz.orientation == "horizontal"
-    assert not bezier_crv_horiz.is_wire()
+    assert(bezier_crv_horiz.orientation == "horizontal")
+    assert(not bezier_crv_horiz.is_wire())
     # Make a vertical curve
     bezier_crv_vert = BezierCyl2D([320, 60], [290, 410], 40, [310, 210])
-    assert bezier_crv_vert.orientation == "vertical"
-    assert not bezier_crv_vert.is_wire()
+    assert(bezier_crv_vert.orientation == "vertical")
+    assert(not bezier_crv_vert.is_wire())
 
     import matplotlib.pyplot as plt
-
     fig, axs = plt.subplots(2, 2)
     perc_width_interior = 0.5
     perc_width_edge = 0.2

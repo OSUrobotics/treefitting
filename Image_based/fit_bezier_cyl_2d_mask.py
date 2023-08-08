@@ -1,5 +1,3 @@
-
-
 #!/usr/bin/env python3
 
 # Fit a Bezier cylinder to a mask
@@ -24,7 +22,7 @@ from HandleFileNames import HandleFileNames
 
 class FitBezierCyl2DMask:
     def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
+        """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_mask_image: Mask image name
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc
@@ -45,8 +43,8 @@ class FitBezierCyl2DMask:
 
         # Create the calculated file names
         print(f"Fitting bezier curve to mask image {fname_mask_image}")
-        self.fname_bezier_cyl_initial = None  # The actual quadratic bezier
-        self.fname_bezier_cyl_fit_to_mask = None  # The actual quadratic bezier
+        self.fname_bezier_cyl_initial = None    # The actual quadratic bezier
+        self.fname_bezier_cyl_fit_to_mask = None    # The actual quadratic bezier
         self.fname_params = None  # Parameters used to do the fit
         # Create the file names for the calculated data that we'll store (initial curve, curve fit to mask, parameters)
         if fname_calculated:
@@ -61,31 +59,31 @@ class FitBezierCyl2DMask:
         # Get the initial curve - either cached or create
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_initial):
             # Recalculate and write
-            self.bezier_crv_initial = FitBezierCyl2DMask.create_bezier_crv_from_eigen_vectors(
-                self.stats_dict.stats_dict
-            )
+            self.bezier_crv_initial = FitBezierCyl2DMask.create_bezier_crv_from_eigen_vectors(self.stats_dict.stats_dict)
             # Write out the bezier curve
             if fname_calculated:
                 self.bezier_crv_initial.write_json(self.fname_bezier_cyl_initial)
-                with open(self.fname_params, "w") as f:
+                with open(self.fname_params, 'w') as f:
                     json.dump(self.params, f, indent=" ")
         else:
             # Read in the stored data
             BezierCyl2D.read_json(self.fname_bezier_cyl_initial, self.bezier_crv_initial)
-            with open(self.fname_params, "r") as f:
+            with open(self.fname_params, 'r') as f:
                 self.params = json.load(f)
 
         # Now do the fitted curve
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_fit_to_mask):
             # Recalculate and write
-            self.bezier_crv_fit_to_mask = FitBezierCyl2DMask.fit_bezier_crv_to_mask(
-                self.bezier_crv_initial, self.stats_dict.mask_image, params=self.params
-            )
+            self.bezier_crv_fit_to_mask =\
+                FitBezierCyl2DMask.fit_bezier_crv_to_mask(self.bezier_crv_initial,
+                                                          self.stats_dict.mask_image,
+                                                          params=self.params)
+            
             if fname_calculated:
                 self.bezier_crv_fit_to_mask.write_json(self.fname_bezier_cyl_fit_to_mask)
         else:
             # Read in the pre-calculated curve
-            BezierCyl2D.read_json(self.fname_bezier_cyl_fit_to_mask, self.bezier_crv_fit_to_mask)
+            self.bezier_crv_fit_to_mask = BezierCyl2D.read_json(self.fname_bezier_cyl_fit_to_mask)
 
         if fname_debug:
             # Draw the mask with the initial and fitted curve
@@ -105,25 +103,25 @@ class FitBezierCyl2DMask:
 
     @staticmethod
     def create_bezier_crv_from_eigen_vectors(stats):
-        """Fit a quad to the mask, edge image
+        """ Fit a quad to the mask, edge image
         @param stats - the stats from BaseStatsImage (class BaseStatsImage)
         @return fitted Bezier"""
 
         # Fit a Bezier curve to the mask - this does a bit of tweaking to try to extend the end points as
         #  far as possible
-        pt_lower_left = stats["center"]
+        pt_lower_left = stats['center']
         vec_len = stats["Length"] * 0.4
-        while pt_lower_left[0] > 2 + stats["x_min"] and pt_lower_left[1] > 2 + stats["y_min"]:
+        while pt_lower_left[0] > 2 + stats['x_min'] and pt_lower_left[1] > 2 + stats['y_min']:
             pt_lower_left = stats["center"] - stats["EigenVector"] * vec_len
             vec_len = vec_len * 1.1
 
-        pt_upper_right = stats["center"]
+        pt_upper_right = stats['center']
         vec_len = stats["Length"] * 0.4
-        while pt_upper_right[0] < -2 + stats["x_max"] and pt_upper_right[1] < -2 + stats["y_max"]:
+        while pt_upper_right[0] < -2 + stats['x_max'] and pt_upper_right[1] < -2 + stats['y_max']:
             pt_upper_right = stats["center"] + stats["EigenVector"] * vec_len
             vec_len = vec_len * 1.1
 
-        bezier_crv = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * stats["width"])
+        bezier_crv = BezierCyl2D(pt_lower_left, pt_upper_right, 0.5 * stats['width'])
         return bezier_crv
 
     @staticmethod
@@ -158,7 +156,7 @@ class FitBezierCyl2DMask:
 
     @staticmethod
     def fit_bezier_crv_to_mask(bezier_crv, im_mask, params):
-        """Fit a quad to the mask, edge image
+        """ Fit a quad to the mask, edge image
         @param bezier_crv - the initial bezier curve to fit to the eigen vectors
         @param im_mask - the image mask
         @param params - the parameters to use in the fit
@@ -168,15 +166,16 @@ class FitBezierCyl2DMask:
         fit_bezier_crv = FitBezierCyl2D(bezier_crv)
         print(f"Res: ", end="")
         for i in range(0, 5):
-            res = FitBezierCyl2DMask._adjust_bezier_crv_by_mask(
-                fit_bezier_crv, im_mask, step_size=params["step_size"], perc_width=params["width_mask"]
-            )
+            res = FitBezierCyl2DMask._adjust_bezier_crv_by_mask(fit_bezier_crv,
+                                                                im_mask,
+                                                                step_size=params["step_size"],
+                                                                perc_width=params["width_mask"])
             print(f"{res} ", end="")
         print("")
-        return fit_bezier_crv
+        return fit_bezier_crv.get_copy_of_2d_bezier_curve()
 
     def score_mask_fit(self, im_mask):
-        """A modified intersection over union that discounts pixels along the bezier cylinder mask
+        """ A modified intersection over union that discounts pixels along the bezier cylinder mask
         @param im_mask - the mask image
         """
 
@@ -189,9 +188,7 @@ class FitBezierCyl2DMask:
         pixs_in_mask_not_bezier = np.logical_and(im_mask > 0, im_bezier_mask == 0)
         pixs_in_bezier_not_mask = np.logical_and(im_mask == 0, im_bezier_mask == 255)
         pixs_in_both_masks = np.logical_and(im_mask > 0, im_bezier_mask == 255)
-        pixs_in_union = np.logical_or(
-            np.logical_or(pixs_in_bezier_not_mask, pixs_in_mask_not_bezier), pixs_in_both_masks
-        )
+        pixs_in_union = np.logical_or(np.logical_or(pixs_in_bezier_not_mask, pixs_in_mask_not_bezier), pixs_in_both_masks)
         n_in_union = np.count_nonzero(pixs_in_union)
         if n_in_union == 0:
             return 0
@@ -199,16 +196,13 @@ class FitBezierCyl2DMask:
         return np.count_nonzero(pixs_in_both_masks) / np.count_nonzero(pixs_in_union)
 
 
-if __name__ == "__main__":
-    import os
-
-    __here__ = os.path.dirname(__file__)
+if __name__ == '__main__':
     # path_bpd = "./data/trunk_segmentation_names.json"
-    path_bpd = f"{__here__}/data/forcindy_fnames.json"
+    path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
-    b_do_recalc = False
+    b_do_recalc = True
     for ind in all_files.loop_masks():
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)

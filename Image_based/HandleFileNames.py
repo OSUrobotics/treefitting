@@ -294,12 +294,12 @@ if __name__ == "__main__":
     import os
 
     __here__ = os.path.dirname(__file__)
-    path_bpd = f"{__here__}/data/forcindy/"
+    path_bpd = f"./data/forcindy/"
     all_files = HandleFileNames(path_bpd)
     # Filename is, eg, 0.png
     all_files.add_directory(name_separator="_")
     all_files.add_mask_images(["trunk", "sidebranch"])
-    all_files.write_filenames(f"{__here__}/data/forcindy_fnames.json")
+    all_files.write_filenames(f"./data/forcindy_fnames.json")
     all_files.check_names()
 
     for ind_img in all_files.loop_images():
