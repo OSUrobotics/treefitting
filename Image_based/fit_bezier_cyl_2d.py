@@ -101,6 +101,18 @@ class FitBezierCyl2D(BezierCyl2D):
 
         return self.extract_least_squares(a_constraints, b_rhs)
 
+    def get_copy_of_2d_bezier_curve(self):
+        """ Get a copy of the internal curve as a Bezier Cyl 2D
+        @return BezierCyl2D"""
+        ret_crv = BezierCyl2D(start_pt=self.p0, mid_pt=self.p1, end_pt=self.p2, radius=self.start_radius)
+
+        for k, v in ret_crv.__dict__.items():
+            try:
+                setattr(ret_crv, k, getattr(self, k).copy())
+            except AttributeError:
+                setattr(ret_crv, k, getattr(self, k))
+
+
 
 if __name__ == '__main__':
     # Make a horizontal curve

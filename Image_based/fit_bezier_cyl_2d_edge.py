@@ -70,7 +70,7 @@ class FitBezierCyl2DEdge:
             self.fname_params = fname_calculated + "_bezier_cyl_edge_params.json"
 
         #   This is the curve that will be fit to the edge
-        self.bezier_crv_fit_to_edge = FitBezierCyl2D(self.mask_crv.bezier_crv_fit_to_mask)
+        self.bezier_crv_fit_to_edge = None
 
         # Current parameters for the vertical leader fit
         # TODO make this a parameter in the init function
@@ -86,7 +86,7 @@ class FitBezierCyl2DEdge:
                 self.bezier_crv_fit_to_edge.write_json(self.fname_bezier_cyl_edge)
         else:
             # Read in the pre-calculated curve
-            BezierCyl2D.read_json(self.fname_bezier_cyl_edge, self.bezier_crv_fit_to_edge)
+            self.bezier_crv_fit_to_edge = BezierCyl2D.read_json(self.fname_bezier_cyl_edge)
 
         if fname_debug:
             # Draw the mask with the initial and fitted curve
@@ -342,7 +342,7 @@ class FitBezierCyl2DEdge:
         @param b_debug: Print debug statements y/n
         @return the quad and the params"""
 
-        # Make a fit bezier curve
+        # Make a fit bezier curve - this copies the data into fit_bezier curve
         fit_bezier_crv = FitBezierCyl2D(bezier_crv)
 
         # Now do the hough transform - first draw the hough transform edges
@@ -353,7 +353,8 @@ class FitBezierCyl2DEdge:
             if b_debug:
                 print(f"Res Hough {ret}")
 
-        return bezier_crv
+        # This will get the data back out
+        return fit_bezier_crv.get_copy_of_2d_bezier_curve()
 
     def debug_image_edge_fit(self, image_debug):
         """ Draw the fitted quad on the image

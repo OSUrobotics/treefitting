@@ -82,7 +82,7 @@ class FitBezierCyl2DMask:
                 self.bezier_crv_fit_to_mask.write_json(self.fname_bezier_cyl_fit_to_mask)
         else:
             # Read in the pre-calculated curve
-            BezierCyl2D.read_json(self.fname_bezier_cyl_fit_to_mask, self.bezier_crv_fit_to_mask)
+            self.bezier_crv_fit_to_mask = BezierCyl2D.read_json(self.fname_bezier_cyl_fit_to_mask)
 
         if fname_debug:
             # Draw the mask with the initial and fitted curve
@@ -171,7 +171,7 @@ class FitBezierCyl2DMask:
                                                                 perc_width=params["width_mask"])
             print(f"{res} ", end="")
         print("")
-        return fit_bezier_crv
+        return fit_bezier_crv.get_copy_of_2d_bezier_curve()
 
     def score_mask_fit(self, im_mask):
         """ A modified intersection over union that discounts pixels along the bezier cylinder mask
@@ -201,7 +201,7 @@ if __name__ == '__main__':
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
-    b_do_recalc = False
+    b_do_recalc = True
     for ind in all_files.loop_masks():
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
