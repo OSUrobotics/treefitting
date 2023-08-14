@@ -9,7 +9,7 @@ import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
+from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 
 class BranchPointDetection:
@@ -67,18 +67,19 @@ class BranchPointDetection:
 
         # For each of the trunk/branches, see if we have reasonable upper left/lower right points
         #   Save points in debug image
+
         if b_output_debug:
             self.images_single["marked points"] = np.copy(self.images_single["masked"])
             for im in self.images:
                 try:
                     p1 = im["stats"]["lower_left"]
                     p2 = im["stats"]["upper_right"]
-                    draw_line(im["image"], p1, p2, (128, 128, 128), 2)
-                    draw_line(self.images_single["marked points"], p1, p2, (128, 128, 128), 1)
+                    LineSeg2D.draw_line(im["image"], p1, p2, (128, 128, 128), 2)
+                    LineSeg2D.draw_line(self.images_single["marked points"], p1, p2, (128, 128, 128), 1)
 
                     pc = im["stats"]["center"]
-                    draw_cross(im["image"], pc, (128, 128, 128), 1, 2)
-                    draw_cross(self.images_single["marked points"], pc, (180, 180, 128), 1, 3)
+                    LineSeg2D.draw_cross(im["image"], pc, (128, 128, 128), 1, 2)
+                    LineSeg2D.draw_cross(self.images_single["marked points"], pc, (180, 180, 128), 1, 3)
 
                     cv2.imwrite(self.path_debug + image_name + "_" + im["name"] + "_points.png", im["image"])
                 except:
@@ -111,8 +112,8 @@ class BranchPointDetection:
                 # Draw the original, the edges, and the depth mask with the fitted quad
                 im["quad"].draw_bezier(im_orig_debug)
                 if im["quad"].is_wire():
-                    draw_cross(im_orig_debug, im["quad"].p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, im["quad"].p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, im["quad"].p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, im["quad"].p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     im["quad"].draw_boundary(im_orig_debug, 10)
                     im["quad"].draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
@@ -158,8 +159,8 @@ class BranchPointDetection:
                 # Draw the original, the edges, and the depth mask with the fitted quad
                 im["quad_flow"].draw_bezier(im_orig_debug)
                 if im["quad_flow"].is_wire():
-                    draw_cross(im_orig_debug, im["quad_flow"].p0, (255, 0, 0), thickness=2, length=10)
-                    draw_cross(im_orig_debug, im["quad_flow"].p2, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, im["quad_flow"].p0, (255, 0, 0), thickness=2, length=10)
+                    LineSeg2D.draw_cross(im_orig_debug, im["quad_flow"].p2, (255, 0, 0), thickness=2, length=10)
                 else:
                     im["quad_flow"].draw_boundary(im_orig_debug, 10)
                     im["quad_flow"].draw_edge_rects(im_covert_back, step_size=params["step_size"], perc_width=params["width"])
@@ -202,8 +203,8 @@ class BranchPointDetection:
 
         if b_output_debug:
             for p, v in self.branch_points:
-                draw_box(self.images_single["marked points"], p, (254, 128, 254), 6)
-                draw_line(self.images_single["marked points"], p, p + v, (128, 254, 254), 1)
+                LineSeg2D.draw_box(self.images_single["marked points"], p, (254, 128, 254), 6)
+                LineSeg2D.draw_line(self.images_single["marked points"], p, p + v, (128, 254, 254), 1)
 
             cv2.imwrite(self.path_debug + image_name + "_" + "_marked_joins_points.png", self.images_single["marked points"])
 
@@ -333,7 +334,7 @@ class BranchPointDetection:
         quad = BezierCyl2D(pts['lower_left'], pts['upper_right'], 0.5 * pts['width'])
 
         # Current parameters for the vertical leader
-        params = {"step_size": int(quad.radius_2d * 1.5), "width_mask": 1.4, "width": 0.3}
+        params = {"step_size": int(quad.radius * 1.5), "width_mask": 1.4, "width": 0.3}
 
         # Iteratively move the quad to the center of the mask
         for i in range(0, 5):
@@ -482,4 +483,4 @@ if __name__ == '__main__':
     for im_i in range(0, 18):
         name = str(im_i)
         print(name)
-        bp = BranchPointDetection(path, name, b_output_debug=True)
+        bp = BranchPointDetection(path, name, b_output_debug=False)
