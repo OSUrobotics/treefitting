@@ -62,16 +62,14 @@ class FitBezierCyl3DDepth:
 
         # Reverse depth image data TODO: change to Josyula's flow
         self.depth_im_mask = cv2.imread(fname_depth_image)
-        self.depth_im = self._reverse_depth_mask(self.depth_im_mask)
+
 
         # Estimate the depth data - make standalone file!!
-        p0, p1, p2 = self._estimate_bezier_crv_depths()
-
         # move depth images into own dir, 
         # camera FOV
         # ~2cm branches\
         # save it like the split mask code would
-
+        p0, p1, p2 = self._estimate_bezier_crv_depths()
 
         # Create BezierCyl3D
         self.bezier_cyl_3d = BezierCyl3D(
@@ -81,52 +79,50 @@ class FitBezierCyl3DDepth:
             start_radius=self.bezier_crv.start_radius,
             end_radius=self.bezier_crv.end_radius,
         )
-        print(self.bezier_crv.__dict__)
 
-        # # Save mesh
-        # __here__ = os.path.dirname(__file__)
-        # mesh_name = os.path.basename(fname_rgb_image).strip(".png")
-        # mesh_dir = f"{__here__}/data/meshes/{mesh_name}.obj"
-        # self.bezier_cyl_3d.write_mesh(mesh_dir)
-        # print(f"Mesh generated: {mesh_dir}")
+        # Save mesh
+        __here__ = os.path.dirname(__file__)
+        mesh_name = os.path.basename(fname_rgb_image).strip(".png")
+        mesh_dir = f"{__here__}/data/meshes/{mesh_name}.obj"
+        self.bezier_cyl_3d.write_mesh(mesh_dir)
+        print(f"Mesh generated: {mesh_dir}")
         return
     
 
-    def _reverse_depth_mask(self, depth_image_rgb):
-        # original:
-        #       depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        # convertScaleAbs(): takes values and returns a single 8-bit value
-        #       dst(I) = saturate\_cast<uchar>(|src(I)*alpha + beta|)
-        return
-    
-    def _add_scaling(self):
-        return
-
-    def _estimate_bezier_crv_depths(self, points: List=None) -> Tuple[Tuple[float]]:
+    def _estimate_bezier_crv_depths(self) -> Tuple[np.ndarray[float]]:
         """Estimate a set of 3D points from the images"""
         # Triangulation..
         # vertical branches: 3/4 - 1.5 in thick
         # camera ~3/4 - 1.5m away
         # if radii are roughly equivalent, then z's should be roughly equivalent
-        realsense450_focal_length = 1.93 # mm
-        vert_branch_thickness = 24.5 # mm (~1 in)
+        real_branch_radius = 24.5 # mm (~1 in)
+        camera_resolution = (1920, 1080)
+        camera_fov = (71, 44) # degrees
+        camera_fov_rad = np.radians(camera_fov)
+        
+
+        mm_per_px = np.mean((np.array([1 / self.bezier_crv.start_radius, 1 / self.bezier_crv.end_radius]) * real_branch_radius))
+
+        z0h = (2 / camera_resolution[0]) * (1 / np.arctan(camera_fov_rad[0] / 2))
+        z0v = (2 / camera_resolution[1]) * (1 / np.arctan(camera_fov_rad[1] / 2))
+
+        z0 = np.mean((z0h, z0v)) # multiply by radius here?
+        print(z0, z0h, z0v)
+        
+
 
         # sensor_dim / focal_length = field_dim / distance_to_field
-        print("RADIUS: ", self.bezier_crv.start_radius, self.bezier_crv.end_radius)
+        # z1 = np.mean((z0, z2))
 
-        z0 = realsense450_focal_length / self.bezier_crv.start_radius * vert_branch_thickness # what are the radius units?
-        z2 = realsense450_focal_length / self.bezier_crv.end_radius * vert_branch_thickness
-        z1 = np.mean((z0, z2))
-
-        p0 = (self.bezier_crv.p0[0], self.bezier_crv.p0[1], z0)
-        p1 = (self.bezier_crv.p1[0], self.bezier_crv.p1[1], z1)
-        p2 = (self.bezier_crv.p2[0], self.bezier_crv.p2[1], z2)
-
-    
-        # for point in points:
-        #     ...
+        p0 = np.array([self.bezier_crv.p0[0], self.bezier_crv.p0[1], z0]) * mm_per_px
+        print(p0)
+        input()
+        p1 = np.array([self.bezier_crv.p1[0], self.bezier_crv.p1[1], z1]) * mm_per_px
+        p2 = np.array([self.bezier_crv.p2[0], self.bezier_crv.p2[1], z2]) * mm_per_px
+        print(f"{p0}\n{p1}\n{p2}")
         
         return (p0, p1, p2)
+
 
 def main():
     # import pymesh
@@ -139,7 +135,7 @@ def main():
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
-    b_do_recalc = True
+    b_do_recalc = False
     for ind in all_files.loop_masks():
         rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
         edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_add_tag=True)
@@ -165,6 +161,7 @@ def main():
         )
 
         # input()
+
     print("foo")
     return
 
