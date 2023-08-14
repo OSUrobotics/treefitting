@@ -11,11 +11,18 @@ from curve_fitting import BezierBasedDetection, Bezier
 
 
 class Depths_Average:
+    """
+    Parameters:
+        depth_img: Currently uses a frame from Envy orchard, the depth image of a single tree.
+        bin_msk: Binary mask of a tree, corresponds with depth data.
+    Variables:
+        my_mask: reads binary mask
+        my_depth: reads depth image using skimage, which gets the depth values of the image
+    """
 
     def __init__(self, depth_img, bin_msk):
         self.my_mask = np.asarray(color.rgb2gray(cv2.imread(bin_msk)))
-        self.my_depth = np.asarray(cv2.imread(depth_img))
-        self.my_depth2 = np.asarray(io.imread(depth_img))
+        self.my_depth = np.asarray(io.imread(depth_img))
         self.lined_mask = None
         self.radii = None
         self.curve_pts = None
@@ -27,8 +34,7 @@ class Depths_Average:
         ds = np.linspace(0, 1, 11)
         self.radii = radius_interpolator(ds)
         self.curve_pts, ts = curve.eval_by_arclen(ds, normalized=True)
-        self.lined_mask = cv2.polylines(self.my_depth, [self.curve_pts.reshape((-1, 1, 2)).astype(int)], False,
-                                        (0, 200, 200), 1)
+        #self.lined_mask = cv2.polylines(self.my_depth, [self.curve_pts.reshape((-1, 1, 2)).astype(int)], False, (0, 200, 200), 1)
 
         return self.radii, self.curve_pts, curve, ts
 
@@ -47,11 +53,12 @@ class Depths_Average:
             self.curve_pts[i + 1][0].astype(int) - self.radii[i + 1].astype(int), self.curve_pts[i + 1][1].astype(int))
 
             arr = np.array([right_bottom_pt, left_bottom_point, left_top_pt, right_top_point])
-            img = cv2.drawContours(self.my_depth.copy(), [arr.astype(int)], -1, color=255, thickness=-1)
-            pts = np.where(img == 255)
+            img = np.zeros_like(self.my_depth.copy())
+            cv2.drawContours(img, [arr.astype(int)], -1, color=255, thickness=-1)
+            pts = np.asarray(np.where(img == 255))
 
-            depths.append(self.my_depth2[pts[0], pts[1]] / 1000)  # LOOK INTO THIS MORE
-            depths_average.append(np.mean(depths[i]))
+            depths.append(np.asarray(np.argwhere(self.my_depth[pts[0], pts[1]]).nonzero()))
+            depths_average.append(np.mean(depths[i]/100))
 
         # For visualizing the radii:
         # for i in range(len(self.curve_pts)):
@@ -169,7 +176,7 @@ if __name__ == '__main__':
     camera = c.PinholeCameraModel()
     camera.from_npz(p.cam)
     assert isinstance(camera, c.PinholeCameraModel)
-
+    
     d = Depths_Average(p.depth_img, p.mask_img)
     rad, curve_pts, curve, ts = d.get_radii()
     depth, num_pix = d.find_average()
@@ -177,7 +184,11 @@ if __name__ == '__main__':
     d2 = Depths_Average(p.depth_img, p.follower_msk)
     rad2, curve_pts2, curve2, ts2 = d2.get_radii()
     depth2, num_pix2 = d2.find_average()
-
+    
+    for i in range(len(depth)):
+        real_width = camera.getDeltaX(num_pix[i], depth[i])
+        print(f'With this camera, {num_pix[i]} pixels at a depth of {depth[i]} m is {real_width:.4f} m')
+        
     x1, y1, z1, leader_pts = manage_arrs(curve_pts, depth)
     x2, y2, z2, follower_pts = manage_arrs(curve_pts2, depth2)
 
@@ -197,7 +208,7 @@ if __name__ == '__main__':
     ax = fig.add_subplot(projection='3d')
 
     print("Total: ", total_score)
-    print("Angle: ", angle_score)
+    print("Angle Score: ", angle_score)
     print("Dist: ", minimum_distance)
     print("Depth: ", depth_score)
     ax.scatter(x1, y1, z1)
@@ -208,3 +219,4 @@ if __name__ == '__main__':
     ax.scatter(*np.asarray(end2).T)
     set_axes_equal(ax)
     plt.show()
+

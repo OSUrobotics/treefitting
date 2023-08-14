@@ -3,7 +3,6 @@ import cv2
 import numpy
 import math
 from skimage import io
-import params
 
 def mkmat(rows, cols, L):
     mat = numpy.matrix(L, dtype='float64')
@@ -278,29 +277,4 @@ def run_test_node():
     rclpy.init()
     bla = Temp('temp', cam_info_topic='/camera/color/camera_info')
     rclpy.spin(bla)
-
-def get_num_pix():
-    spsc = sp.spookyscary("rgb0485.png", "mask0485.png")
-    ma, rad = spsc.get_rad()
-    return ma, rad
-
-#def get_depth(depth_image, ma):
-"""
-    d = io.imread("depth0485.png")
-    return d
-"""
     
-if __name__ == '__main__':
-    # run_test_node()
-    camera = PinholeCameraModel()
-    camera.from_npz(params.cam)
-    #converts pixels into x using depth
-    assert isinstance(camera, PinholeCameraModel)
-    d = sp.Depths_Average(params.depth_img, params.mask_img)
-    rad, curve_pts, curve = d.get_radii()
-    depth, num_pix = d.find_average()
-    print("CU: ", curve_pts[0])
-    for i in range(len(depth)):
-        real_width = camera.getDeltaX(num_pix[i], depth[i])
-        print(f'With this camera, {num_pix[i]} pixels at a depth of {depth[i]} m is {real_width:.4f} m')
-    d.show()
