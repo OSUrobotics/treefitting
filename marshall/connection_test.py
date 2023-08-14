@@ -1,4 +1,3 @@
-# THIS IS THE FILE YOU RUN
 import cv2
 import math
 import params as p
@@ -15,23 +14,31 @@ class Depths_Average:
     Parameters:
         depth_img: Currently uses a frame from Envy orchard, the depth image of a single tree.
         bin_msk: Binary mask of a tree, corresponds with depth data.
-    Variables:
+    selected_end_pointiables:
         my_mask: reads binary mask
         my_depth: reads depth image using skimage, which gets the depth values of the image
+        lined_mask: commented, used for visualization
+        radii: radii of branch at evaluated points along curve
+        curve_pts: evaluated points along Bezier curve
+        
     """
 
     def __init__(self, depth_img, bin_msk):
         self.my_mask = np.asarray(color.rgb2gray(cv2.imread(bin_msk)))
         self.my_depth = np.asarray(io.imread(depth_img))
-        self.lined_mask = None
+        #self.lined_mask = None
         self.radii = None
         self.curve_pts = None
 
     def get_radii(self):
+        """
+        Uses curve_fitting to get Bezier curve by first fitting a curve and then determining radii along evaluated points.
+        Currently evaluates for 11 points. Returns radii, points along the curve, the curve object, and the "t" values.
+        """
         detector = cf.BezierBasedDetection(self.my_mask, use_medial_axis=True)
         curve = detector.fit()
         radius_interpolator = detector.get_radius_interpolator_on_path()
-        ds = np.linspace(0, 1, 11)
+        ds = np.linspace(0, 1, 20)
         self.radii = radius_interpolator(ds)
         self.curve_pts, ts = curve.eval_by_arclen(ds, normalized=True)
         #self.lined_mask = cv2.polylines(self.my_depth, [self.curve_pts.reshape((-1, 1, 2)).astype(int)], False, (0, 200, 200), 1)
@@ -39,6 +46,10 @@ class Depths_Average:
         return self.radii, self.curve_pts, curve, ts
 
     def find_average(self):
+        """
+        Finds the average depth across a rectangular contour. Returns array of average depths and pixel width of tree.
+        TODO: Figure out the correct depth conversion by testing the camera's parameters
+        """
         depths = []
         depths_average = []
 
@@ -53,23 +64,44 @@ class Depths_Average:
             self.curve_pts[i + 1][0].astype(int) - self.radii[i + 1].astype(int), self.curve_pts[i + 1][1].astype(int))
 
             arr = np.array([right_bottom_pt, left_bottom_point, left_top_pt, right_top_point])
-            img = np.zeros_like(self.my_depth.copy())
-            cv2.drawContours(img, [arr.astype(int)], -1, color=255, thickness=-1)
-            pts = np.asarray(np.where(img == 255))
-
-            depths.append(np.asarray(np.argwhere(self.my_depth[pts[0], pts[1]]).nonzero()))
-            depths_average.append(np.mean(depths[i]/100))
-
-        # For visualizing the radii:
-        # for i in range(len(self.curve_pts)):
-        # cv2.circle(self.lined_mask, self.curve_pts[i].astype(int), self.radii[i].astype(int), (0, 0, 255), thickness=1)
-
-        return depths_average, self.radii
+            img = cv2.cvtColor(np.float32(self.my_depth.copy()), cv2.COLOR_GRAY2BGR)
+            img = cv2.drawContours(img, [arr.astype(int)], -1, color=(0,0,255), thickness=-1)
+            
+            pts = np.where(img == 255)
+            
+            
+            depths.append(self.my_depth[pts[0], pts[1]].nonzero())
+            depths_average.append(np.mean(depths[i]) / 1000)    #need to figure out the correct conversion between depth data and meters
+            # For visualizing the radii:
+            #img = img.astype(np.uint8)
+            #cv2.imshow('im', img)
+            
+            #cv2.waitKey(0)
+        
+        #for i in range(len(self.curve_pts)):
+            #cv2.circle(self.lined_mask, self.curve_pts[i].astype(int), self.radii[i].astype(int), (0, 0, 255), thickness=1)
+        
+        #cv2.imshow("i", self.lined_mask.astype(np.uint8))
+        return depths_average, self.radii.astype(int)*2
 
 
 class Determine_Match:
-
+    """
+    Determines if a side branch matches a leader branch.
+    """
+    
     def return_closest(self, curve_pts, end_pt_1, end_pt_2):
+        """
+        Returns the closest distance between evaluated points on leader curve and end points of side branch curve.
+        Parameters:
+            curve_pts: all points evaluated on leader curve
+            end_pt_1: an end point on side branch curve
+            end_pt_2: other end point on side branch curve
+        Returns:
+            ind: index of matching points
+            selected_end_point: the matching end point
+            dist: minimum distance between selected points 
+        """
         distance_arr = []
         prev_dist = math.inf
         for i in range(len(curve_pts)):
@@ -78,33 +110,46 @@ class Determine_Match:
 
             if dist1 <= dist2:
                 distance_arr.append(dist1)
-                var1 = end_pt_1
+                selected_end_point1 = end_pt_1
 
                 if prev_dist >= dist1:
-                    var = var1
+                    selected_end_point = selected_end_point1
                     ind = i
                     dist = dist1
             else:
                 distance_arr.append(dist2)
-                var2 = end_pt_2
+                selected_end_point2 = end_pt_2
                 dist = dist2
 
                 if prev_dist >= dist2:
-                    var = var2
+                    selected_end_point = selected_end_point2
                     ind = i
                     dist = dist2
 
             prev_dist = dist
 
-        return ind, var, dist
+        return ind, selected_end_point, dist
 
     def depth_scoring(self, closest_depth, end_depth):
-
+        """
+        Parameters:
+            closest_depth: depth of closest point on leader curve
+            end_depth: depth of selected end point
+        Returns:
+            the difference between the two (the difference in depth)
+        """
         return abs(closest_depth - end_depth)
 
 
     def check_angle_match(self, vec_1, vec_2):
-
+        """
+        Checks if the angle falls within the given angle parameters.
+        Parameters:
+            vec_1: a tangent line to one of the selected points
+            vec_2: a tangent line to the other selected point
+        Returns:
+            a score based on if the angle between the two vectors falls in an acceptable range. Currently set to arbitrary numbers.
+        """
         angle = np.arccos(
             np.clip(np.dot((vec_1 / np.linalg.norm(vec_1)), (vec_2 / np.linalg.norm(vec_2))), -1.0, 1.0)) * (
                             180 / np.pi)
@@ -209,8 +254,9 @@ if __name__ == '__main__':
 
     print("Total: ", total_score)
     print("Angle Score: ", angle_score)
-    print("Dist: ", minimum_distance)
-    print("Depth: ", depth_score)
+    print("Min Dist: ", minimum_distance)
+    print("Depth Difference: ", depth_score)
+    
     ax.scatter(x1, y1, z1)
     ax.scatter(x2, y2, z2)
     ax.plot(x1, y1, z1)

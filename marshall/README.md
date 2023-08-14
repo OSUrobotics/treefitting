@@ -28,3 +28,8 @@ The following code takes in masks and depth images of trees and determines which
 - The curve_fitting and camera files are contribution from [Alex You](https://github.com/osu-youa)
 - The pinhole camera commented out is used to determine the size of the tree in real life, is useful for 3D generation.
 - Azure camera depth data needs to be tested to determine its conversion to meters
+
+#TODO:
+- Test camera to determine conversion between depth data and meters
+- Implement loop to manage all files that need to be tested
+- Implement 3D generation
