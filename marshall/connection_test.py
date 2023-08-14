@@ -89,11 +89,12 @@ class Determine_Match:
 
             prev_dist = dist
 
-            return ind, var, dist
+        return ind, var, dist
 
     def depth_scoring(self, closest_depth, end_depth):
 
         return abs(closest_depth - end_depth)
+
 
     def check_angle_match(self, vec_1, vec_2):
 
@@ -195,8 +196,12 @@ if __name__ == '__main__':
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
 
-    print(total_score)
-
+    print("Total: ", total_score)
+    print("Angle: ", angle_score)
+    print("Dist: ", minimum_distance)
+    print("Depth: ", depth_score)
+    ax.scatter(x1, y1, z1)
+    ax.scatter(x2, y2, z2)
     ax.plot(x1, y1, z1)
     ax.plot(x2, y2, z2)
     ax.scatter(*np.asarray(end1).T)

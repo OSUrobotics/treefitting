@@ -144,7 +144,7 @@ class BezierBasedDetection:
             # SVD takes a lot of memory - we subsample points as we only need an estimate
             pxs = pxs[np.random.choice(len(pxs), 100, replace=False)]
             u, s, v = np.linalg.svd(pxs, full_matrices=True)
-            vec = v[0]
+            vec = (0,1)
 
         vec = np.array(vec) / np.linalg.norm(vec)
         # Iterate through the edges and use the vec to determine the orientation
