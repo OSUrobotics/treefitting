@@ -43,7 +43,7 @@ class PointCloudViewerGUI(QMainWindow):
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
         # For reading and writing
-        QLabel
+
         path_names = QGroupBox('File names')
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)

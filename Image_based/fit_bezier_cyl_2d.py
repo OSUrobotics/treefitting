@@ -111,7 +111,7 @@ class FitBezierCyl2D(BezierCyl2D):
                 setattr(ret_crv, k, getattr(self, k).copy())
             except AttributeError:
                 setattr(ret_crv, k, getattr(self, k))
-
+        return ret_crv
 
 
 if __name__ == '__main__':
