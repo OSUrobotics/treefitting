@@ -33,3 +33,4 @@ The following code takes in masks and depth images of trees and determines which
 - Test camera to determine conversion between depth data and meters
 - Implement loop to manage all files that need to be tested
 - Implement 3D generation
+- Adjust for distortion
