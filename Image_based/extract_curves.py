@@ -24,7 +24,7 @@ class ExtractCurves:
         @param fname_mask_image: Mask image name
         @param params: Parameters for filtering the edge image - how finely to sample along the edge and how much to believe edge
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
-        @param fname_debug: the file name for a debug image showing the bounding box, etc
+        @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats - this also reads the image in
@@ -42,7 +42,7 @@ class ExtractCurves:
 
         # Current parameters for trunk extraction
         if params is None:
-            self.params = {"step_size": 20, "perc_width": 0.2, "edge_max":128, "n_avg": 10}
+            self.params = {"step_size": 20, "perc_width": 0.2, "edge_max":128, "n_avg": 10, "n_filter": 3, "n_samples": 20}
         else:
             self.params = params
 
@@ -83,9 +83,18 @@ class ExtractCurves:
             im_covert_back = cv2.cvtColor(self.bezier_edge.image_edge, cv2.COLOR_GRAY2RGB)
             im_rgb = np.copy(self.bezier_edge.image_rgb)
             for pix in self.edge_stats["pixs_edge"]:
-                im_covert_back[pix[0], pix[1], :] = (255, 0, 0)
-                im_rgb[pix[0], pix[1], :] = (255, 255, 255)
+                ix = int(pix[0])
+                iy = int(pix[1])
+                try:
+                    LineSeg2D.draw_box(im_covert_back, (ix, iy), color=(255, 0, 0))
+                    LineSeg2D.draw_box(im_rgb, (ix, iy), color=(255, 255, 255))
+                    im_covert_back[ix, iy, :] = (255, 0, 0)
+                    im_rgb[ix, iy, :] = (255, 255, 255)
+                except IndexError:
+                    print(f"Bad pixel x,y {ix}, {iy}")
 
+            im_both = np.hstack([im_covert_back, im_rgb])
+            cv2.imwrite(fname_debug + "_extract_pixs.png", im_both)
             for do_both_crv, do_both_name in [(self.left_curve, "Left"), (self.right_curve, "Right")]:
                 for pt_e1, pt_e2 in zip(do_both_crv[0:-1], do_both_crv[1:]):
                     pt1 = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(pt_e1[0], pt_e1[1], do_both_name)
@@ -93,7 +102,7 @@ class ExtractCurves:
                     LineSeg2D.draw_line(im_covert_back, pt1, pt2, color=(255, 255, 0))
                     LineSeg2D.draw_line(im_rgb, pt1, pt2, color=(255, 255, 0))
             im_both = np.hstack([im_covert_back, im_rgb])
-            cv2.imwrite(fname_debug, im_both)
+            cv2.imwrite(fname_debug + "_extract_profiles.png", im_both)
 
     @staticmethod
     def full_edge_stats(image_edge, bezier_edge, params):
@@ -101,7 +110,10 @@ class ExtractCurves:
         @param image_edge - the edge image
         @param bezier_edge - the Bezier curve
         @param params - parameters for extraction"""
+
+        # Fuzzy rectangles along the boundary
         bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"])
+        # Repeat, but offset by 1/2 of the width of the boundary
         bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"], offset=True)
         n_bdry1 = len(bdry_rects1)
         try:
@@ -109,21 +121,27 @@ class ExtractCurves:
         except IndexError:
             t_step = 1.0
 
+        # Glue the rectangle lists together
         bdry_rects1.extend(bdry_rects2)
         ts1.extend(ts2)
 
         # Size of the rectangle(s) to cutout is based on the step size and the radius
         height = int(bezier_edge.radius(0.5))
         width = params["step_size"]
-        # rect_destination = np.array([[0, 0], [width, 0], [width, height], [0, height]], dtype="float32")
 
         ret_stats = {"ts_left":[], "left_perc":[], "ts_right":[], "right_perc":[], "pixs_edge":[]}
         for i_rect, r in enumerate(bdry_rects1):
-            # b_rect_inside = BezierCyl2D._rect_in_image(image_edge, r, pad=2)
-
+            # Cutout the image for the boundary rectangle
             im_warp, tform3_back = bezier_edge.image_cutout(image_edge, r, step_size=width, height=height)
             # Actual hough transform on the cut-out image
             lines = cv2.HoughLines(im_warp, 1, np.pi / 180.0, 10)
+
+            # Switch to the offset rectangles, so t_step is a bit different
+            if i_rect == n_bdry1:
+                try:
+                    t_step = ts2[2] - ts2[0]
+                except IndexError:
+                    t_step = 1.0
 
             # Check for any lines in the cutout image
             if lines is None:
@@ -132,13 +150,9 @@ class ExtractCurves:
             ret_pts = FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, width, height)
             if ret_pts is []:
                 continue
-            i_side = i_rect % 2
 
-            if i_rect == n_bdry1:
-                try:
-                    t_step = ts2[2] - ts2[0]
-                except IndexError:
-                    t_step = 1.0
+            # Rectangles alternate left, right side of curve
+            i_side = i_rect % 2
 
             max_y = im_warp.max(axis=0)
 
@@ -153,17 +167,30 @@ class ExtractCurves:
                     ret_stats["ts_" + tag].append(ts_seg[i_col])
                     h_min = params["perc_width"] * bezier_edge.radius(ts1[i_col])
                     h_max = (1 + params["perc_width"]) * bezier_edge.radius(ts1[i_col])
-                    ret_stats[tag + "_perc"].append(h_min + h_max + ids[0] / width)
+                    h_along = float(ids[0][0]) / float(width)
+                    ret_stats[tag + "_perc"].append(h_min + (h_max - h_min) * h_along)
 
                     p1_in = np.transpose(np.array([ids[0][0], i_col, 1.0]))
                     p1_back = tform3_back @ p1_in
 
-                    ret_stats["pixs_edge"].append([p1_back[0], p1_back[1]])
+                    # ret_stats["pixs_edge"].append([p1_back[0], p1_back[1]])
+                    ret_stats["pixs_edge"].append([float(r[0][0]), float(r[0][1])])
 
-        np.array([ret_stats["ts_left"], ret_stats["left_perc"]])
-        np.sort(axis=0)
-        ret_stats["ts_left"] = list(np.array[0, :])
-        ret_stats["left_perc"] = list(np.array[1, :])
+        # There's probably a more graceful way to do this...
+        data_in_matrix_form = np.zeros([2, len(ret_stats["ts_left"])])
+        data_in_matrix_form[0, :] = np.array(ret_stats["ts_left"])
+        data_in_matrix_form[1, :] = np.array(ret_stats["left_perc"])
+        data_in_matrix_form.sort(axis=0)
+        ret_stats["ts_left"] = list(data_in_matrix_form[0, :])
+        ret_stats["left_perc"] = list(data_in_matrix_form[1, :])
+
+        data_in_matrix_form = np.zeros([2, len(ret_stats["ts_right"])])
+        data_in_matrix_form[0, :] = np.array(ret_stats["ts_right"])
+        data_in_matrix_form[1, :] = np.array(ret_stats["right_perc"])
+        data_in_matrix_form.sort(axis=0)
+        ret_stats["ts_right"] = list(data_in_matrix_form[0, :])
+        ret_stats["right_perc"] = list(data_in_matrix_form[1, :])
+
         # sort(zip(ret_stats["ts_left"], ret_stats["left_perc"]), key=0)
         # sort(zip(ret_stats["ts_right"], ret_stats["right"]), key=0)
         return ret_stats
@@ -178,7 +205,7 @@ class ExtractCurves:
         """
 
         crvs = []
-        for ts, ps in [(stats_edge["ts_left"], stats_edge["Left_perc"]), (stats_edge["ts_right"], stats_edge["Right_perc"])]:
+        for ts, ps in [(stats_edge["ts_left"], stats_edge["left_perc"]), (stats_edge["ts_right"], stats_edge["right_perc"])]:
             ps_filter = np.array(ps)
             for i_filter in range(0, params["n_filter"]):
                 # np.filter(ps_filter)
@@ -201,9 +228,7 @@ if __name__ == '__main__':
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         ec_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
-            ec_fname_debug = ""
-        else:
-            ec_fname_debug = ec_fname_debug + "_extract_profile.png"
+            ec_fname_debug =  None
 
         ec_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
 

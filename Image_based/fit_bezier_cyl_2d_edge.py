@@ -41,7 +41,7 @@ class FitBezierCyl2DEdge:
         @param fname_edge_image: Create and store the edge image, or read it in if it exists
         @param fname_mask_image: Mask image name - for the base stats image
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
-        @param fname_debug: the file name for a debug image showing the bounding box, etc
+        @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug image
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the base mask image
@@ -60,8 +60,11 @@ class FitBezierCyl2DEdge:
             cv2.imwrite(fname_edge_image, self.image_edge)
 
         # Create the calculated file names
+        b_debug = False
         if fname_debug:
             print(f"Fitting bezier curve to edge image {fname_edge_image}")
+            b_debug = True
+
         self.fname_bezier_cyl_edge = None    # The actual quadratic bezier
         self.fname_params = None  # Parameters used to do the fit
         # Create the file names for the calculated data that we'll store (initial curve, curve fit to mask, parameters)
@@ -81,7 +84,7 @@ class FitBezierCyl2DEdge:
             # Recalculate and write
             self.bezier_crv_fit_to_edge =\
                 FitBezierCyl2DEdge.fit_bezier_crv_to_edge(self.mask_crv.bezier_crv_fit_to_mask,
-                                                          self.image_edge, self.params)
+                                                          self.image_edge, self.params, b_debug)
             if fname_calculated:
                 self.bezier_crv_fit_to_edge.write_json(self.fname_bezier_cyl_edge)
         else:
@@ -94,11 +97,13 @@ class FitBezierCyl2DEdge:
             self.mask_crv.bezier_crv_fit_to_mask.draw_bezier(im_rgb)
             self.mask_crv.bezier_crv_fit_to_mask.draw_boundary(im_rgb)
 
+            # Convert the edge image to an rgb image and draw the fitted bezier curve on it
             im_covert_back = cv2.cvtColor(self.image_edge, cv2.COLOR_GRAY2RGB)
             self.debug_image_edge_fit(im_covert_back)
 
+            # Stack them both together
             im_both = np.hstack([im_rgb, im_covert_back])
-            cv2.imwrite(fname_debug, im_both)
+            cv2.imwrite(fname_debug + "_edge.png", im_both)
 
         # self.score = self.score_mask_fit(self.stats_dict.mask_image)
         # print(f"Mask {mask_fname}, score {self.score}")
@@ -173,7 +178,7 @@ class FitBezierCyl2DEdge:
 
             # We only care about horizontal lines anyways, so ignore vertical ones
             #   Don't have to check for a divide by 0
-            if not np.isclose(FitBezierCyl2DEdge._line_abc[0], 0.0):
+            if not np.isclose(FitBezierCyl2DEdge._line_abc[1], 0.0):
                 # Get where the horizontal line crosses the left/right edge
                 y_left = -(FitBezierCyl2DEdge._line_abc[0] * 0.0 + FitBezierCyl2DEdge._line_abc[2]) / FitBezierCyl2DEdge._line_abc[1]
                 y_right = -(FitBezierCyl2DEdge._line_abc[0] * width + FitBezierCyl2DEdge._line_abc[2]) / FitBezierCyl2DEdge._line_abc[1]
@@ -206,6 +211,13 @@ class FitBezierCyl2DEdge:
         height = int(bezier_crv.radius(0.5))
         rect_destination = np.array([[0, 0], [step_size, 0], [step_size, height], [0, height]], dtype="float32")
         rects, ts = bezier_crv.boundary_rects(step_size=step_size, perc_width=perc_width)
+
+        """ If you need to, pring out the edge boundary image
+        im_rgb = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)
+        bezier_crv.draw_interior_rects(im_rgb, step_size=step_size, perc_width=0.25)
+        bezier_crv.draw_edge_rects(im_rgb, step_size=step_size, perc_width=perc_width)
+        cv2.imwrite("./data/forcindy/DebugImages/0_trunk_0_fit_edge_bdry.png", im_rgb)
+        """
 
         ret_segs = []
         # For fitting y = mx + b
@@ -253,13 +265,15 @@ class FitBezierCyl2DEdge:
                                                                       step_size=step_size, perc_width=perc_width,
                                                                       b_debug=b_debug)
 
+        # im_rgb = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)
+
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints, b_rhs = fit_bezier_crv.setup_least_squares(ts)
 
         # Keeping all the radius guesses to fit the radius to
         radius_avg = []
         for i_seg, s in enumerate(seg_edges):
-            # Left and right list of points points
+            # Left and right list of points
             s1, s2 = s
 
             # No Hough edges - just keep the current estimate in the LS solver
@@ -273,12 +287,17 @@ class FitBezierCyl2DEdge:
                 pt_on_spine_from_left += pt_on_spine
                 mid_pt_on_edge_left += mid_pt_edge
 
+                # LineSeg2D.draw_box(im_rgb, pt_on_spine_from_left, color=(255, 0, 0), width=3)
+                # LineSeg2D.draw_cross(im_rgb, mid_pt_on_edge_left, color=(0, 255, 0))
+
             pt_on_spine_from_right = np.zeros((1, 2))
             mid_pt_on_edge_right = np.zeros((1, 2))
             for p1, p2 in s2:
                 mid_pt_edge, pt_on_spine = FitBezierCyl2DEdge._hough_edge_to_middle(fit_bezier_crv, p1, p2, ts[i_seg])
                 pt_on_spine_from_right += pt_on_spine
                 mid_pt_on_edge_right += mid_pt_edge
+                # LineSeg2D.draw_box(im_rgb, pt_on_spine_from_right, color=(0, 255, 0), width=3)
+                # LineSeg2D.draw_cross(im_rgb, mid_pt_on_edge_right, color=(0, 0, 255))
 
             if len(s1) > 0 and len(s2) > 0:
                 # We had both a left and right fit edge - average the middle points
@@ -290,6 +309,7 @@ class FitBezierCyl2DEdge:
                 if b_debug:
                     print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine}")
                 b_rhs[i_seg, :] = pt_on_spine
+                # LineSeg2D.draw_box(im_rgb, pt_on_spine, color=(255, 255, 255), width=5)
 
                 radius_avg.append([0.5 * np.linalg.norm(mid_pt_on_edge_right - mid_pt_on_edge_left), ts[i_seg]])
             elif len(s1) > 0:
@@ -300,6 +320,7 @@ class FitBezierCyl2DEdge:
                 if b_debug:
                     print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_left}")
                 b_rhs[i_seg, :] = pt_on_spine_from_left
+                # LineSeg2D.draw_box(im_rgb, pt_on_spine_from_left, color=(255, 255, 0), width=5)
 
                 radius_avg.append([np.linalg.norm(pt_on_spine_from_left - mid_pt_on_edge_left), ts[i_seg]])
             elif len(s2) > 0:
@@ -309,6 +330,7 @@ class FitBezierCyl2DEdge:
                 if b_debug:
                     print(f"rhs {b_rhs[i_seg, :]}, new pt {pt_on_spine_from_right}")
                 b_rhs[i_seg, :] = pt_on_spine_from_right
+                # LineSeg2D.draw_box(im_rgb, pt_on_spine_from_right, color=(255, 0, 255), width=5)
                 radius_avg.append([np.linalg.norm(pt_on_spine_from_right - mid_pt_on_edge_right), ts[i_seg]])
 
         if len(radius_avg) > 0:
@@ -327,9 +349,11 @@ class FitBezierCyl2DEdge:
             if b_debug:
                 print(f"Radius before {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
             fit_bezier_crv.start_radius = 0.5 * (fit_bezier_crv.start_radius + new_radii[0][0])
-            fit_bezier_crv.end_radius = 0.5 * (fit_bezier_crv.start_radius + new_radii[1][0])
+            fit_bezier_crv.end_radius = 0.5 * (fit_bezier_crv.end_radius + new_radii[1][0])
             if b_debug:
                 print(f"Radius after {fit_bezier_crv.start_radius}, {fit_bezier_crv.end_radius}")
+
+        # cv2.imwrite("./data/forcindy/DebugImages/0_trunk_0_fit_edge.png", im_rgb)
 
         return fit_bezier_crv.extract_least_squares(a_constraints, b_rhs)
 
@@ -381,9 +405,7 @@ if __name__ == '__main__':
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         edge_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
-            edge_fname_debug = ""
-        else:
-            edge_fname_debug = edge_fname_debug + "_crv_edge.png"
+            edge_fname_debug = None
 
         edge_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
 

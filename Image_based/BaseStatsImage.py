@@ -43,7 +43,7 @@ class BaseStatsImage:
           If fname_debug is given, the write out a debug image with the main axis and end points marked
         @param fname_mask_image: name of mask file, rgb or gray scale image with white where the mask is
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
-        @param fname_debug: the file name for a debug image showing the bounding box, etc
+        @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if not wanted
         @param b_recalc: Force recalculate the result, y/n"""
 
         self.stats_dict = None
@@ -96,7 +96,7 @@ class BaseStatsImage:
                 im_debug = cv2.cvtColor(mask_image_rgb, cv2.COLOR_GRAY2RGB)
             # Add the lines showing the eigen vecs
             self.debug_image(im_debug)
-            cv2.imwrite(fname_debug, im_debug)
+            cv2.imwrite(fname_debug + "_stats.png", im_debug)
 
     @staticmethod
     def stats_image(in_im):
@@ -189,9 +189,9 @@ if __name__ == '__main__':
     b_do_recalc = False
     for ind in all_files.loop_masks():
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=True)
+        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
-            mask_fname_debug = ""
+            mask_fname_debug = None
 
         mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
 

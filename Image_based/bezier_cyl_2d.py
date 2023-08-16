@@ -99,7 +99,7 @@ class BezierCyl2D:
         @return 2d pts, left and right edge"""
         pt = self.pt_axis(t)
         vec = self.tangent_axis(t)
-        vec_step = self.radius(pt) * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
+        vec_step = self.radius(t) * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
         left_pt = [pt[0] - vec_step[1], pt[1] + vec_step[0]]
         right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
         return left_pt, right_pt

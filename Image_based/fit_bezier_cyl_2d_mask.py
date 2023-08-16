@@ -25,7 +25,7 @@ class FitBezierCyl2DMask:
         """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_mask_image: Mask image name
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
-        @param fname_debug: the file name for a debug image showing the bounding box, etc
+        @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug image
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats - this also reads the image in
@@ -95,7 +95,7 @@ class FitBezierCyl2DMask:
             self.bezier_crv_fit_to_mask.draw_bezier(im_covert_back_fit)
             self.bezier_crv_fit_to_mask.draw_boundary(im_covert_back_fit)
             im_both = np.hstack([im_covert_back, im_covert_back_fit])
-            cv2.imwrite(fname_debug, im_both)
+            cv2.imwrite(fname_debug + "_mask.png", im_both)
 
         self.score = self.score_mask_fit(self.stats_dict.mask_image)
         print(f"Mask {fname_mask_image}, score {self.score}")
@@ -206,9 +206,7 @@ if __name__ == '__main__':
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
-            mask_fname_debug = ""
-        else:
-            mask_fname_debug = mask_fname_debug + "_crv.png"
+            mask_fname_debug = None
 
         mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
 
