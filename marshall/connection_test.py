@@ -1,4 +1,5 @@
 import cv2
+import sys
 import math
 import params as p
 import camera as c
@@ -7,7 +8,6 @@ import curve_fitting as cf
 import matplotlib.pyplot as plt
 from skimage import io, color, img_as_bool
 from curve_fitting import BezierBasedDetection, Bezier
-
 
 class Depths_Average:
     """
