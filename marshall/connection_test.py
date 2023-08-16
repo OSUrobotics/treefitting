@@ -5,7 +5,7 @@ import camera as c
 import numpy as np
 import curve_fitting as cf
 import matplotlib.pyplot as plt
-from skimage import io, color
+from skimage import io, color, img_as_bool
 from curve_fitting import BezierBasedDetection, Bezier
 
 
@@ -24,9 +24,13 @@ class Depths_Average:
     """
 
     def __init__(self, depth_img, bin_msk):
-        self.my_mask = np.asarray(color.rgb2gray(cv2.imread(bin_msk)))
-        self.my_depth = np.asarray(io.imread(depth_img))
-        #self.lined_mask = None
+        self.my_mask = np.asarray(img_as_bool(cv2.resize(color.rgb2gray(cv2.imread(bin_msk).astype('uint8')),(640,576))))
+        self.my_mask2 = np.asarray(cv2.resize(color.rgb2gray(cv2.imread(bin_msk).astype('uint8')),(640,576)))
+        #self.my_depth = np.asarray(io.imread(depth_img))
+        npimg = np.fromfile(depth_img, dtype=np.uint16)
+        imageSize = (640,576)
+        self.my_depth = npimg.reshape(imageSize)
+        self.lined_mask = None
         self.radii = None
         self.curve_pts = None
 
@@ -38,11 +42,11 @@ class Depths_Average:
         detector = cf.BezierBasedDetection(self.my_mask, use_medial_axis=True)
         curve = detector.fit()
         radius_interpolator = detector.get_radius_interpolator_on_path()
-        ds = np.linspace(0, 1, 20)
+        ds = np.linspace(0, 1, 11)
         self.radii = radius_interpolator(ds)
         self.curve_pts, ts = curve.eval_by_arclen(ds, normalized=True)
-        #self.lined_mask = cv2.polylines(self.my_depth, [self.curve_pts.reshape((-1, 1, 2)).astype(int)], False, (0, 200, 200), 1)
-
+        #self.lined_mask = cv2.polylines(self.my_mask2, [self.curve_pts.reshape((-1, 1, 2)).astype(int)], False, (0, 200, 200), 1)
+        
         return self.radii, self.curve_pts, curve, ts
 
     def find_average(self):
@@ -55,33 +59,39 @@ class Depths_Average:
 
         for i in range(len(self.curve_pts) - 1):
             right_bottom_pt = (
-            self.curve_pts[i][0].astype(int) + self.radii[i].astype(int), self.curve_pts[i][1].astype(int))
+            self.curve_pts[i][0].astype(int) + (self.radii[i]/2).astype(int), self.curve_pts[i][1].astype(int))
             left_bottom_point = (
-            self.curve_pts[i][0].astype(int) - self.radii[i].astype(int), self.curve_pts[i][1].astype(int))
+            self.curve_pts[i][0].astype(int) - (self.radii[i]/2).astype(int), self.curve_pts[i][1].astype(int))
             right_top_point = (
-            self.curve_pts[i + 1][0].astype(int) + self.radii[i + 1].astype(int), self.curve_pts[i + 1][1].astype(int))
+            self.curve_pts[i + 1][0].astype(int) + (self.radii[i + 1]/2).astype(int), self.curve_pts[i + 1][1].astype(int))
             left_top_pt = (
-            self.curve_pts[i + 1][0].astype(int) - self.radii[i + 1].astype(int), self.curve_pts[i + 1][1].astype(int))
+            self.curve_pts[i + 1][0].astype(int) - (self.radii[i + 1]/2).astype(int), self.curve_pts[i + 1][1].astype(int))
 
             arr = np.array([right_bottom_pt, left_bottom_point, left_top_pt, right_top_point])
-            img = cv2.cvtColor(np.float32(self.my_depth.copy()), cv2.COLOR_GRAY2BGR)
+            img = cv2.cvtColor((self.my_mask2.copy().astype('uint8')), cv2.COLOR_GRAY2BGR)
             img = cv2.drawContours(img, [arr.astype(int)], -1, color=(0,0,255), thickness=-1)
             
-            pts = np.where(img == 255)
+            pts = np.asarray(np.where(img == 255))
             
+            arry=self.my_depth[pts[0],pts[1]]
             
-            depths.append(self.my_depth[pts[0], pts[1]].nonzero())
-            depths_average.append(np.mean(depths[i]) / 1000)    #need to figure out the correct conversion between depth data and meters
+            arr = arry[np.where(arry!=0)]
+            
+            depths.append(arr[~np.isnan(arr).any(axis=0)])
+            ar2 = (np.mean(depths[i]))*0.0001    #need to figure out the correct conversion between depth data and meters
+            if np.isnan(ar2):    #replaces empty array values with 0, might be a deeper problem--> look more into this later
+                depths_average.append(p.nan_value)
+            else:
+                depths_average.append(ar2)
             # For visualizing the radii:
             #img = img.astype(np.uint8)
-            #cv2.imshow('im', img)
             
             #cv2.waitKey(0)
-        
+            #cv2.imshow('im', img)
         #for i in range(len(self.curve_pts)):
             #cv2.circle(self.lined_mask, self.curve_pts[i].astype(int), self.radii[i].astype(int), (0, 0, 255), thickness=1)
-        
         #cv2.imshow("i", self.lined_mask.astype(np.uint8))
+        
         return depths_average, self.radii.astype(int)*2
 
 
@@ -153,7 +163,7 @@ class Determine_Match:
         angle = np.arccos(
             np.clip(np.dot((vec_1 / np.linalg.norm(vec_1)), (vec_2 / np.linalg.norm(vec_2))), -1.0, 1.0)) * (
                             180 / np.pi)
-
+        print(angle)
         if angle < p.angle_limit:
             return 1
 
@@ -233,7 +243,9 @@ if __name__ == '__main__':
     for i in range(len(depth)):
         real_width = camera.getDeltaX(num_pix[i], depth[i])
         print(f'With this camera, {num_pix[i]} pixels at a depth of {depth[i]} m is {real_width:.4f} m')
-        
+    for i in range(len(depth2)):
+        real_width = camera.getDeltaX(num_pix2[i], depth2[i])
+        print(f'With this camera, {num_pix2[i]} pixels at a depth of {depth2[i]} m is {real_width:.4f} m')
     x1, y1, z1, leader_pts = manage_arrs(curve_pts, depth)
     x2, y2, z2, follower_pts = manage_arrs(curve_pts2, depth2)
 
@@ -263,6 +275,7 @@ if __name__ == '__main__':
     ax.plot(x2, y2, z2)
     ax.scatter(*np.asarray(end1).T)
     ax.scatter(*np.asarray(end2).T)
-    set_axes_equal(ax)
+    ax.axis('equal')
+    #set_axes_equal(ax)
     plt.show()
 
