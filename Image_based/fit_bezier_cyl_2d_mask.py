@@ -201,7 +201,7 @@ if __name__ == '__main__':
     all_files = HandleFileNames.read_filenames(path_bpd)
 
     b_do_debug = True
-    b_do_recalc = True
+    b_do_recalc = False
     for ind in all_files.loop_masks():
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
