@@ -33,7 +33,6 @@ The pull depth and rgb data file takes a .mkv video and extracts depth and rgb d
 - Azure camera depth data needs to be tested to confirm its conversion to meters
 - generate_3d.py works with and requires Blender to run. It uses Blender to generate a Bezier curve rather than using cylinders. Unless scaled up, it generates a small curve in meters. Radius does not currently operate as expected.
 
-
 # Output
 The cylinders generated produce:
 ![alt text](generated.png)
@@ -42,6 +41,10 @@ As compared to:
 It displays in the terminal:
 ![alt text](output.png)
 This shows the total score for how likely a side branch is to match to a leader branch(lower is better).
+
+# Instructions for Installing PyK4A
+- See: [Kinect on Ubuntu](https://github.com/juancarlosmiranda/azure_kinect_notes)
+- And: [PyK4A](https://github.com/etiennedub/pyk4a)
 
 # TODO:
 - Test camera to confirm conversion between depth data and meters
