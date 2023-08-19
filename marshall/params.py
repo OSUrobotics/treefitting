@@ -1,8 +1,9 @@
-branches_ammt = 2
-labels = ["leader", "follower"]
+curve_ammt = 13
+scale_factor = 100
 cam = 'D435_640x480.camera.npz'
-depth_img = "depth0001.raw"
+#depth_img = "depth0001.raw"
 mask_img = "leader_mask.png"
 follower_msk = "follower_mask.png"
 angle_limit = 70
 nan_value = 1
+video_file = "output.mkv"

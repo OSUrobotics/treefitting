@@ -1,4 +1,6 @@
 import os
+import cv2
+
 #extracts depth and rgb data from azure kinect video
 #requires ffmpeg library: sudo apt install ffmpeg
 """
@@ -21,6 +23,6 @@ os.mkdir(path1)
 os.mkdir(path2)
 
 cmd1 = f'ffmpeg -i {filename} -vf "select=not(mod(n\,10))" -map 0:0 -vsync 0 {path1}/rgb%04d.png'
-cmd2 = f'ffmpeg -i {filename} -vf "select=not(mod(n\,10))" -map 0:1 -vsync 0 {path2}/depth%04d.raw'
+cmd2 = f'ffmpeg -i {filename} -vf "select=not(mod(n\,10))" -map 0:1 -vsync 0 {path2}/depth%04d.pgm'    #change to whichever file type is easiest to work with for depth
 os.system(cmd1)
 os.system(cmd2)

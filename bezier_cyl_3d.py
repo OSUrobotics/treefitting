@@ -12,7 +12,9 @@
 import numpy as np
 from json import load, dump
 
-
+#switch to this
+#use sdk--> look at point cloud
+#take every 3 points and do bezier
 class BezierCyl3D:
 
     def __init__(self, p1=(0.0, 0.0, 0.0), p2=(0.5, 0.75, 0.5), p3=(1.0, 1.0, 1.0), start_radius=10.0, end_radius=20.0):
@@ -237,17 +239,17 @@ if __name__ == '__main__':
     from os.path import exists
     from os import mkdir
 
-    if not exists("data/DebugImages"):
-        mkdir("data/DebugImages")
+    #if not exists("data/DebugImages"):
+        #mkdir("data/DebugImages")
     branch = BezierCyl3D([506.5, 156.0, 0.0], [457.49999996771703, 478.9999900052037, 0.0], [521.5, 318.0, 0.0],
                          start_radius=10.5, end_radius=8.25)
     branch.make_mesh()
-    branch.write_mesh("data/DebugImages/check_3d_bezier1.obj")
+    branch.write_mesh("check_3d_bezier1.obj")
 
     branch = BezierCyl3D([-0.5, 0.0, 0.0], [0.0, 0.1, 0.05], [0.5, 0.0, 0.0], start_radius=0.5, end_radius=0.25)
     branch.make_mesh()
-    branch.write_mesh("data/DebugImages/check_3d_bezier2.obj")
+    branch.write_mesh("check_3d_bezier2.obj")
 
     branch.set_dims(n_along=30, n_radial=32)
     branch.make_mesh()
-    branch.write_mesh("data/DebugImages/check_3d_bezier_more_vs.obj")
+    branch.write_mesh("check_3d_bezier_more_vs.obj")
