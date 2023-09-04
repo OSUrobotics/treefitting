@@ -147,6 +147,7 @@ class BezierCyl3D:
     def _calc_radii(self):
         """ Calculate the radii along the branch
         @return a numpy array of radii"""
+        
         radii = np.linspace(self.start_radii, self.end_radii, self.n_along)
         return radii
 
@@ -154,7 +155,7 @@ class BezierCyl3D:
         """Calculate the cylinder vertices"""
         pt = np.ones(shape=(4,))
         radii = self._calc_radii()
-
+        
         for it, t in enumerate(np.linspace(0, 1.0, self.n_along)):
             mat = self.frenet_frame(t)
             pt[0] = 0
@@ -167,6 +168,7 @@ class BezierCyl3D:
                 pt_on_crv = mat @ pt
 
                 self.vertex_locs[it, itheta, :] = pt_on_crv[0:3].transpose()
+                
 
     def make_mesh(self):
         """ Make a 3D generalized cylinder """

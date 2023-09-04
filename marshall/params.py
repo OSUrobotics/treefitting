@@ -1,4 +1,3 @@
-curve_ammt = 13
 scale_factor = 100
 cam = 'D435_640x480.camera.npz'
 #depth_img = "depth0001.raw"
@@ -7,3 +6,5 @@ follower_msk = "follower_mask.png"
 angle_limit = 70
 nan_value = 1
 video_file = "output.mkv"
+num_cyl = 16
+cyls = 13    #number of cylinders outputted, a set value for now but can be changed to detect it automatically from filenames

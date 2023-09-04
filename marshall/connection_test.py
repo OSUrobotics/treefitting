@@ -4,6 +4,7 @@ import params as p
 import camera as c
 import numpy as np
 import sys
+import random
 from pyk4a import PyK4APlayback
 import curve_fitting as cf
 import matplotlib.pyplot as plt
@@ -46,7 +47,7 @@ class Depths_Average:
         detector = cf.BezierBasedDetection(self.my_mask, use_medial_axis=True)
         curve = detector.fit()
         radius_interpolator = detector.get_radius_interpolator_on_path()
-        ds = np.linspace(0, 1, p.curve_ammt)
+        ds = np.linspace(0, 1, p.num_cyl)
         self.radii = radius_interpolator(ds)
         self.curve_pts, ts = curve.eval_by_arclen(ds, normalized=True)
         
@@ -176,11 +177,15 @@ class Build_3D:
     Parameters:
         curve_points: given points along a Bezier curve
         radii: radii at curve_points
+        name: whether the branch is a follower or leader
     """
-    def __init__(self, curve_points, radii):
+    def __init__(self, curve_points, radii, name):
         self.radii = radii
         self.curve_points = curve_points
-
+        self.name = name
+        self.n_along = 10 * p.cyls    #parameter for faces 
+        self.n_around = 64    #parameter for faces
+        
     def set_real_measurements(self):
         """
         Takes curve_points and converts to size in meters, scales up for visibility
@@ -196,14 +201,71 @@ class Build_3D:
     def build(self):
         """
         Passes in beginning, middle, and end curve points and beginning and end radii to a class that builds a 3D mesh for each cylinder
+        merges all cylinders by altering obj files
         """
         self.set_real_measurements()
+        
         for i in range(len(self.curve_points)-2):
             b = bc3.BezierCyl3D(self.curve_points[i], self.curve_points[i+1], self.curve_points[i+2], self.radii[i], self.radii[i+2])
             b.make_mesh()
-            b.write_mesh(f"curve{i}.obj")
+            b.write_mesh(f"{self.name}_{i}.obj")
+            self.write_verts(f"{self.name}_{i}.obj")
+        self.write_f()
+        self.merge_files()
+        
+    def write_verts(self, fi):
+        """
+        Passes in generated cylinder file and appends vertices to a list
+        """
+        count = 0
+        with open(fi, 'r') as f, open(f"v_lines{self.name}.obj", 'a') as vl:
+            data = f.readlines()
+            for line in data:
+                if "v" in line:
+                    vl.write(line)
 
-            
+    def write_f(self):
+        """
+        writes faces to a file
+        """
+        with open(f"f_lines{self.name}.obj", 'w') as fl:      
+            for it in range(0, self.n_along - 1):
+                i_curr = it * self.n_around + 1
+                i_next = (it+1) * self.n_around + 1
+                for ir in range(0, self.n_around):
+                    ir_next = (ir + 1) % self.n_around
+                    fl.write(f"f {i_curr + ir} {i_next + ir_next} {i_curr + ir_next} \n")
+                    fl.write(f"f {i_curr + ir} {i_next + ir} {i_next + ir_next} \n")
+                  
+    def merge_files(self):  
+        """
+        merges object files based on faces and verts
+        """
+        with open(f"curve{self.name}.obj", 'w') as c, open(f"v_lines{self.name}.obj", 'r') as vl, open(f"f_lines{self.name}.obj", 'r') as fl:
+            file1 = vl.read()
+            file2 = fl.read()
+            c.write(file1)
+            c.write(file2)
+
+def make_tree(file1, file2):
+    """
+    constructs the tree by merging generated verticies files
+    """
+    n_along = 10 * p.cyls
+    n_around = 64
+    with open(file1, "r") as f1, open(file2, "r") as f2, open("treefile.obj", "w") as tf:
+        data1 = f1.readlines()
+        tf.writelines(data1)
+        data2 = f2.readlines()
+        tf.writelines(data2)         
+        for it in range(0, (n_along*2) - 1):
+            i_curr = it * (n_around) + 1
+            i_next = (it+1) * (n_around) + 1
+            for ir in range(0, (n_around)):
+                ir_next = (ir + 1) % (n_around)
+                tf.write(f"f {i_curr + ir} {i_next + ir_next} {i_curr + ir_next} \n")
+                tf.write(f"f {i_curr + ir} {i_next + ir} {i_next + ir_next} \n")
+                             
 def manage_arrs(curve_2d, depth_arr):
     """
     Splits curve_2D and depth_arr to their components, as well as merging them
@@ -246,14 +308,13 @@ if __name__ == '__main__':
     angle_score = dm.check_angle_match(leader_tan, follower_tan)
     total_score = angle_score + depth_score + minimum_distance
     
-    b = Build_3D(leader_pts, rad)
+    b = Build_3D(leader_pts, rad, "leader")
     b.build()
     
-    #b2 = Build_3D(follower_pts, rad2)
-    #b2.build()
+    b2 = Build_3D(follower_pts, rad2, "follower")
+    b2.build()
     
-    #g = Generate_3D(leader_pts, x1, y1, z1, rad)
-    #g.create_mesh()
+    make_tree("v_linesleader.obj", "v_linesfollower.obj")
     
     #g2 = Generate_3D(follower_pts, x2, y2, z2, num_pix2)
     #g2.create_mesh()

@@ -15,6 +15,8 @@ The pull depth and rgb data file takes a .mkv video and extracts depth and rgb d
 5. Determines the angle between the two tangent lines of each points
 6. Returns a score based in those aspects that refers to how likely it is that the branches are connected (lower is better)
 7. Plots curves and points it is evaluating
+8. Uses bezier cyl 3d to generate cylinders along the curve
+9. Merges cylinder files to create a tree
     
 # Assumptions
 - Leader and side branches are labeled as such
@@ -24,7 +26,7 @@ The pull depth and rgb data file takes a .mkv video and extracts depth and rgb d
   
 # Notes for Running
 - After cloning the repository, just run connection_test.py
-- Adjust any of the parameters to include your own depth and mask images as well as a video file
+- Adjust any of the parameters to include your own depth and mask images as well as a video file (uploaded files do not currently contain the mkv file used for generation)
 - Requires OpenCV, Matplotlib, Skimage, Scipy, PyK4A, and Networkx libraries--> see Documentation for install PyK4A
 - To pull RGB and Depth data, copy the python file to the directory where the .mkv video is stored(or alter code to specify a path)
 
@@ -35,9 +37,10 @@ The pull depth and rgb data file takes a .mkv video and extracts depth and rgb d
 
 # Output
 The cylinders generated produce:
-![alt text](generated.png)
+![alt text](generated_tree.png)
 As compared to:
 ![alt text](leader_mask.png)
+![alt text](follower_mask.png)
 It displays in the terminal:
 ![alt text](output.png)
 This shows the total score for how likely a side branch is to match to a leader branch(lower is better).
@@ -47,7 +50,7 @@ This shows the total score for how likely a side branch is to match to a leader 
 - And: [PyK4A](https://github.com/etiennedub/pyk4a)
 
 # TODO:
+- Image annotations for model
 - Test camera to confirm conversion between depth data and meters
 - Implement loop to manage all files that need to be tested
 - Implement loop to manage multiple frames from video footage
-- Combine all cylinder files into one
