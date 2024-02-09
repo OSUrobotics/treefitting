@@ -1,0 +1,223 @@
+import sys
+
+from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
+from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
+                             QWidget)
+
+import OpenGL.GL as GL
+
+from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
+import numpy as np
+
+
+class DrawSpline3D(QOpenGLWidget):
+    upDownRotationChanged = pyqtSignal(int)
+    turntableRotationChanged = pyqtSignal(int)
+    zRotationChanged = pyqtSignal(int)
+
+    def __init__(self, gui, parent=None):
+        super(DrawSpline3D, self).__init__(parent)
+
+        self.object = 0
+        self.up_down = 0
+        self.turntable = 0
+        self.zRot = 00
+
+        self.pt_center = np.array([0, 0, 0])
+
+        self.crv_gl_list = -1
+
+        self.selected_point = 0
+
+        self.gui = gui
+        self.crvs = []
+
+        self.lastPos = QPoint()
+
+        self.show = True
+
+        self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
+
+    @staticmethod
+    def get_opengl_info():
+        info = """
+            Vendor: {0}
+            Renderer: {1}
+            OpenGL Version: {2}
+            Shader Version: {3}
+        """.format(
+            GL.glGetString(GL.GL_VENDOR),
+            GL.glGetString(GL.GL_RENDERER),
+            GL.glGetString(GL.GL_VERSION),
+            GL.glGetString(GL.GL_SHADING_LANGUAGE_VERSION)
+        )
+
+        return info
+
+    def minimumSizeHint(self):
+        return QSize(50, 50)
+
+    def sizeHint(self):
+        return QSize(1200, 1200)
+
+    def set_up_down_rotation(self, angle):
+        angle = self.normalize_angle(angle)
+        if angle != self.up_down:
+            self.up_down = angle
+            self.upDownRotationChanged.emit(angle)
+            self.update()
+
+    def set_turntable_rotation(self, angle):
+        angle = self.normalize_angle(angle)
+        if angle != self.turntable:
+            self.turntable = angle
+            self.turntableRotationChanged.emit(angle)
+            self.update()
+
+    def initializeGL(self):
+        print(self.get_opengl_info())
+
+        GL.glClearColor(0.0, 0.0, 0.0, 1.0)
+
+        self.crv_gl_list = self.make_crv_gl_list()
+        GL.glShadeModel(GL.GL_FLAT)
+        #  GL.glEnable(GL.GL_DEPTH_TEST)
+        #  GL.glEnable(GL.GL_CULL_FACE)
+
+    def recalc_gl_ids(self):
+        self.crv_gl_list = self.make_crv_gl_list()
+
+    @staticmethod
+    def draw_box(x_center, y_center, width, height=0):
+        GL.glLoadIdentity()
+        GL.glLineWidth(2.0)
+        GL.glBegin(GL.GL_LINE_LOOP)
+        GL.glColor3d(0.75, 0.5, 0.75)
+        bin_width = width / 2.0
+        bin_height = height / 2.0
+        if abs(bin_height) < 0.00001:
+            bin_height = bin_width
+        GL.glVertex2d(x_center - bin_width, y_center - bin_height)
+        GL.glVertex2d(x_center - bin_width, y_center + bin_height)
+        GL.glVertex2d(x_center + bin_width, y_center + bin_height)
+        GL.glVertex2d(x_center + bin_width, y_center - bin_height)
+        GL.glEnd()
+
+    @staticmethod
+    def draw_circle(x_center, y_center, circ_radius):
+        GL.glLoadIdentity()
+        GL.glLineWidth(2.0)
+
+        GL.glBegin(GL.GL_LINE_LOOP)
+        GL.glColor4d(0.75, 0.25, 0.5, 1.0)
+        for t in np.linspace(0, 2 * np.pi, 16):
+            GL.glVertex2d(x_center + circ_radius * np.cos(t), y_center + circ_radius * np.sin(t))
+        GL.glEnd()
+
+    def draw_crv(self, branch_crv):
+        """ Render curve as 3D generalized cylinder
+        @param branch_crv - the actual 3D cylinder, which has had make_mesh called
+        """
+
+        GL.glColor3f(0.95, 0.9, 0.7)
+        for it in range(0, branch_crv.n_along - 1):
+            GL.glBegin(GL.GL_TRIANGLE_STRIP)
+            i_curr = it * branch_crv.n_around + 1
+            i_next = (it+1) * branch_crv.n_around + 1
+            # The first two vertices
+            #  Alternate left, right
+            for ir in range(0, branch_crv.n_around + 1):
+                ir_index = ir % branch_crv.n_around
+                v = self.vertex_locs[branch_crv.vertex_locs[i_curr, ir_index, :], ir_index, :]
+                GL.glVertex3d(v[0], v[1], v[2])
+                v = self.vertex_locs[branch_crv.vertex_locs[i_next, ir_index, :], ir_index, :]
+                GL.glVertex3d(v[0], v[1], v[2])
+            GL.glEnd()
+
+    def paintGL(self):
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+
+        pt_center = self.pt_center
+        scl_factor = 1
+        if hasattr(self.gui, "zoom"):
+            scl_factor = scl_factor / self.gui.zoom.value()
+
+        GL.glLoadIdentity()
+        GL.glRotated(self.up_down, 1.0, 0.0, 0.0)
+        GL.glRotated(self.turntable, 0.0, 1.0, 0.0)
+        GL.glRotated(self.zRot, 0.0, 0.0, 1.0)
+        GL.glScaled(scl_factor, scl_factor, scl_factor)
+        GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
+
+        if self.show:
+            GL.glCallList(self.crv_gl_list)
+
+    @staticmethod
+    def resizeGL(width, height):
+        side = min(width, height)
+        if side < 0:
+            return
+
+        GL.glViewport((width - side) // 2, (height - side) // 2, side, side)
+
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glLoadIdentity()
+        GL.glOrtho(-1.15, 1.15, -1.15, 1.15, -1.5, 1.5)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+
+    def mousePressEvent(self, event):
+        self.lastPos = event.pos()
+
+    def mouseMoveEvent(self, event):
+        dx = event.x() - self.lastPos.x()
+        dy = event.y() - self.lastPos.y()
+
+        if event.buttons() & Qt.LeftButton:
+            self.set_up_down_rotation(self.up_down + 4 * dy)
+            self.set_turntable_rotation(self.turntable + 4 * dx)
+
+        self.lastPos = event.pos()
+
+    def make_crv_gl_list(self):
+        self.pt_center = [0.0, 0.0, 0.0]
+
+        if self.crv_gl_list == -1:
+            self.crv_gl_list = GL.glGenLists(1)
+
+        GL.glNewList(self.crv_gl_list, GL.GL_COMPILE)
+
+        for crv in self.crvs:
+            crv.set_dims(self.gui.n_along.value(), self.gui.n_around.value())
+            crv.make_mesh()
+            self.draw_crv(crv)
+
+        GL.glEndList()
+
+        return self.crv_gl_list
+
+    def normalize_angle(self, angle):
+        while angle < 0:
+            angle += 360
+        while angle > 360:
+            angle -= 360
+        return angle
+
+    def set_color(self, c):
+        GL.glColor4f(c.redF(), c.greenF(), c.blueF(), c.alphaF())
+
+
+if __name__ == '__main__':
+    from Window_3D import Window_3D
+    app = QApplication(sys.argv)
+    window = Window_3D(DrawSpline3D)
+
+    branch = BezierCyl3DWithDetail()
+
+    branch.set_pts([506.5, 156.0, 0.0], [457.49999996771703, 478.9999900052037, 0.0], [521.5, 318.0, 0.0])
+    branch.set_radii_and_junction(start_radius=10.5, end_radius=8.25, b_start_is_junction=True, b_end_is_bud=False)
+
+    window.glWidget.crvs.append(branch)
+    window.glWidget.make_crv_gl_list()
+
+    window.show()
+    sys.exit(app.exec_())
