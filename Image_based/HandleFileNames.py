@@ -274,6 +274,7 @@ class HandleFileNames:
             handle_files = HandleFileNames(my_data["path"])
             for k, v in my_data.items():
                 setattr(handle_files, k, v)
+
         return handle_files
 
 

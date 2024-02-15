@@ -5,13 +5,13 @@ from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBo
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
 
-from fit_bezier_cyl_2d import bezier_cyl_3d_with_detail
-
 import numpy as np
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
+from Draw_spline_3D import DrawSpline3D
+from HandleFileNames import HandleFileNames
 
-class FittedCurvesViewerGUI(QMainWindow):
+class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
         self.setWindowTitle('Fitted Curves Viewer')
@@ -36,6 +36,9 @@ class FittedCurvesViewerGUI(QMainWindow):
         SliderFloatDisplay.gui = self
         SliderIntDisplay.gui = self
 
+        self.cur_dir_im_mask = [-1, -1, -1]
+        self.handle_filenames = None
+
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
         # For reading and writing
@@ -44,27 +47,35 @@ class FittedCurvesViewerGUI(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("Image_based/data/forcindy/")
+        self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
         self.file_name = QLineEdit("forcindy_fnames.json")
-        self.image_number = SliderIntDisplay("Image", 1, 10, 1)
-        self.mask_number = SliderIntDisplay("Mask", 1, 3, 1)
+        self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 1)
+        self.image_number = SliderIntDisplay("Image", 0, 10, 1)
+        self.mask_number = SliderIntDisplay("Mask", 0, 3, 1)
+        self.mask_id_number = SliderIntDisplay("Mask id", 0, 3, 1)
+        self.image_name = QLabel("image name")
         path_names_layout.addWidget(QLabel("Path dir:"))
         path_names_layout.addWidget(self.path_name)
         path_names_layout.addWidget(QLabel("File data names:"))
         path_names_layout.addWidget(self.file_name)
+        path_names_layout.addWidget(QLabel("Subdir:"))
+        path_names_layout.addWidget(self.sub_dir_number)
         path_names_layout.addWidget(QLabel("Image:"))
         path_names_layout.addWidget(self.image_number)
         path_names_layout.addWidget(QLabel("Mask:"))
         path_names_layout.addWidget(self.mask_number)
+        path_names_layout.addWidget(QLabel("Mask id:"))
+        path_names_layout.addWidget(self.mask_id_number)
+        path_names_layout.addWidget(self.image_name)
         path_names.setLayout(path_names_layout)
 
-        read_filenames = QPushButton('Read file names')
-        read_filenames.clicked.connect(self.read_file_names)
+        read_filenames_button = QPushButton('Read file names')
+        read_filenames_button.clicked.connect(self.read_file_names)
 
         file_io = QGroupBox('File io')
         file_io_layout = QVBoxLayout()
         file_io_layout.addWidget(path_names)
-        file_io_layout.addWidget(read_filenames)
+        file_io_layout.addWidget(read_filenames_button)
         file_io.setLayout(file_io_layout)
 
         # Sliders for Camera
@@ -77,30 +88,27 @@ class FittedCurvesViewerGUI(QMainWindow):
         show_buttons = QGroupBox('Show buttons')
         show_buttons_layout = QGridLayout()
 
-        show_backbone_button = QCheckBox('Show backbone')
-        show_backbone_button.clicked.connect(self.show_backbone)
+        self.show_backbone_button = QCheckBox('Show backbone')
+        self.show_backbone_button.clicked.connect(self.redraw_self)
 
-        show_interior_rects_button = QCheckBox('Show interior rects')
-        show_interior_rects_button.clicked.connect(self.show_interior_rects)
+        self.show_interior_rects_button = QCheckBox('Show interior rects')
+        self.show_interior_rects_button.clicked.connect(self.redraw_self)
 
-        show_edge_rects_button = QCheckBox('Show edge rects')
-        show_edge_rects_button.clicked.connect(self.show_edge_rets)
+        self.show_edge_rects_button = QCheckBox('Show edge rects')
+        self.show_edge_rects_button.clicked.connect(self.redraw_self)
 
-        show_buttons_layout.addWidget(show_backbone_button)
-        show_buttons_layout.addWidget(show_interior_rects_button)
-        show_buttons_layout.addWidget(show_edge_rects_button)
+        show_buttons_layout.addWidget(self.show_backbone_button)
+        show_buttons_layout.addWidget(self.show_interior_rects_button)
+        show_buttons_layout.addWidget(self.show_edge_rects_button)
         show_buttons.setLayout(show_buttons_layout)
 
         params_camera = QGroupBox('Camera parameters')
         params_camera_layout = QVBoxLayout()
         params_camera_layout.addWidget(show_buttons)
-        params_camera_layout.addWidget(self.show_closeup_slider)
-        params_camera_layout.addWidget(self.show_min_val_slider)
-        params_camera_layout.addWidget(self.show_max_val_slider)
-        params_camera_layout.addWidget(reset_view)
         params_camera_layout.addWidget(self.turntable)
         params_camera_layout.addWidget(self.up_down)
         params_camera_layout.addWidget(self.zoom)
+        params_camera_layout.addWidget(reset_view)
         params_camera.setLayout(params_camera_layout)
 
         params_crvs = QGroupBox('Curve parameters')
@@ -124,7 +132,7 @@ class FittedCurvesViewerGUI(QMainWindow):
     # Drawing screen and quit button
     def _init_middle_layout_(self):
         # The display for the robot drawing
-        self.glWidget = DrawPointCloud(self)
+        self.glWidget = DrawSpline3D(self)
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -143,198 +151,127 @@ class FittedCurvesViewerGUI(QMainWindow):
 
         return mid_layout
 
-    # Set up the left set of sliders/buttons (read/write, camera)
+    # Set up the right set of sliders/buttons (recalc)
     def _init_right_layout_(self):
-        # Recalculate the bins (MyPointCloud) then recalculae
-        # cylinders using PCA criteria then fit those
-        recalc_neighbors_button = QPushButton('Recalculate bins')
-        recalc_neighbors_button.clicked.connect(self.recalc_bins)
+        # Iterate fits
+        restart_fit_mask_button = QPushButton('Restart fit')
+        restart_fit_mask_button.clicked.connect(self.refit_interior)
 
-        recalc_cylinder_button = QPushButton('Recalculate one cylinder')
-        recalc_cylinder_button.clicked.connect(self.recalc_one_cylinder)
+        refit_interior_mask_button = QPushButton('Refit interior')
+        refit_interior_mask_button.clicked.connect(self.refit_interior)
 
-        recalc_pca_cylinder_button = QPushButton('Recalculate pca cylinder')
-        recalc_pca_cylinder_button.clicked.connect(self.recalc_pca_cylinder)
+        refit_edges_button = QPushButton('Refit edges')
+        refit_edges_button.clicked.connect(self.refit_edges)
 
-        recalc_fit_cylinder_button = QPushButton('Recalculate fit cylinder')
-        recalc_fit_cylinder_button.clicked.connect(self.recalc_fit_cylinder)
-
-        new_id_button = QPushButton('Random new id')
-        new_id_button.clicked.connect(self.new_random_id)
+        self.perc_interior = SliderFloatDisplay('Perc interior', 0.1, 0.9, 0.75)
+        self.perc_exterior = SliderFloatDisplay('Perc exterior', 0.01, 0.35, 0.25)
+        self.pix_spacing = SliderFloatDisplay('Pixel spacing', 10, 200, 40)
 
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
-        resets_layout.addWidget(recalc_neighbors_button)
-        resets_layout.addWidget(recalc_cylinder_button)
-        resets_layout.addWidget(recalc_pca_cylinder_button)
-        resets_layout.addWidget(recalc_fit_cylinder_button)
-        resets_layout.addWidget(new_id_button)
+        resets_layout.addWidget(restart_fit_mask_button)
+        resets_layout.addWidget(refit_interior_mask_button)
+        resets_layout.addWidget(refit_edges_button)
+        resets_layout.addWidget(self.perc_interior)
+        resets_layout.addWidget(self.perc_exterior)
+        resets_layout.addWidget(self.pix_spacing)
         resets.setLayout(resets_layout)
 
-        # For setting the bin size, based on width of narrowest branch
-        self.smallest_branch_width = SliderFloatDisplay('Width small branch', 0.01, 0.1, 0.015)
-        self.largest_branch_width = SliderFloatDisplay('Width big branch', 0.05, 0.2, 0.1)
-        self.branch_height = SliderFloatDisplay('Height cyl fit', 0.1, 0.3, 0.15)
+        # For showing images
+        self.show_mask_button = QCheckBox('Show mask')
+        self.show_mask_button.clicked.connect(self.redraw_self)
+        self.show_edge_button = QCheckBox('Show edge')
+        self.show_edge_button.clicked.connect(self.redraw_self)
+        self.show_opt_flow_button = QCheckBox('Show optical flow')
+        self.show_opt_flow_button.clicked.connect(self.redraw_self)
 
-        params_neighbors = QGroupBox('Neighbor parameters')
-        params_neighbors_layout = QVBoxLayout()
-        params_neighbors_layout.addWidget(self.smallest_branch_width)
-        params_neighbors_layout.addWidget(self.largest_branch_width)
-        params_neighbors_layout.addWidget(self.branch_height)
-        params_neighbors.setLayout(params_neighbors_layout)
+        show_images = QGroupBox('Image shows')
+        show_images_layout = QVBoxLayout()
+        show_images_layout.addWidget(self.show_mask_button)
+        show_images_layout.addWidget(self.show_edge_button)
+        show_images_layout.addWidget(self.show_opt_flow_button)
+        show_images.setLayout(show_images_layout)
 
-        # The parameters of the cylinder fit
-        params_labels = QGroupBox('Connected parameters                  ')
-        params_labels_layout = QVBoxLayout()
-        self.mark_neighbor_pca = SliderFloatDisplay('Mark Neighbor PCA', 0.1, 0.9, 0.75)
-        self.mark_neighbor_fit = SliderFloatDisplay('Mark Neighbor Fit', 0.1, 0.9, 0.5)
+        # Drawing
+        drawing_states = QGroupBox('Drawing states')
+        drawing_states_layout = QVBoxLayout()
+        self.draw_backbone_button = QCheckBox('Draw backbone')
+        self.draw_backbone_button.clicked.connect(self.redraw_self)
+        clear_drawings_button = QPushButton('Clear drawings')
+        clear_drawings_button.clicked.connect(self.clear_drawings)
 
-        params_labels_layout.addWidget(self.mark_neighbor_pca)
-        params_labels_layout.addWidget(self.mark_neighbor_fit)
+        drawing_states_layout.addWidget(self.draw_backbone_button)
+        drawing_states_layout.addWidget(clear_drawings_button)
 
-        params_labels.setLayout(params_labels_layout)
+        drawing_states.setLayout(drawing_states_layout)
 
         # Put all the pieces in one box
         right_side_layout = QVBoxLayout()
 
         right_side_layout.addWidget(resets)
         right_side_layout.addStretch()
-        right_side_layout.addWidget(params_neighbors)
-        right_side_layout.addWidget(params_labels)
+        right_side_layout.addWidget(show_images)
+        right_side_layout.addWidget(drawing_states)
 
         return right_side_layout
 
-    # Recalcualte the bins based on the current smallest branch value
-    def recalc_bins(self):
-        self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
-        self.glWidget.make_bin_gl_list()
-        self.repaint()
+    def read_file_names(self):
+        fname = self.path_name.text() + self.file_name.text()
+        self.handle_filenames = HandleFileNames.read_filenames(fname)
+        print(f"Found {len(self.handle_filenames.image_names)} subdirs")
+        self.sub_dir_number.slider.setMaximum(len(self.handle_filenames.image_names))
+        self.sub_dir_number.slider.setValue(0)
+        self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[0]))
+        self.image_number.slider.setValue(0)
+        self.cur_dir_im_mask = [-1, -1, -1, -1]
 
-    def recalc_one_cylinder(self):
-        if not hasattr(self.glWidget, "selected_point"):
-            self.new_random_id()
-        pt_ids = self.glWidget.my_pcd.find_connected( self.glWidget.selected_point, self.connected_neighborhood_radius.value() )
-        self.glWidget.cyl = self.glWidget.my_pcd.fit_cylinder(self.glWidget.selected_point, [ret[0] for ret in pt_ids])
-        print( self.glWidget.cyl )
+    def reset_view(self):
+        self.turntable.set_value(0.0)
+        self.up_down.set_value(0.0)
+        self.zoom.set_value(1.0)
         self.glWidget.update()
         self.repaint()
 
-    def recalc_pca_cylinder(self):
-        self.glWidget.cyl_cover.find_good_pca(0.5, self.height(), self.smallest_branch_width.value(), self.largest_branch_width.value())
-        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_pca.txt"
-        with open(fname, "w") as fid:
-            self.glWidget.cyl_cover.write(fid)
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
+    def refit_interior(self):
+        pass
 
-    def recalc_fit_cylinder(self):
-        self.glWidget.cyl_cover.optimize_cyl()
-        fname = self.path_name + self.pcd_name + self.version_name + "_cyl_fit.txt"
-        with open(fname, "w") as fid:
-            self.glWidget.cyl_cover.write(fid)
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
+    def refit_edges(self):
+        pass
 
-    def new_random_id(self):
-        id = np.random.uniform(0, len(self.glWidget.my_pcd.pc_data) )
-        self.glWidget.selected_point = int( np.floor( id ) )
-        self.glWidget.update()
-        self.repaint()
+    def clear_drawings(self):
+        pass
 
-    def set_closeup_slider(self):
-        if self.glWidget.show_bins:
-            self.show_closeup_slider.setMaximum(len(self.glWidget.bin_mapping))
-            self.show_min_val_slider.set_range(1, 45)
-            self.show_max_val_slider.set_range(10, 65)
-        if self.glWidget.show_pca_cylinders:
-            self.show_closeup_slider.setMaximum(len(self.glWidget.cyl_cover.cyls_pca))
-            self.show_min_val_slider.set_range(0.0, 30.0)
-            self.show_max_val_slider.set_range(4.0, 50.0)
-        if self.glWidget.show_fitted_cylinders:
-            self.show_closeup_slider.setMaximum(len(self.glWidget.cyl_cover.cyls_fitted))
-            self.show_min_val_slider.set_range(0.0, 10.0)
-            self.show_max_val_slider.set_range(1.0, 10.0)
-
-    def show_closeup(self):
-        self.glWidget.show_closeup = not self.glWidget.show_closeup
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
-
-    def show_one(self):
-        self.glWidget.show_one = not self.glWidget.show_one
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
-
-    def show_pca_cylinders(self):
-        self.glWidget.show_pca_cylinders = not self.glWidget.show_pca_cylinders
-        self.glWidget.show_fitted_cylinders = False
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
-
-    def show_fitted_cylinders(self):
-        self.glWidget.show_fitted_cylinders = not self.glWidget.show_fitted_cylinders
-        self.glWidget.show_pca_cylinders = False
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
-
-    def show_bins(self):
-        self.glWidget.show_bins = not self.glWidget.show_bins
-        self.set_closeup_slider()
-        self.glWidget.update()
-        self.repaint()
-
-    def show_isolated(self):
-        self.glWidget.show_isolated = not self.glWidget.show_isolated
-        self.glWidget.update()
-        self.repaint()
-
-    def read_point_cloud(self):
-        fname_pcd = self.path_name.text() + self.pcd_name.text() + ".ply"
-        fname_my_pcd = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_pcd.txt"
-
-        try:
-            with open(fname_my_pcd, "r") as fid:
-                self.glWidget.my_pcd.read(fid)
-        except FileNotFoundError:
-            self.glWidget.my_pcd.load_point_cloud(fname_pcd)
-            self.glWidget.my_pcd.create_bins(self.smallest_branch_width.value())
-            with open(fname_my_pcd, "w") as fid:
-                self.glWidget.my_pcd.write(fid)
-
-        self.glWidget.make_pcd_gl_list()
-        self.glWidget.cyl_cover = CylinderCover()
-
-    def read_pca_cylinders(self):
-        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_pca.txt"
-        try:
-            with open(fname, "r") as fid:
-                self.glWidget.cyl_cover.read(fid)
-        except FileNotFoundError:
-            print("File not found {0}".format(fname))
-
-    def read_fit_cylinders(self):
-        fname = self.path_name.text() + self.pcd_name.text() + self.version_name.text() + "_cyl_fit.txt"
-        try:
-            with open(fname, "r") as fid:
-                self.glWidget.cyl_cover.read(fid)
-        except FileNotFoundError:
-            print("File not found {0}".format(fname))
+    def read_images(self):
+        cur_im = self.cur_im_mask[0]
+        cur_mask = self.cur_im_mask[1]
+        print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=cur_im, b_add_tag=False)}")
+        # print(f"{self.handle_filenames.get_mask_name(self.handle_filenames.path, index=cur_im, b_add_tag=False)}")
 
     def redraw_self(self):
+        if self.handle_filenames is not None:
+            cur_im = self.image_number.value()
+            cur_mask = 0
+            if cur_im < len(self.handle_filenames.image_names):
+                if len(self.handle_filenames.mask_names[cur_im]) != self.mask_number.slider.maximum():
+                    self.mask_number.slider.setValue(0)
+                    self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names[cur_im]))
+                    self.cur_im_mask = [-1, -1]
+                else:
+                    cur_mask = self.mask_number.value()
+
+            if self.cur_im_mask[0] != cur_im or self.cur_im_mask[1 != cur_mask]:
+                self.read_images()
+
         self.glWidget.update()
         self.repaint()
 
 
 if __name__ == '__main__':
+    fname = "/Users/grimmc/PycharmProjects/treefitting/Image_based/data/forcindy_fnames.json"
+
     app = QApplication([])
 
-    gui = PointCloudViewerGUI()
+    gui = SketchCurvesMainWindow()
 
     gui.show()
 

@@ -6,8 +6,6 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
 
 import OpenGL.GL as GL
 
-from Cylinder import Cylinder
-from CylinderCover import CylinderCover
 import numpy as np
 
 
