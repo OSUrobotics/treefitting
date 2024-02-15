@@ -5,11 +5,18 @@ from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBo
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
 
-import numpy as np
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../'))
+sys.path.insert(0, os.path.abspath('../Image_based'))
+from os.path import exists
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
 from Draw_spline_3D import DrawSpline3D
 from HandleFileNames import HandleFileNames
+
+from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
+
 
 class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
@@ -36,8 +43,9 @@ class SketchCurvesMainWindow(QMainWindow):
         SliderFloatDisplay.gui = self
         SliderIntDisplay.gui = self
 
-        self.cur_dir_im_mask = [-1, -1, -1]
+        self.last_index = ()
         self.handle_filenames = None
+        self.crv = None
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -68,6 +76,12 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.addWidget(self.mask_id_number)
         path_names_layout.addWidget(self.image_name)
         path_names.setLayout(path_names_layout)
+
+        self.sub_dir_number.slider.valueChanged.connect(self.read_images)
+        self.image_number.slider.valueChanged.connect(self.read_images)
+        self.mask_number.slider.valueChanged.connect(self.read_images)
+        self.mask_id_number.slider.valueChanged.connect(self.read_images)
+
 
         read_filenames_button = QPushButton('Read file names')
         read_filenames_button.clicked.connect(self.read_file_names)
@@ -215,15 +229,49 @@ class SketchCurvesMainWindow(QMainWindow):
 
         return right_side_layout
 
+    def reset_file_menus(self):
+        indx_sub_dir = self.sub_dir_number.value()
+        indx_image = self.image_number.value()
+        indx_mask = self.mask_number.value()
+        id_mask = self.mask_id_number.value()
+        b_changed = False
+        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[indx_sub_dir]):
+            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[indx_sub_dir]))
+            b_changed = True
+            if indx_image >= self.image_number.slider.maximum():
+                indx_image = 0
+                self.image_number.set_value(indx_image)
+
+        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]):
+            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]))
+            b_changed = True
+            if indx_mask >= self.mask_number.slider.maximum():
+                indx_mask = 0
+                self.mask_number.set_value(indx_mask)
+
+        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_names[indx_sub_dir][indx_image][indx_mask]):
+            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_names[indx_sub_dir][indx_image][indx_mask]))
+            b_changed = True
+            if id_mask >= self.mask_id_number.slider.maximum():
+                id_mask = 0
+                self.mask_id_number.set_value(id_mask)
+
+        indx = (indx_sub_dir, indx_image, indx_mask, id_mask)
+        if indx != self.last_index:
+            b_changed = True
+
+        self.image_name.setText(self.handle_filenames.get_image_name("", index=indx))
+        return b_changed, indx
+
+    def get_file_name_tuple(self):
+        return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
+
     def read_file_names(self):
         fname = self.path_name.text() + self.file_name.text()
         self.handle_filenames = HandleFileNames.read_filenames(fname)
-        print(f"Found {len(self.handle_filenames.image_names)} subdirs")
         self.sub_dir_number.slider.setMaximum(len(self.handle_filenames.image_names))
         self.sub_dir_number.slider.setValue(0)
-        self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[0]))
-        self.image_number.slider.setValue(0)
-        self.cur_dir_im_mask = [-1, -1, -1, -1]
+        self.reset_file_menus()
 
     def reset_view(self):
         self.turntable.set_value(0.0)
@@ -242,32 +290,41 @@ class SketchCurvesMainWindow(QMainWindow):
         pass
 
     def read_images(self):
-        cur_im = self.cur_im_mask[0]
-        cur_mask = self.cur_im_mask[1]
-        print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=cur_im, b_add_tag=False)}")
-        # print(f"{self.handle_filenames.get_mask_name(self.handle_filenames.path, index=cur_im, b_add_tag=False)}")
+        if self.handle_filenames is not None:
+            print("Read images")
+            print("Redraw")
+            b_get_image, self.last_index = self.reset_file_menus()
+
+            if b_get_image:
+                print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=self.last_index, b_add_tag=True)}")
+
+                rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+                edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
+                mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+                edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+                # if not b_do_debug:
+                edge_fname_debug = None
+
+                edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+
+                if not exists(mask_fname):
+                    raise ValueError(f"Error, file {mask_fname} does not exist")
+                if not exists(rgb_fname):
+                    raise ValueError(f"Error, file {rgb_fname} does not exist")
+
+                self.crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=False)
+
+                print(f"{self.crv.image_rgb.shape} {self.crv.image_rgb.dtype}")
+                self.glWidget.bind_texture(self.crv.image_rgb)
+                self.repaint()
 
     def redraw_self(self):
-        if self.handle_filenames is not None:
-            cur_im = self.image_number.value()
-            cur_mask = 0
-            if cur_im < len(self.handle_filenames.image_names):
-                if len(self.handle_filenames.mask_names[cur_im]) != self.mask_number.slider.maximum():
-                    self.mask_number.slider.setValue(0)
-                    self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names[cur_im]))
-                    self.cur_im_mask = [-1, -1]
-                else:
-                    cur_mask = self.mask_number.value()
-
-            if self.cur_im_mask[0] != cur_im or self.cur_im_mask[1 != cur_mask]:
-                self.read_images()
 
         self.glWidget.update()
         self.repaint()
 
 
 if __name__ == '__main__':
-    fname = "/Users/grimmc/PycharmProjects/treefitting/Image_based/data/forcindy_fnames.json"
 
     app = QApplication([])
 

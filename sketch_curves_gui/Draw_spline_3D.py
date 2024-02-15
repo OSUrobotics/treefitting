@@ -26,6 +26,7 @@ class DrawSpline3D(QOpenGLWidget):
         self.pt_center = np.array([0, 0, 0])
 
         self.crv_gl_list = -1
+        self.image_gl_tex = -1
 
         self.selected_point = 0
 
@@ -80,6 +81,10 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
         self.crv_gl_list = self.make_crv_gl_list()
+        self.image_gl_tex = GL.glGenTextures(1)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST)
         GL.glShadeModel(GL.GL_FLAT)
         #  GL.glEnable(GL.GL_DEPTH_TEST)
         #  GL.glEnable(GL.GL_CULL_FACE)
@@ -134,6 +139,42 @@ class DrawSpline3D(QOpenGLWidget):
                 GL.glVertex3d(v[0], v[1], v[2])
             GL.glEnd()
 
+    def bind_texture(self, rgb_image):
+        from ctypes import c_uint8
+        c_my_texture = (c_uint8 * rgb_image.size)() # copying under correct ctype format (likely clumsy)
+        c_my_texture.value = rgb_image[:,:,:]
+        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, rgb_image.shape[0], rgb_image.shape[1], 0, GL.GL_RGB, GL.GL_UNSIGNED_BYTE, c_my_texture.value)
+
+    def draw_images(self):
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+        GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+
+        GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex)
+        GL.glEnable(GL.GL_TEXTURE_2D)
+
+        quad_size = 0.75
+        GL.glBegin(GL.GL_QUADS)
+        GL.glTexCoord2d(0.0, 0.0)
+        GL.glVertex2f(-quad_size, -quad_size)
+        GL.glTexCoord2d(1.0, 0.0)
+        GL.glVertex2f(quad_size, -quad_size)
+        GL.glTexCoord2d(1.0, 1.0)
+        GL.glVertex2f(quad_size, quad_size)
+        GL.glTexCoord2d(0.0, 1.0)
+        GL.glVertex2f(-quad_size, quad_size)
+        GL.glEnd()
+
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPopMatrix()
+
+
     def paintGL(self):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
@@ -149,6 +190,9 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glScaled(scl_factor, scl_factor, scl_factor)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
+        if self.gui.crv:
+            self.draw_images()
+
         if self.show:
             GL.glCallList(self.crv_gl_list)
 
@@ -162,7 +206,7 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
-        GL.glOrtho(-1.15, 1.15, -1.15, 1.15, -1.5, 1.5)
+        GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
 
     def mousePressEvent(self, event):
