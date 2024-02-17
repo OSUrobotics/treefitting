@@ -222,6 +222,7 @@ class HandleFileNames:
             im_name = im_name + self.mask_id_separator + str(mask_id)
         if b_add_tag:
             im_name = im_name + self.mask_tag
+
         return im_name
 
     def loop_images(self):

@@ -34,6 +34,7 @@ class SliderFloatDisplay(QWidget):
         self.slider.setMaximum(ticks)
         # call back - call change_value when slider changed
         self.slider.valueChanged.connect(self.change_value)
+        self.slider.setMinimumWidth(150)
 
         self.display = QLabel()
         self.set_value(initial_value)

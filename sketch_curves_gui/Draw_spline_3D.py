@@ -5,6 +5,8 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
                              QWidget)
 
 import OpenGL.GL as GL
+import cv2
+from ctypes import c_uint8
 
 from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
 import numpy as np
@@ -26,7 +28,7 @@ class DrawSpline3D(QOpenGLWidget):
         self.pt_center = np.array([0, 0, 0])
 
         self.crv_gl_list = -1
-        self.image_gl_tex = -1
+        self.image_gl_tex = []
 
         self.selected_point = 0
 
@@ -38,6 +40,8 @@ class DrawSpline3D(QOpenGLWidget):
         self.show = True
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
+        self.aspect_ratio = 1.0
+        self.im_size = (0, 0)
 
     @staticmethod
     def get_opengl_info():
@@ -81,10 +85,6 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
         self.crv_gl_list = self.make_crv_gl_list()
-        self.image_gl_tex = GL.glGenTextures(1)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST)
         GL.glShadeModel(GL.GL_FLAT)
         #  GL.glEnable(GL.GL_DEPTH_TEST)
         #  GL.glEnable(GL.GL_CULL_FACE)
@@ -139,41 +139,175 @@ class DrawSpline3D(QOpenGLWidget):
                 GL.glVertex3d(v[0], v[1], v[2])
             GL.glEnd()
 
-    def bind_texture(self, rgb_image):
-        from ctypes import c_uint8
-        c_my_texture = (c_uint8 * rgb_image.size)() # copying under correct ctype format (likely clumsy)
-        c_my_texture.value = rgb_image[:,:,:]
-        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, rgb_image.shape[0], rgb_image.shape[1], 0, GL.GL_RGB, GL.GL_UNSIGNED_BYTE, c_my_texture.value)
+    def bind_texture(self, rgb_image, mask_image, edge_image):
+        print(f"Binding texture {rgb_image.shape} {edge_image.shape}")
+        self.aspect_ratio = rgb_image.shape[0] / rgb_image.shape[1]
+        self.im_size = (rgb_image.shape[1], rgb_image.shape[0])
 
-    def draw_images(self):
+        #im_check = np.ones((im_size, im_size, 3), dtype=np.uint8)
+        #im_check[:,:] *= 64
+        #im_check[:,:,0] *= 128
+        #im_check[:,:,0] *= 192
+
+        im_size = 512
+        if rgb_image.shape[0] > 1024:
+            im_size = 1024
+        im_sq = cv2.resize(rgb_image, (im_size, im_size))
+
+        im_sq_mask = cv2.cvtColor(cv2.resize(mask_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+        im_sq_edge = cv2.cvtColor(cv2.resize(edge_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+
+        im_sq_rgb_edge = im_sq // 2
+        im_sq_rgb_mask = im_sq // 2
+        im_sq_rgb_mask_edge = im_sq // 2
+        for ch in (1, 2):
+            im_sq_rgb_edge[:, :, ch] = im_sq_rgb_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
+            im_sq_rgb_mask_edge[:, :, ch] = im_sq_rgb_mask_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
+        im_sq_rgb_mask[:, :, 0] = im_sq_rgb_mask[:, :, 0] + im_sq_mask[:, :, 0] // 2
+        im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
+
+        if len(self.image_gl_tex) == 0:
+            self.image_gl_tex = GL.glGenTextures(6)
+        for i, im in enumerate([im_sq, im_sq_mask, im_sq_edge, im_sq_rgb_mask, im_sq_rgb_edge, im_sq_rgb_mask_edge]):
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[i])
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST)
+            c_my_texture = (c_uint8 * im_size * im_size)() # copying under correct ctype format (likely clumsy)
+            c_my_texture.value = im[:,:,:]
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, im_size, im_size, 0, GL.GL_BGR, GL.GL_UNSIGNED_BYTE, c_my_texture.value)
+
+    def set_2d_projection(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glPushMatrix()
         GL.glLoadIdentity()
-        GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+        if self.height() > self.width():
+            aspect_ratio_window = self.height() / self.width()
+            GL.glOrtho(-1.0, 1.0, -aspect_ratio_window, aspect_ratio_window, -1.0, 1.0)
+        else:
+            aspect_ratio_window = self.width() / self.height()
+            GL.glOrtho(-aspect_ratio_window, aspect_ratio_window, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glPushMatrix()
         GL.glLoadIdentity()
 
+    def draw_images(self):
+        self.set_2d_projection()
+
+        tex_indx = 0
+        if self.gui.show_rgb_button.checkState():
+            if self.gui.show_edge_button.checkState():
+                if self.gui.show_mask_button.checkState():
+                    tex_indx = 5
+                else:
+                    tex_indx = 4
+            elif self.gui.show_mask_button.checkState():
+                tex_indx = 3
+        elif self.gui.show_edge_button.checkState():
+            tex_indx = 2
+        elif self.gui.show_mask_button.checkState():
+            tex_indx = 1
+
         GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[tex_indx])
         GL.glEnable(GL.GL_TEXTURE_2D)
 
-        quad_size = 0.75
+        quad_size_x = 1.0
+        quad_size_y = self.aspect_ratio * quad_size_x
         GL.glBegin(GL.GL_QUADS)
-        GL.glTexCoord2d(0.0, 0.0)
-        GL.glVertex2f(-quad_size, -quad_size)
-        GL.glTexCoord2d(1.0, 0.0)
-        GL.glVertex2f(quad_size, -quad_size)
-        GL.glTexCoord2d(1.0, 1.0)
-        GL.glVertex2f(quad_size, quad_size)
         GL.glTexCoord2d(0.0, 1.0)
-        GL.glVertex2f(-quad_size, quad_size)
+        GL.glVertex2f(-quad_size_x, -quad_size_y)
+        GL.glTexCoord2d(1.0, 1.0)
+        GL.glVertex2f(quad_size_x, -quad_size_y)
+        GL.glTexCoord2d(1.0, 0.0)
+        GL.glVertex2f(quad_size_x, quad_size_y)
+        GL.glTexCoord2d(0.0, 0.0)
+        GL.glVertex2f(-quad_size_x, quad_size_y)
         GL.glEnd()
 
         GL.glPopMatrix()
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glPopMatrix()
+        GL.glDisable(GL.GL_TEXTURE_2D)
 
+    def convert_pts(self, pts):
+        pts[:, 0] = 2 * (pts[:, 0] / self.im_size[0] - 0.5)
+        pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
+        return pts
+
+    def draw_crv_2d(self):
+        self.set_2d_projection()
+
+        crv = self.gui.crv.mask_crv.bezier_crv_fit_to_mask
+        if self.gui.show_edge_button.checkState():
+            crv = self.gui.crv.bezier_crv_fit_to_edge
+
+        if self.gui.show_backbone_button.checkState():
+            n_pts_quad = 6
+            pts = self.convert_pts(crv.pt_axis(np.linspace(0, 1, n_pts_quad)))
+
+            GL.glDisable(GL.GL_LIGHTING)
+            GL.glLineWidth(4)
+            GL.glBegin(GL.GL_LINE_STRIP)
+            col_start = 0.5
+            col_div = 0.5 / (n_pts_quad - 1.0)
+            for p in pts:
+                GL.glColor3d(col_start, col_start, col_start)
+                GL.glVertex2d(p[0], p[1])
+                col_start += col_div
+            GL.glEnd()
+
+            edge_pts_left = np.zeros((n_pts_quad, 2))
+            edge_pts_right = np.zeros((n_pts_quad, 2))
+            for i, t in enumerate(np.linspace(0, 1, n_pts_quad)):
+                edge_pts_left[i, :], edge_pts_right[i, :] = crv.edge_pts(t)
+            edge_pts_left = self.convert_pts(edge_pts_left)
+            edge_pts_right = self.convert_pts(edge_pts_right)
+
+            GL.glLineWidth(3)
+            for pts in (edge_pts_left, edge_pts_right):
+                col_start = 0.25
+                col_div = 0.75 / (n_pts_quad - 1.0)
+                GL.glBegin(GL.GL_LINE_STRIP)
+                for p in pts:
+                    GL.glColor3d(col_start, col_start, col_start)
+                    GL.glVertex2d(p[0], p[1])
+                    col_start += col_div
+                GL.glEnd()
+
+        GL.glLineWidth(2)
+        if self.gui.show_interior_rects_button.checkState():
+            rects, _ = crv.interior_rects(self.gui.pix_spacing.value(), self.gui.perc_interior.value())
+            col_incr = 1.0 // len(rects)
+            for i, r in enumerate(rects):
+                GL.glColor3f(i * col_incr, 0.8, 0.8)
+                GL.glBegin(GL.GL_LINE_LOOP)
+                pts = self.convert_pts(r)
+                for p in pts:
+                    GL.glVertex2d(p[0], p[1])
+                GL.glEnd()
+
+        if self.gui.show_edge_rects_button.checkState():
+            rects, _ = crv.boundary_rects(self.gui.pix_spacing.value(), self.gui.perc_exterior.value())
+            col_incr = 0.5 // len(rects)
+            for i, r in enumerate(rects):
+                GL.glColor3f(0.5 + i * col_incr, 0.3 + (i % 2) * 0.3, 0.5 + i * col_incr)
+                GL.glBegin(GL.GL_LINE_LOOP)
+                pts = self.convert_pts(r)
+                for p in pts:
+                    GL.glVertex2d(p[0], p[1])
+                GL.glEnd()
+
+        #GL.glBegin(GL.GL_LINE_LOOP)
+        #GL.glColor3d(1.0, 1.0, 1.0)
+        #GL.glVertex2d(-0.25, -0.25)
+        #GL.glVertex2d( 0.25, -0.25)
+        #GL.glVertex2d( 0.25,  0.25)
+        #GL.glVertex2d(-0.25,  0.25)
+        #GL.glEnd()
+
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPopMatrix()
 
     def paintGL(self):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
@@ -190,8 +324,9 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glScaled(scl_factor, scl_factor, scl_factor)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
-        if self.gui.crv:
+        if self.gui.crv and len(self.image_gl_tex) > 0:
             self.draw_images()
+            self.draw_crv_2d()
 
         if self.show:
             GL.glCallList(self.crv_gl_list)
