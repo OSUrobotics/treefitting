@@ -209,6 +209,38 @@ class HandleFileNames:
 
         return im_name
 
+    def get_flow_image_name(self, path, index, b_add_tag=True):
+        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+        @param path should be one of self.path, self.path_calculated, or path_debug
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_add_tag - add the image tag, y/n
+        @return full image name with path"""
+
+        im_name = path
+        if len(self.sub_dirs[index[0]]) > 0:
+            im_name = im_name + self.sub_dirs[index[0]] + "/"
+        im_name = im_name + self.image_names[index[0]][index[1]] + "_flow"
+        if b_add_tag:
+            im_name = im_name + self.image_tag
+
+        return im_name
+
+    def get_depth_image_name(self, path, index, b_add_tag=True):
+        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+        @param path should be one of self.path, self.path_calculated, or path_debug
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_add_tag - add the image tag, y/n
+        @return full image name with path"""
+
+        im_name = path
+        if len(self.sub_dirs[index[0]]) > 0:
+            im_name = im_name + self.sub_dirs[index[0]] + "/"
+        im_name = im_name + self.image_names[index[0]][index[1]] + "_depth"
+        if b_add_tag:
+            im_name = im_name + self.image_tag
+
+        return im_name
+
     def get_mask_name(self, path, index, b_add_tag=True):
         """ Get the mask name corresponding to the index given by (subdirectory index, image index, mask name, mask id)
         @param path should be one of self.path, self.path_calculated, or path_debug
@@ -217,7 +249,11 @@ class HandleFileNames:
         @return full mask name with path"""
         im_name = self.get_image_name(path, index, b_add_tag=False)
         im_name = im_name + "_" + self.mask_names[index[0]][index[1]][index[2]]
-        mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+        if len(self.mask_ids[index[0]][index[1]][index[2]]) <= index[3] or index[3] == -1:
+            mask_id = -1
+        else:
+            mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+
         if mask_id != -1:
             im_name = im_name + self.mask_id_separator + str(mask_id)
         if b_add_tag:

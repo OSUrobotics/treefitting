@@ -21,11 +21,14 @@ from HandleFileNames import HandleFileNames
 
 
 class FitBezierCyl2DMask:
-    def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self, fname_mask_image, fname_calculated=None, fname_debug=None, params=None, b_recalc=False):
         """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_mask_image: Mask image name
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug image
+        @param params: Dictionary with
+            "step_size": how many pixels to use in each "cut out"; 20-40 is reasonable
+            "width_mask": what percentage of the radius to search for the mask; should be bigger than 1 (1 - 1.5)
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats - this also reads the image in
@@ -53,8 +56,10 @@ class FitBezierCyl2DMask:
             self.fname_params = fname_calculated + "_bezier_cyl_params.json"
 
         # Current parameters for the vertical leader fit
-        # TODO make this a parameter in the init function
-        self.params = {"step_size": int(width * 1.5), "width_mask": 1.4, "width": 0.25}
+        self.params = {"step_size": 40, "width_mask": 1.4}
+        if params:
+            for k in params.keys():
+                self.params[k] = params[k]
 
         # Get the initial curve - either cached or create
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_initial):
@@ -66,10 +71,13 @@ class FitBezierCyl2DMask:
                 with open(self.fname_params, 'w') as f:
                     json.dump(self.params, f, indent=" ")
         else:
-            # Read in the stored data
-            BezierCyl2D.read_json(self.fname_bezier_cyl_initial, self.bezier_crv_initial)
-            with open(self.fname_params, 'r') as f:
-                self.params = json.load(f)
+            if exists(self.fname_params):
+                # Read in the stored data
+                BezierCyl2D.read_json(self.fname_bezier_cyl_initial, self.bezier_crv_initial)
+                with open(self.fname_params, 'r') as f:
+                    self.params = json.load(f)
+            else:
+                print(f"Warning, found bezier curve but not params file {self.fname_params}")
 
         # Now do the fitted curve
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_fit_to_mask):

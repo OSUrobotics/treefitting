@@ -93,6 +93,17 @@ class BezierCyl2D:
         @return 2d vec"""
         return 2 * t * (self.p0 - 2.0 * self.p1 + self.p2) - 2 * self.p0 + 2 * self.p1
 
+    def norm_axis(self, t, dir):
+        """ Normal vector (unit length
+        @param t - t value along the curve (in range 0, 1)
+        @param direction - 'Left' is the left direction, 'Right' is the right direction
+        @return numpy array x,y """
+        vec_tang = self.tangent_axis(t)
+        vec_length = np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
+        if dir.lower() == "left":
+            return np.array([-vec_tang[1] / vec_length, vec_tang[0] / vec_length])
+        return np.array([vec_tang[1] / vec_length, -vec_tang[0] / vec_length])
+
     def edge_pts(self, t):
         """ Return the left and right edge of the tube as points
         @param t in 0, 1
@@ -111,12 +122,8 @@ class BezierCyl2D:
         @param direction - 'Left' is the left direction, 'Right' is the right direction
         @return numpy array x,y """
         pt_edge = self.pt_axis(t)
-        vec_tang = self.tangent_axis(t)
-        vec_step = perc_in_out * self.radius(t) * vec_tang / np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
-
-        if direction == "Left":
-            return np.array([pt_edge[0] + vec_step[1], pt_edge[1] - vec_step[0]])
-        return np.array([pt_edge[0] - vec_step[1], pt_edge[1] + vec_step[0]])
+        vec_norm = self.norm_axis(t, direction)
+        return pt_edge + vec_norm * (perc_in_out * self.radius(t))
 
     @staticmethod
     def rect_in_image(im, r, pad=2):

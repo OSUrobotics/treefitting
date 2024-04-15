@@ -23,12 +23,21 @@ class ExtractCurves:
         @param fname_edge_image: Edge image name
         @param fname_mask_image: Mask image name
         @param params: Parameters for filtering the edge image - how finely to sample along the edge and how much to believe edge
+           perc_width - percent of edge to search, should be 0.1 to 0.5
+           edge_max - brightness of edge pixel to be considered an edge (0..255)
+           n_per_seg - number of samples to keep along the edge, should be less than step_size (5-10)
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the stats - this also reads the image in
-        self.bezier_edge = FitBezierCyl2DEdge(fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated, fname_debug, b_recalc)
+        self.bezier_edge = FitBezierCyl2DEdge(fname_rgb_image=fname_rgb_image,
+                                              fname_edge_image=fname_edge_image,
+                                              fname_mask_image=fname_mask_image,
+                                              fname_calculated=fname_calculated,
+                                              params=params,
+                                              fname_debug=fname_debug,
+                                              b_recalc=b_recalc)
 
         # List o pairs (t, plus/minus)
         self.left_curve = []
@@ -40,11 +49,16 @@ class ExtractCurves:
             self.fname_params = fname_calculated + "_edge_extract_params.json"
             self.fname_edge_curves = fname_calculated + "_edge_extract_edge_curves.json"
 
-        # Current parameters for trunk extraction
-        if params is None:
-            self.params = {"step_size": 20, "perc_width": 0.2, "edge_max":128, "n_avg": 10, "n_filter": 3, "n_samples": 20}
-        else:
-            self.params = params
+        # Copy params used in fit mask and add the new ones
+        self.params = {}
+        for k in self.bezier_edge.params.keys():
+            self.params[k] = self.bezier_edge.params[k]
+        if "edge_max" not in self.params:
+            self.params["edge_max"] = 128
+        if "n_per_seg" not in self.params:
+            self.params["n_per_seg"] = 10
+        if "perc_width" not in self.params:
+            self.params["width_profile"] = 0.3
 
         # Get the raw edge data
         if b_recalc or not fname_calculated or not exists(self.fname_full_edge_stats):
@@ -78,6 +92,12 @@ class ExtractCurves:
                 curves = json.load(f)
                 self.left_curve, self.right_curve = curves
 
+        self.edge_stats["pixs_filtered"] = []
+        for crv, side in zip([self.left_curve, self.right_curve], ["Left", "Right"]):
+            for t_perc in crv:
+                pt = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(t_perc[0], t_perc[1], side)
+                self.edge_stats["pixs_filtered"].append([pt[0], pt[1]])
+
         if fname_debug:
             # Draw the mask with the initial and fitted curve
             im_covert_back = cv2.cvtColor(self.bezier_edge.image_edge, cv2.COLOR_GRAY2RGB)
@@ -106,20 +126,22 @@ class ExtractCurves:
 
     @staticmethod
     def full_edge_stats(image_edge, bezier_edge, params):
-        """ Get the best pixel offset (if any) for each point along the edge
+        """ Get the best pixel offset (if any) for each point/pixel along the edge
         @param image_edge - the edge image
         @param bezier_edge - the Bezier curve
-        @param params - parameters for extraction"""
+        @param params - parameters for extraction
+        @return ts, perc off of edge, actual pixels (for debugging) and total number of segs"""
 
         # Fuzzy rectangles along the boundary
-        bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"])
+        bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["width_profile"])
         # Repeat, but offset by 1/2 of the width of the boundary
-        bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["perc_width"], offset=True)
+        bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["width_profile"], offset=True)
         n_bdry1 = len(bdry_rects1)
         try:
             t_step = ts1[2] - ts1[0]
         except IndexError:
             t_step = 1.0
+
 
         # Glue the rectangle lists together
         bdry_rects1.extend(bdry_rects2)
@@ -129,9 +151,13 @@ class ExtractCurves:
         height = int(bezier_edge.radius(0.5))
         width = params["step_size"]
 
-        ret_stats = {"ts_left":[], "left_perc":[], "ts_right":[], "right_perc":[], "pixs_edge":[]}
+        ret_stats = {"n_segs": len(ts2),
+                     "ts_left":[], "left_perc":[], "ts_right":[], "right_perc":[],
+                     "pixs_edge":[],
+                     "pixs_reconstruct":[]}
         for i_rect, r in enumerate(bdry_rects1):
             # Cutout the image for the boundary rectangle
+            #   Note this will be a height x width numpy array
             im_warp, tform3_back = bezier_edge.image_cutout(image_edge, r, step_size=width, height=height)
             # Actual hough transform on the cut-out image
             lines = cv2.HoughLines(im_warp, 1, np.pi / 180.0, 10)
@@ -143,53 +169,89 @@ class ExtractCurves:
                 except IndexError:
                     t_step = 1.0
 
-            # Check for any lines in the cutout image
-            if lines is None:
-                continue
-            # .. and check if any of those are horizontal
-            ret_pts = FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, width, height)
-            if ret_pts is []:
-                continue
-
             # Rectangles alternate left, right side of curve
             i_side = i_rect % 2
+            if i_side == 0:
+                tag = "left"
+            else:
+                tag = "right"
 
-            max_y = im_warp.max(axis=0)
+            # One t value for each column in the image cutout
+            ts_seg = np.linspace(ts1[i_rect] - t_step * 0.5, ts1[i_rect] + t_step * 0.5, width)
 
-            ts_seg = np.linspace(ts1[i_rect] - t_step * 0.5, ts1[i_rect] + t_step * 0.5, len(max_y))
-            for i_col, y in enumerate(max_y):
-                if y > params["edge_max"]:
-                    ids = np.where(im_warp[:, i_col] == y)
-                    if i_side == 0:
-                        tag = "left"
-                    else:
-                        tag = "right"
-                    ret_stats["ts_" + tag].append(ts_seg[i_col])
-                    h_min = params["perc_width"] * bezier_edge.radius(ts1[i_col])
-                    h_max = (1 + params["perc_width"]) * bezier_edge.radius(ts1[i_col])
-                    h_along = float(ids[0][0]) / float(width)
-                    ret_stats[tag + "_perc"].append(h_min + (h_max - h_min) * h_along)
+            # Check for any lines in the cutout image
+            b_has_line = False
 
-                    p1_in = np.transpose(np.array([ids[0][0], i_col, 1.0]))
-                    p1_back = tform3_back @ p1_in
+            if lines is not None:
+                # .. and check if any of those are horizontal
+                ret_pts = FitBezierCyl2DEdge.get_horizontal_lines_from_hough(lines, tform3_back, width, height)
+                if len(ret_pts) > 0:
+                    b_has_line = True
 
-                    # ret_stats["pixs_edge"].append([p1_back[0], p1_back[1]])
-                    ret_stats["pixs_edge"].append([float(r[0][0]), float(r[0][1])])
+            if b_has_line is False:
+                # Put a point in the middle at the estimated radius
+                ret_stats["ts_" + tag].append(ts_seg[width // 2])
+                ret_stats[tag + "_perc"].append(1.0)
+                pt = bezier_edge.edge_pts(ts_seg[width // 2])
+                ret_stats["pixs_edge"].append([pt[i_side][0], pt[i_side][1]])
+            else:
+                # Find the max y value in every column
+                #max_y = im_warp.max(axis=0)
+
+                # These should be the same... a 1x20 array
+                #assert(len(max_y) == len(ts_seg))
+
+                line_abc = FitBezierCyl2DEdge._get_line_abc(ret_pts[0][0], ret_pts[0][1])
+                # Loop over each column
+                for i_along in range(0, width):
+                    t_seg = ts_seg[i_along]
+                    i_best = -1
+                    d_best = 100000
+                    for j_in_column in range(0, height):
+                        if im_warp[j_in_column, i_along] > params["edge_max"]:
+                            d_dist = line_abc[0] * i_along + line_abc[1] * j_in_column + line_abc[2]
+                            if d_dist < d_best:
+                                i_best = j_in_column
+                                d_best = d_dist
+                    if i_best != -1:
+                        # t value from linearly sampling the t value along the edge segment
+                        ret_stats["ts_" + tag].append(t_seg)
+                        # Where in the image the max value occured
+                        #   Search for the one closest to the fit line
+                        #   Should be between 0 and height
+                        # This is how far up/down the pixel was in the height of the image
+
+                        p1_in = np.transpose(np.array([i_along, i_best, 1.0]))
+                        p1_back = tform3_back @ p1_in
+                        pt_spine = bezier_edge.pt_axis(t_seg)
+                        vec_norm = bezier_edge.norm_axis(t_seg, tag)
+                        perc_along = np.dot(p1_back[:2] - pt_spine, vec_norm)
+                        h_perc = perc_along / bezier_edge.radius(t_seg)
+
+                        pt_reconstruct = bezier_edge.edge_offset_pt(t_seg, h_perc, tag)
+
+                        ret_stats[tag + "_perc"].append(h_perc)
+
+                        ret_stats["pixs_edge"].append([p1_back[0], p1_back[1]])
+                        ret_stats["pixs_reconstruct"].append([pt_reconstruct[0], pt_reconstruct[1]])
+                        #ret_stats["pixs_edge"].append([float(r[0][0]), float(r[0][1])])
 
         # There's probably a more graceful way to do this...
         data_in_matrix_form = np.zeros([2, len(ret_stats["ts_left"])])
         data_in_matrix_form[0, :] = np.array(ret_stats["ts_left"])
         data_in_matrix_form[1, :] = np.array(ret_stats["left_perc"])
-        data_in_matrix_form.sort(axis=0)
-        ret_stats["ts_left"] = list(data_in_matrix_form[0, :])
-        ret_stats["left_perc"] = list(data_in_matrix_form[1, :])
+        order_ts = data_in_matrix_form[0, :].argsort()
+        for i, ind in enumerate(order_ts):
+            ret_stats["ts_left"][i] = data_in_matrix_form[0, ind]
+            ret_stats["left_perc"][i] = data_in_matrix_form[1, ind]
 
         data_in_matrix_form = np.zeros([2, len(ret_stats["ts_right"])])
         data_in_matrix_form[0, :] = np.array(ret_stats["ts_right"])
         data_in_matrix_form[1, :] = np.array(ret_stats["right_perc"])
-        data_in_matrix_form.sort(axis=0)
-        ret_stats["ts_right"] = list(data_in_matrix_form[0, :])
-        ret_stats["right_perc"] = list(data_in_matrix_form[1, :])
+        order_ts = data_in_matrix_form[0, :].argsort()
+        for i, ind in enumerate(order_ts):
+            ret_stats["ts_right"][i] = data_in_matrix_form[0, ind]
+            ret_stats["right_perc"][i] = data_in_matrix_form[1, ind]
 
         # sort(zip(ret_stats["ts_left"], ret_stats["left_perc"]), key=0)
         # sort(zip(ret_stats["ts_right"], ret_stats["right"]), key=0)
@@ -200,18 +262,21 @@ class ExtractCurves:
         """
         From the raw stats, create a set of evenly-spaced t values
         @param stats_edge: The stats from full_edge_stats
-        @param params: The params
+        @param params: max edge pixel value, step_size, perc to search, and n pts to reconstruct
         @return: a tuple of left, right edges as t, perc in/out
         """
-
+        stats_edge["pixs_resampled"] = []
         crvs = []
+        n_total = params["n_per_seg"] * stats_edge["n_segs"]
+        ts_crvs = np.linspace(0, 1, n_total)
         for ts, ps in [(stats_edge["ts_left"], stats_edge["left_perc"]), (stats_edge["ts_right"], stats_edge["right_perc"])]:
-            ps_filter = np.array(ps)
-            for i_filter in range(0, params["n_filter"]):
-                # np.filter(ps_filter)
-                ts_crvs = np.linspace(0, 1, params["n_samples"])
-                ps_crvs = np.interp(ts_crvs, ts, ps_filter)
-                crvs.append([(t, p) for t, p in zip(ts_crvs, ps_crvs)])
+            ps_array = np.array(ps)
+            for _ in range(0, 5):
+                ps_array[1:-1] = 0.5 * ps_array[1:-1] + 0.25 * (ps_array[0:-2] + ps_array[2:])
+            ps_crvs = np.interp(ts_crvs, ts, ps_array)
+            #crvs.append([(t, p) for t, p in zip(ts, ps)])
+            crvs.append([(t, p) for t, p in zip(ts_crvs, ps_crvs)])
+        # Left curve as t, perc pairs and same for right
         return crvs[0], crvs[1]
 
 

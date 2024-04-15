@@ -16,6 +16,7 @@ class DrawSpline3D(QOpenGLWidget):
     upDownRotationChanged = pyqtSignal(int)
     turntableRotationChanged = pyqtSignal(int)
     zRotationChanged = pyqtSignal(int)
+    gl_inited = False
 
     def __init__(self, gui, parent=None):
         super(DrawSpline3D, self).__init__(parent)
@@ -139,7 +140,7 @@ class DrawSpline3D(QOpenGLWidget):
                 GL.glVertex3d(v[0], v[1], v[2])
             GL.glEnd()
 
-    def bind_texture(self, rgb_image, mask_image, edge_image):
+    def bind_texture(self, rgb_image, mask_image, edge_image, flow_image, depth_image):
         print(f"Binding texture {rgb_image.shape} {edge_image.shape}")
         self.aspect_ratio = rgb_image.shape[0] / rgb_image.shape[1]
         self.im_size = (rgb_image.shape[1], rgb_image.shape[0])
@@ -156,6 +157,14 @@ class DrawSpline3D(QOpenGLWidget):
 
         im_sq_mask = cv2.cvtColor(cv2.resize(mask_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
         im_sq_edge = cv2.cvtColor(cv2.resize(edge_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+        if flow_image is not None:
+            im_sq_flow = cv2.resize(flow_image, (im_size, im_size))
+        else:
+            im_sq_flow = None
+        if depth_image is not None:
+            im_sq_depth = cv2.resize(depth_image, (im_size, im_size))
+        else:
+            im_sq_depth = None
 
         im_sq_rgb_edge = im_sq // 2
         im_sq_rgb_mask = im_sq // 2
@@ -167,14 +176,18 @@ class DrawSpline3D(QOpenGLWidget):
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
         if len(self.image_gl_tex) == 0:
-            self.image_gl_tex = GL.glGenTextures(6)
-        for i, im in enumerate([im_sq, im_sq_mask, im_sq_edge, im_sq_rgb_mask, im_sq_rgb_edge, im_sq_rgb_mask_edge]):
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[i])
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST)
-            c_my_texture = (c_uint8 * im_size * im_size)() # copying under correct ctype format (likely clumsy)
-            c_my_texture.value = im[:,:,:]
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, im_size, im_size, 0, GL.GL_BGR, GL.GL_UNSIGNED_BYTE, c_my_texture.value)
+            n_textures = 8
+            self.image_gl_tex = GL.glGenTextures(n_textures)
+        for i, im in enumerate([im_sq, im_sq_mask, im_sq_edge, im_sq_rgb_mask, im_sq_rgb_edge, im_sq_rgb_mask_edge, im_sq_flow, im_sq_depth]):
+            if im is None:
+                self.image_gl_tex[i] = -1
+            else:
+                GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[i])
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST)
+                c_my_texture = (c_uint8 * im_size * im_size)() # copying under correct ctype format (likely clumsy)
+                c_my_texture.value = im[:,:,:]
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, im_size, im_size, 0, GL.GL_BGR, GL.GL_UNSIGNED_BYTE, c_my_texture.value)
 
     def set_2d_projection(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
@@ -191,6 +204,9 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glLoadIdentity()
 
     def draw_images(self):
+        if len(self.image_gl_tex) == 0:
+            return
+
         self.set_2d_projection()
 
         tex_indx = 0
@@ -206,23 +222,28 @@ class DrawSpline3D(QOpenGLWidget):
             tex_indx = 2
         elif self.gui.show_mask_button.checkState():
             tex_indx = 1
+        elif self.gui.show_opt_flow_button.checkState():
+            tex_indx = 6
+        elif self.gui.show_depth_button.checkState():
+            tex_indx = 7
 
-        GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[tex_indx])
-        GL.glEnable(GL.GL_TEXTURE_2D)
+        if self.image_gl_tex[tex_indx] != -1:
+            GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[tex_indx])
+            GL.glEnable(GL.GL_TEXTURE_2D)
 
-        quad_size_x = 1.0
-        quad_size_y = self.aspect_ratio * quad_size_x
-        GL.glBegin(GL.GL_QUADS)
-        GL.glTexCoord2d(0.0, 1.0)
-        GL.glVertex2f(-quad_size_x, -quad_size_y)
-        GL.glTexCoord2d(1.0, 1.0)
-        GL.glVertex2f(quad_size_x, -quad_size_y)
-        GL.glTexCoord2d(1.0, 0.0)
-        GL.glVertex2f(quad_size_x, quad_size_y)
-        GL.glTexCoord2d(0.0, 0.0)
-        GL.glVertex2f(-quad_size_x, quad_size_y)
-        GL.glEnd()
+            quad_size_x = 1.0
+            quad_size_y = self.aspect_ratio * quad_size_x
+            GL.glBegin(GL.GL_QUADS)
+            GL.glTexCoord2d(0.0, 1.0)
+            GL.glVertex2f(-quad_size_x, -quad_size_y)
+            GL.glTexCoord2d(1.0, 1.0)
+            GL.glVertex2f(quad_size_x, -quad_size_y)
+            GL.glTexCoord2d(1.0, 0.0)
+            GL.glVertex2f(quad_size_x, quad_size_y)
+            GL.glTexCoord2d(0.0, 0.0)
+            GL.glVertex2f(-quad_size_x, quad_size_y)
+            GL.glEnd()
 
         GL.glPopMatrix()
         GL.glMatrixMode(GL.GL_PROJECTION)
@@ -235,6 +256,9 @@ class DrawSpline3D(QOpenGLWidget):
         return pts
 
     def draw_crv_2d(self):
+        if not self.gui or not self.gui.crv:
+            return
+
         self.set_2d_projection()
 
         crv = self.gui.crv.mask_crv.bezier_crv_fit_to_mask
@@ -276,7 +300,7 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glLineWidth(2)
         if self.gui.show_interior_rects_button.checkState():
-            rects, _ = crv.interior_rects(self.gui.pix_spacing.value(), self.gui.perc_interior.value())
+            rects, _ = crv.interior_rects(self.gui.step_size.value(), self.gui.width_inside.value())
             col_incr = 1.0 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(i * col_incr, 0.8, 0.8)
@@ -287,7 +311,7 @@ class DrawSpline3D(QOpenGLWidget):
                 GL.glEnd()
 
         if self.gui.show_edge_rects_button.checkState():
-            rects, _ = crv.boundary_rects(self.gui.pix_spacing.value(), self.gui.perc_exterior.value())
+            rects, _ = crv.boundary_rects(self.gui.step_size.value(), self.gui.width_edge.value())
             col_incr = 0.5 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(0.5 + i * col_incr, 0.3 + (i % 2) * 0.3, 0.5 + i * col_incr)
@@ -296,6 +320,52 @@ class DrawSpline3D(QOpenGLWidget):
                 for p in pts:
                     GL.glVertex2d(p[0], p[1])
                 GL.glEnd()
+
+        if self.gui.show_profiles_button.checkState():
+            pts_reconstruct = np.zeros((len(self.gui.extract_crv.edge_stats["pixs_edge"]), 2))
+            for i, pt_reconstruct in enumerate(self.gui.extract_crv.edge_stats["pixs_edge"]):
+                pts_reconstruct[i, 0] = pt_reconstruct[0]
+                pts_reconstruct[i, 1] = pt_reconstruct[1]
+            pts = self.convert_pts(pts_reconstruct)
+
+            GL.glPointSize(4.0)
+            GL.glBegin(GL.GL_POINTS)
+            GL.glColor3f(1.0, 0.5, 0.5)
+            for pt in pts:
+                GL.glVertex2d(pt[0], pt[1])
+            GL.glEnd()
+
+            # pixs_filtered or pixs_reconstruct
+            b_do_profile_debug = False
+            if b_do_profile_debug:
+                pts_reconstruct = np.zeros((len(self.gui.extract_crv.edge_stats["pixs_filtered"]), 2))
+                for i, pt_reconstruct in enumerate(self.gui.extract_crv.edge_stats["pixs_filtered"]):
+                    pts_reconstruct[i, 0] = pt_reconstruct[0]
+                    pts_reconstruct[i, 1] = pt_reconstruct[1]
+                pts = self.convert_pts(pts_reconstruct)
+
+                GL.glPointSize(2.0)
+                GL.glBegin(GL.GL_POINTS)
+                GL.glColor3f(1.0, 1.0, 0.5)
+                for pt in pts:
+                    GL.glVertex2d(pt[0], pt[1])
+                GL.glEnd()
+
+            for profile_crv, dir in zip([self.gui.extract_crv.left_curve, self.gui.extract_crv.right_curve], ['Left', 'Right']):
+                col_incr = 0.5 // len(profile_crv)
+                pts_reconstruct = np.zeros((len(profile_crv), 2))
+                for i, pt in enumerate(profile_crv):
+                    pt_reconstruct = self.gui.crv.bezier_crv_fit_to_edge.edge_offset_pt(pt[0], pt[1], dir)
+                    pts_reconstruct[i, 0] = pt_reconstruct[0]
+                    pts_reconstruct[i, 1] = pt_reconstruct[1]
+                pts = self.convert_pts(pts_reconstruct)
+                GL.glLineWidth(2.0)
+                GL.glBegin(GL.GL_LINE_STRIP)
+                for i, pt in enumerate(pts):
+                    GL.glColor3f(0.5 + i * col_incr, 0.6, 0.5 + i * col_incr)
+                    GL.glVertex2d(pt[0], pt[1])
+                GL.glEnd()
+
 
         #GL.glBegin(GL.GL_LINE_LOOP)
         #GL.glColor3d(1.0, 1.0, 1.0)
@@ -324,11 +394,12 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glScaled(scl_factor, scl_factor, scl_factor)
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
-        if self.gui.crv and len(self.image_gl_tex) > 0:
-            self.draw_images()
-            self.draw_crv_2d()
+        self.draw_images()
+        self.draw_crv_2d()
+        for crv in self.crvs:
+            self.draw_crv_3d(crv)
 
-        if self.show:
+        if self.show and self.crv_gl_list is not None:
             GL.glCallList(self.crv_gl_list)
 
     @staticmethod
@@ -344,6 +415,8 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
 
+        DrawSpline3D.gl_inited= True
+
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
 
@@ -358,6 +431,9 @@ class DrawSpline3D(QOpenGLWidget):
         self.lastPos = event.pos()
 
     def make_crv_gl_list(self):
+        if not DrawSpline3D.gl_inited:
+            return
+
         self.pt_center = [0.0, 0.0, 0.0]
 
         if self.crv_gl_list == -1:
@@ -386,6 +462,7 @@ class DrawSpline3D(QOpenGLWidget):
 
 
 if __name__ == '__main__':
+    # THIS DOES NOT WORK - use Sketch_curvs_main_window
     from Window_3D import Window_3D
     app = QApplication(sys.argv)
     window = Window_3D(DrawSpline3D)
@@ -396,7 +473,6 @@ if __name__ == '__main__':
     branch.set_radii_and_junction(start_radius=10.5, end_radius=8.25, b_start_is_junction=True, b_end_is_bud=False)
 
     window.glWidget.crvs.append(branch)
-    window.glWidget.make_crv_gl_list()
 
     window.show()
     sys.exit(app.exec_())

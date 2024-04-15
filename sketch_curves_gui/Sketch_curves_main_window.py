@@ -4,7 +4,7 @@
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
-import PyQt5.Qt as Qt
+import cv2
 
 import os
 import sys
@@ -16,7 +16,7 @@ from MySliders import SliderIntDisplay, SliderFloatDisplay
 from Draw_spline_3D import DrawSpline3D
 from HandleFileNames import HandleFileNames
 
-from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
+from extract_curves import ExtractCurves
 
 
 class SketchCurvesMainWindow(QMainWindow):
@@ -47,6 +47,10 @@ class SketchCurvesMainWindow(QMainWindow):
         self.last_index = ()
         self.handle_filenames = None
         self.crv = None
+        self.extract_crv = None
+        self.in_reset_file_menus = False
+        self.in_read_images = False
+
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -151,24 +155,28 @@ class SketchCurvesMainWindow(QMainWindow):
     # Set up the right set of sliders/buttons (recalc)
     def _init_right_layout_(self):
         # Iterate fits
-        restart_fit_mask_button = QPushButton('Restart fit')
-        restart_fit_mask_button.clicked.connect(self.refit_interior)
+        restart_fit_button = QPushButton('Restart fit')
+        restart_fit_button.clicked.connect(self.refit)
 
-        refit_interior_mask_button = QPushButton('Refit interior')
-        refit_interior_mask_button.clicked.connect(self.refit_interior)
-
-        refit_edges_button = QPushButton('Refit edges')
-        refit_edges_button.clicked.connect(self.refit_edges)
-
-        self.perc_interior = SliderFloatDisplay('Perc interior', 0.1, 0.9, 0.75)
-        self.perc_exterior = SliderFloatDisplay('Perc exterior', 0.01, 0.35, 0.25)
-        self.pix_spacing = SliderFloatDisplay('Pix spacing', 10, 200, 40)
+        # Fit mas has:
+        #   step_size - number of pixels along the mask
+        #   width_mask - percent bigger than mask to search (1.0 to 1.5ish)
+        #   width_edge - percent of edge +- to search (0.1 to 0.3)
+        #   width_profile - same, but for profile curves
+        #   edge_max - pixel value to call a valid edge (0..255)
+        #   n_per_seg - number of pixels along the profile to resample, should be less than step_size
+        #   width_inside - percentage considered "inside" mask
+        self.step_size = SliderIntDisplay('Step size', 10, 100, 40)
+        self.width_mask = SliderFloatDisplay('Width mask', 1.0, 2.0, 1.4)
+        self.width_edge = SliderFloatDisplay('Width edge', 0.1, 0.6, 0.3)
+        self.width_profile = SliderFloatDisplay('Width profile', 0.1, 0.6, 0.3)
+        self.edge_max = SliderIntDisplay('Edge max', 0, 255, 128)
+        self.n_per_seg = SliderIntDisplay('N per seg', 3, 40, 10)
+        self.width_inside = SliderFloatDisplay('Width inside', 0.1, 1.0, 0.6)
 
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
-        resets_layout.addWidget(restart_fit_mask_button)
-        resets_layout.addWidget(refit_interior_mask_button)
-        resets_layout.addWidget(refit_edges_button)
+        resets_layout.addWidget(restart_fit_button)
         resets.setLayout(resets_layout)
 
         curve_drawing = QGroupBox('Curve drawing')
@@ -184,12 +192,20 @@ class SketchCurvesMainWindow(QMainWindow):
         self.show_edge_rects_button = QCheckBox('Show edge rects')
         self.show_edge_rects_button.clicked.connect(self.redraw_self)
 
+        self.show_profiles_button = QCheckBox('Show profile curves')
+        self.show_profiles_button.clicked.connect(self.redraw_self)
+
         curve_drawing_layout.addWidget(self.show_backbone_button)
         curve_drawing_layout.addWidget(self.show_interior_rects_button)
         curve_drawing_layout.addWidget(self.show_edge_rects_button)
-        curve_drawing_layout.addWidget(self.perc_interior)
-        curve_drawing_layout.addWidget(self.perc_exterior)
-        curve_drawing_layout.addWidget(self.pix_spacing)
+        curve_drawing_layout.addWidget(self.show_profiles_button)
+        curve_drawing_layout.addWidget(self.step_size)
+        curve_drawing_layout.addWidget(self.width_mask)
+        curve_drawing_layout.addWidget(self.width_edge)
+        curve_drawing_layout.addWidget(self.width_profile)
+        curve_drawing_layout.addWidget(self.edge_max)
+        curve_drawing_layout.addWidget(self.n_per_seg)
+        curve_drawing_layout.addWidget(self.width_inside)
         curve_drawing.setLayout(curve_drawing_layout)
 
         # For showing images
@@ -202,6 +218,8 @@ class SketchCurvesMainWindow(QMainWindow):
         self.show_edge_button.clicked.connect(self.redraw_self)
         self.show_opt_flow_button = QCheckBox('Show optical flow')
         self.show_opt_flow_button.clicked.connect(self.redraw_self)
+        self.show_depth_button = QCheckBox('Show depth')
+        self.show_depth_button.clicked.connect(self.redraw_self)
 
         show_images = QGroupBox('Image shows')
         show_images_layout = QVBoxLayout()
@@ -209,6 +227,7 @@ class SketchCurvesMainWindow(QMainWindow):
         show_images_layout.addWidget(self.show_mask_button)
         show_images_layout.addWidget(self.show_edge_button)
         show_images_layout.addWidget(self.show_opt_flow_button)
+        show_images_layout.addWidget(self.show_depth_button)
         show_images.setLayout(show_images_layout)
 
         # Drawing
@@ -236,39 +255,48 @@ class SketchCurvesMainWindow(QMainWindow):
         return right_side_layout
 
     def reset_file_menus(self):
+        if self.in_reset_file_menus:
+            return
+        self.in_reset_file_menus = True
         indx_sub_dir = self.sub_dir_number.value()
         indx_image = self.image_number.value()
         indx_mask = self.mask_number.value()
         id_mask = self.mask_id_number.value()
+        print(f"Begin rest file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
         b_changed = False
         sldr_maxs_orig = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
                      self.mask_id_number.slider.maximum())
-        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[indx_sub_dir]) - 1:
-            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[indx_sub_dir]) - 1)
+        print(f"Sliders orig {sldr_maxs_orig}")
+        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[indx_sub_dir]):
+            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[indx_sub_dir]))
             b_changed = True
-            if indx_image >= self.image_number.slider.maximum():
-                indx_image = 0
-                self.image_number.set_value(indx_image)
+            print(f" Changing image number {self.image_number.slider.maximum()} {indx_image}")
+        if indx_image >= self.image_number.slider.maximum():
+            indx_image = 0
+            self.image_number.set_value(indx_image)
 
-        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image]) - 1:
-            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image]) - 1)
+        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]):
+            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]))
             b_changed = True
-            if indx_mask >= self.mask_number.slider.maximum():
-                indx_mask = 0
-                self.mask_number.set_value(indx_mask)
+            print(f" Changing mask number {self.mask_number.slider.maximum()} {indx_mask}")
+        if indx_mask >= self.mask_number.slider.maximum():
+            indx_mask = 0
+            self.mask_number.set_value(indx_mask)
 
-        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]) - 1:
-            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]) - 1)
+        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]):
+            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]))
             b_changed = True
-            if id_mask >= self.mask_id_number.slider.maximum():
-                id_mask = 0
-                self.mask_id_number.set_value(id_mask)
+            print(f" Changing mask id number {self.mask_id_number.slider.maximum()} {id_mask}")
+        if id_mask >= self.mask_id_number.slider.maximum():
+            id_mask = 0
+            self.mask_id_number.set_value(id_mask)
 
         indx = (indx_sub_dir, indx_image, indx_mask, id_mask)
         if indx != self.last_index:
             b_changed = True
+        print(f" New index {indx}")
 
         self.image_name.setText(self.handle_filenames.get_image_name("", index=indx))
         sldr_maxs = (self.sub_dir_number.slider.maximum(),
@@ -276,7 +304,18 @@ class SketchCurvesMainWindow(QMainWindow):
                      self.mask_number.slider.maximum(),
                      self.mask_id_number.slider.maximum())
         print(f"index {indx} sldrs {sldr_maxs} redo {b_changed}")
+        self.in_reset_file_menus = False
+
         return b_changed, indx
+
+    def reset_params_menus(self):
+        """ Set all the sliders based on the stored curve"""
+        self.step_size.set_value(self.extract_crv.params["step_size"])
+        self.width_mask.set_value(self.extract_crv.params["width_mask"])
+        self.width_edge.set_value(self.extract_crv.params["width_edge"])
+        self.width_profile.set_value(self.extract_crv.params["width_profile"])
+        self.edge_max.set_value(self.extract_crv.params["edge_max"])
+        self.n_per_seg.set_value(self.extract_crv.params["n_per_seg"])
 
     def get_file_name_tuple(self):
         return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
@@ -288,6 +327,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.sub_dir_number.slider.setValue(0)
         self.reset_file_menus()
         self.read_images()
+        self.reset_params_menus()
 
     def reset_view(self):
         self.turntable.set_value(0.0)
@@ -295,8 +335,22 @@ class SketchCurvesMainWindow(QMainWindow):
         self.zoom.set_value(1.0)
         self.redraw_self()
 
-    def refit_interior(self):
-        pass
+    def refit(self):
+        params = {}
+        params["step_size"] = self.step_size.value()
+        params["width_mask"] = self.width_mask.value()
+        params["width_edge"] = self.width_edge.value()
+        params["width_profile"] = self.width_profile.value()
+        params["edge_max"] = self.edge_max.value()
+        params["n_per_seg"] = self.n_per_seg.value()
+
+        self.step_size.set_value(self.extract_crv.params["step_size"])
+        self.width_mask.set_value(self.extract_crv.params["width_mask"])
+        self.width_edge.set_value(self.extract_crv.params["width_edge"])
+        self.width_profile.set_value(self.extract_crv.params["width_profile"])
+        self.edge_max.set_value(self.extract_crv.params["edge_max"])
+        self.n_per_seg.set_value(self.extract_crv.params["n_per_seg"])
+        self.set_crv(params)
 
     def refit_edges(self):
         pass
@@ -304,32 +358,66 @@ class SketchCurvesMainWindow(QMainWindow):
     def clear_drawings(self):
         pass
 
+    def set_crv(self, params):
+        """Read in the images etc and recalc (or not)
+        @param params - if None, recalculate"""
+        print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=self.last_index, b_add_tag=True)}")
+
+        rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
+        mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+
+        edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Error, file {mask_fname} does not exist")
+        if not exists(rgb_fname):
+            raise ValueError(f"Error, file {rgb_fname} does not exist")
+
+        #self.crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=False)
+
+        b_recalc = False
+        if params is not None:
+            b_recalc = True
+        self.extract_crv = ExtractCurves(rgb_fname, edge_fname, mask_fname,
+                                         fname_calculated=edge_fname_calculate,
+                                         params=params,
+                                         fname_debug=edge_fname_debug,
+                                         b_recalc=b_recalc)
+        self.crv = self.extract_crv.bezier_edge
+
     def read_images(self):
+        if self.in_read_images:
+            return
+        self.in_read_images = True
         if self.handle_filenames is not None:
             print("Read images")
             b_get_image, self.last_index = self.reset_file_menus()
             print(f" masks {self.handle_filenames.mask_ids[self.last_index[0]][self.last_index[1]][self.last_index[2]]}")
             if b_get_image:
-                print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=self.last_index, b_add_tag=True)}")
+                image_flow_name = self.handle_filenames.get_flow_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+                image_depth_name = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
 
-                rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-                edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
-                mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-                edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
-                # if not b_do_debug:
-                edge_fname_debug = None
+                if exists(image_flow_name):
+                    image_flow = cv2.imread(image_flow_name)
+                else:
+                    image_flow = None
 
-                edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+                if exists(image_depth_name):
+                    image_depth = cv2.imread(image_depth_name)
+                else:
+                    image_depth = None
 
-                if not exists(mask_fname):
-                    raise ValueError(f"Error, file {mask_fname} does not exist")
-                if not exists(rgb_fname):
-                    raise ValueError(f"Error, file {rgb_fname} does not exist")
-
-                self.crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=False)
-
-                self.glWidget.bind_texture(self.crv.image_rgb, self.crv.mask_crv.stats_dict.mask_image, self.crv.image_edge)
+                self.set_crv(params=None)
+                self.glWidget.bind_texture(self.crv.image_rgb,
+                                           self.crv.mask_crv.stats_dict.mask_image,
+                                           self.crv.image_edge,
+                                           image_flow,
+                                           image_depth)
                 self.redraw_self()
+        self.in_read_images = False
+
 
     def redraw_self(self):
         self.glWidget.update()

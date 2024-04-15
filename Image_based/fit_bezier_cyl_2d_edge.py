@@ -35,17 +35,25 @@ class FitBezierCyl2DEdge:
     _line_b = np.array([0.0, 0.0, 1.0])
     _line_abc = np.zeros((3, 1))
 
-    def __init__(self, fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self, fname_rgb_image, fname_edge_image, fname_mask_image, fname_calculated=None, params=None, fname_debug=None, b_recalc=False):
         """ Read in the mask image, use the stats to start the Bezier fit, then fit the Bezier to the mask
         @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
         @param fname_edge_image: Create and store the edge image, or read it in if it exists
         @param fname_mask_image: Mask image name - for the base stats image
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
+        @param params: Dictionary with
+            "step_size": how many pixels to use in each "cut out"; 20-40 is reasonable
+            "width_mask": what percentage of the radius to search for the mask; should be bigger than 1 (1 - 1.5)
+            "width_edge": what percentage of the radius to use for edge fit; should be bigger 0.1 to 0.5
         @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug image
         @param b_recalc: Force recalculate the result, y/n"""
 
         # First do the base mask image
-        self.mask_crv = FitBezierCyl2DMask(fname_mask_image, fname_calculated, fname_debug, b_recalc)
+        self.mask_crv = FitBezierCyl2DMask(fname_mask_image=fname_mask_image,
+                                           fname_calculated=fname_calculated,
+                                           fname_debug=fname_debug,
+                                           params=params,
+                                           b_recalc=b_recalc)
 
         # Read in the RGB image
         self.image_rgb = cv2.imread(fname_rgb_image)
@@ -75,9 +83,16 @@ class FitBezierCyl2DEdge:
         #   This is the curve that will be fit to the edge
         self.bezier_crv_fit_to_edge = None
 
-        # Current parameters for the vertical leader fit
-        # TODO make this a parameter in the init function
-        self.params = {"step_size": int(self.mask_crv.bezier_crv_fit_to_mask.radius(0.5) * 1.5), "width_mask": 1.4, "width": 0.25}
+        # Copy params used in fit mask and add the new ones
+        self.params = {}
+        for k in self.mask_crv.params.keys():
+            self.params[k] = self.mask_crv.params[k]
+        if "width_edge" not in self.params:
+            self.params["width_edge"] = 0.25
+
+        if params:
+            for k in params:
+                self.params[k] = params[k]
 
         # Fit the curve to the edges
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_edge):
@@ -107,6 +122,20 @@ class FitBezierCyl2DEdge:
 
         # self.score = self.score_mask_fit(self.stats_dict.mask_image)
         # print(f"Mask {mask_fname}, score {self.score}")
+
+    @staticmethod
+    def _get_line_abc(p1, p2):
+        """ Get the line segment in ax + by + c form
+        @param p1 end point 1
+        @param p2 end point 2
+        @return 3x1 numpy array as ax + by + c"""
+        FitBezierCyl2DEdge._line_abc_constraints[0, 0] = p1[0]
+        FitBezierCyl2DEdge._line_abc_constraints[1, 0] = p2[0]
+        FitBezierCyl2DEdge._line_abc_constraints[0, 1] = p1[1]
+        FitBezierCyl2DEdge._line_abc_constraints[1, 1] = p2[1]
+
+        FitBezierCyl2DEdge._line_abc = np.linalg.solve(FitBezierCyl2DEdge._line_abc_constraints, FitBezierCyl2DEdge._line_b)
+        return FitBezierCyl2DEdge._line_abc
 
     @staticmethod
     def _hough_edge_to_middle(bezier_crv, p1, p2, t):
@@ -372,7 +401,7 @@ class FitBezierCyl2DEdge:
         # Now do the hough transform - first draw the hough transform edges
         for i in range(0, 5):
             ret = FitBezierCyl2DEdge._adjust_bezier_by_hough_edges(fit_bezier_crv, im_edge,
-                                                                   step_size=params["step_size"], perc_width=params["width"],
+                                                                   step_size=params["step_size"], perc_width=params["width_edge"],
                                                                    b_debug=b_debug)
             if b_debug:
                 print(f"Res Hough {ret}")
