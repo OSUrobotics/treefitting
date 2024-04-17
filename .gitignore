@@ -8,6 +8,7 @@ __pycache__/
 # data
 /Image_based/data/forcindy/CalculatedData/
 /Image_based/data/forcindy/DebugImages/
+data/RWCheck.txt
 
 *.xml
 *.iml
