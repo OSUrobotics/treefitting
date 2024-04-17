@@ -8,6 +8,9 @@ import cv2
 
 import os
 import sys
+sys.path.insert(0, os.path.abspath('./'))
+sys.path.insert(0, os.path.abspath('./Image_based'))
+sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
 sys.path.insert(0, os.path.abspath('../'))
 sys.path.insert(0, os.path.abspath('../Image_based'))
 from os.path import exists
@@ -50,7 +53,6 @@ class SketchCurvesMainWindow(QMainWindow):
         self.extract_crv = None
         self.in_reset_file_menus = False
         self.in_read_images = False
-
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -418,14 +420,12 @@ class SketchCurvesMainWindow(QMainWindow):
                 self.redraw_self()
         self.in_read_images = False
 
-
     def redraw_self(self):
         self.glWidget.update()
         self.repaint()
 
 
 if __name__ == '__main__':
-
     app = QApplication([])
 
     gui = SketchCurvesMainWindow()

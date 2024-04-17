@@ -1,15 +1,21 @@
+import os
 import sys
+sys.path.insert(0, os.path.abspath('./'))
+sys.path.insert(0, os.path.abspath('../'))
+sys.path.insert(0, os.path.abspath('../Image_based'))
 
 from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
 from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
                              QWidget)
-
+from PyQt5.QtGui import QPainter, QBrush, QPen, QFont, QColor
 import OpenGL.GL as GL
 import cv2
 from ctypes import c_uint8
 
 from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
 import numpy as np
+
+from SketchesForCurves import SketchesForCurves
 
 
 class DrawSpline3D(QOpenGLWidget):
@@ -36,6 +42,7 @@ class DrawSpline3D(QOpenGLWidget):
         self.gui = gui
         self.crvs = []
 
+        self.firstPos = QPoint()
         self.lastPos = QPoint()
 
         self.show = True
@@ -43,6 +50,8 @@ class DrawSpline3D(QOpenGLWidget):
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
         self.im_size = (0, 0)
+
+        self.sketch_curve = SketchesForCurves()
 
     @staticmethod
     def get_opengl_info():
@@ -379,6 +388,35 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glPopMatrix()
 
+    def draw_sketch(self):
+        """ The marks the user made"""
+        if not self.gui or not self.gui.crv:
+            return
+        qp = QPainter()
+        qp.begin(self)
+        pen_backbone = QPen(Qt.yellow, 3, Qt.SolidLine)
+        pen_cross = QPen(Qt.blue, 4, Qt.SolidLine)
+        brush = QBrush(Qt.CrossPattern)
+        qp.setPen(pen_backbone)
+        qp.setBrush(brush)
+        for pt in self.sketch_curve.backbone_pts:
+            qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
+            qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
+
+        for pt1, pt2 in zip(self.sketch_curve.backbone_pts[0:-1], self.sketch_curve.backbone_pts[1:]):
+            qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
+
+        qp.setPen(pen_cross)
+        for pts in self.sketch_curve.cross_bars:
+            for pt in pts:
+                qp.drawLine(int(pt[0] - 3), int(pt[1]), int(pt[0] + 3), int(pt[1]))
+                qp.drawLine(int(pt[0]), int(pt[1] - 3), int(pt[0]), int(pt[1] + 3))
+            if len(pts) > 1:
+                pt1 = pts[0]
+                pt2 = pts[1]
+                qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
+        qp.end()
+
     def paintGL(self):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
@@ -402,6 +440,8 @@ class DrawSpline3D(QOpenGLWidget):
         if self.show and self.crv_gl_list is not None:
             GL.glCallList(self.crv_gl_list)
 
+        self.draw_sketch()
+
     @staticmethod
     def resizeGL(width, height):
         side = min(width, height)
@@ -418,6 +458,7 @@ class DrawSpline3D(QOpenGLWidget):
         DrawSpline3D.gl_inited= True
 
     def mousePressEvent(self, event):
+        self.firstPos = event.pos()
         self.lastPos = event.pos()
 
     def mouseMoveEvent(self, event):
@@ -429,6 +470,26 @@ class DrawSpline3D(QOpenGLWidget):
             self.set_turntable_rotation(self.turntable + 4 * dx)
 
         self.lastPos = event.pos()
+
+    def mouseReleaseEvent(self, event):
+        """Either add a point to the backbone or a point to the crossbar
+         Shift: Add a cross bar
+         Cntr: Remove a point"""
+        dx = event.x() - self.firstPos.x()
+        dy = event.y() - self.firstPos.y()
+        # Not a click
+        if abs(dx) + abs(dy) > 5:
+            print(f"Big {dx} {dy}")
+            return
+        
+        if event.modifiers() == Qt.ShiftModifier:
+            self.sketch_curve.add_crossbar_point(event.x(), event.y())
+        elif event.modifiers() == Qt.ControlModifier:
+            self.sketch_curve.remove_point(event.x(), event.y())
+        else:
+            self.sketch_curve.add_backbone_point(event.x(), event.y())
+
+        self.update()
 
     def make_crv_gl_list(self):
         if not DrawSpline3D.gl_inited:

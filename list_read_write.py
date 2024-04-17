@@ -73,7 +73,7 @@ class ReadWrite:
                 ret_list = {}
             elif type_check == "ndarray":
                 dim_two = int(check_type[2])
-                if dim_two is 0:
+                if dim_two == 0:
                     ret_list = array([0 for _ in range(0, n_read)])
                 else:
                     ret_list = zeros([n_read, dim_two])

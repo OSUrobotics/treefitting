@@ -1,0 +1,9 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# Made files
+.vscode
+
+# data
+/Image_based/data/forcindy/CalculatedData/
+/Image_based/data/forcindy/DebugImages/
