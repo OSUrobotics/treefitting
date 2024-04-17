@@ -3,7 +3,13 @@ __pycache__/
 
 # Made files
 .vscode
+.idea
 
 # data
 /Image_based/data/forcindy/CalculatedData/
 /Image_based/data/forcindy/DebugImages/
+
+*.xml
+*.iml
+
+
