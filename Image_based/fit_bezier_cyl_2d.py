@@ -46,7 +46,7 @@ class FitBezierCyl2D(BezierCyl2D):
         a_constraints[:, -2] = 2 * (1-ts_constraints) * ts_constraints
         a_constraints[:, -1] = ts_constraints * ts_constraints
         for i, t in enumerate(ts_constraints):
-            b_rhs[i, :] = self.pt_axis(ts_constraints[i])
+            b_rhs[i, :] = self.pt_axis(t)
         return a_constraints, b_rhs
 
     def extract_least_squares(self, a_constraints, b_rhs):

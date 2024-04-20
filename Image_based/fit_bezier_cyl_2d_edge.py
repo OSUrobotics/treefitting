@@ -21,6 +21,7 @@
 #         Else use center fitted curve
 import numpy as np
 import cv2
+import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
@@ -93,6 +94,9 @@ class FitBezierCyl2DEdge:
         if params:
             for k in params:
                 self.params[k] = params[k]
+        if fname_calculated:
+            with open(self.fname_params, "w") as f:
+                json.dump(self.params, f, indent=2)
 
         # Fit the curve to the edges
         if b_recalc or not fname_calculated or not exists(self.fname_bezier_cyl_edge):

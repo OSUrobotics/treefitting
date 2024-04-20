@@ -15,8 +15,6 @@ from ctypes import c_uint8
 from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
 import numpy as np
 
-from SketchesForCurves import SketchesForCurves
-
 
 class DrawSpline3D(QOpenGLWidget):
     upDownRotationChanged = pyqtSignal(int)
@@ -39,6 +37,7 @@ class DrawSpline3D(QOpenGLWidget):
 
         self.selected_point = 0
 
+        # Pointer back to sketch_curves_main_window
         self.gui = gui
         self.crvs = []
 
@@ -50,8 +49,6 @@ class DrawSpline3D(QOpenGLWidget):
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
         self.im_size = (0, 0)
-
-        self.sketch_curve = SketchesForCurves()
 
     @staticmethod
     def get_opengl_info():
@@ -396,18 +393,20 @@ class DrawSpline3D(QOpenGLWidget):
         qp.begin(self)
         pen_backbone = QPen(Qt.yellow, 3, Qt.SolidLine)
         pen_cross = QPen(Qt.blue, 4, Qt.SolidLine)
+        pen_corner = QPen(Qt.white, 2, Qt.SolidLine)
         brush = QBrush(Qt.CrossPattern)
         qp.setPen(pen_backbone)
         qp.setBrush(brush)
-        for pt in self.sketch_curve.backbone_pts:
+        sc = self.gui.sketch_curve
+        for pt in sc.backbone_pts:
             qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
             qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
 
-        for pt1, pt2 in zip(self.sketch_curve.backbone_pts[0:-1], self.sketch_curve.backbone_pts[1:]):
+        for pt1, pt2 in zip(sc.backbone_pts[0:-1], sc.backbone_pts[1:]):
             qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
 
         qp.setPen(pen_cross)
-        for pts in self.sketch_curve.cross_bars:
+        for pts in sc.cross_bars:
             for pt in pts:
                 qp.drawLine(int(pt[0] - 3), int(pt[1]), int(pt[0] + 3), int(pt[1]))
                 qp.drawLine(int(pt[0]), int(pt[1] - 3), int(pt[0]), int(pt[1] + 3))
@@ -415,9 +414,19 @@ class DrawSpline3D(QOpenGLWidget):
                 pt1 = pts[0]
                 pt2 = pts[1]
                 qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
+
+        qp.setPen(pen_corner)
+        sc = self.gui.sketch_curve
+        for pt in [self.gui.lower_left, self.gui.upper_right]:
+            qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
+            qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
         qp.end()
+        
 
     def paintGL(self):
+        if self.gui:
+            self.gui.set_corners()
+
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
         pt_center = self.pt_center
@@ -455,7 +464,7 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
 
-        DrawSpline3D.gl_inited= True
+        DrawSpline3D.gl_inited = True        
 
     def mousePressEvent(self, event):
         self.firstPos = event.pos()
@@ -482,12 +491,15 @@ class DrawSpline3D(QOpenGLWidget):
             print(f"Big {dx} {dy}")
             return
         
-        if event.modifiers() == Qt.ShiftModifier:
-            self.sketch_curve.add_crossbar_point(event.x(), event.y())
-        elif event.modifiers() == Qt.ControlModifier:
-            self.sketch_curve.remove_point(event.x(), event.y())
-        else:
-            self.sketch_curve.add_backbone_point(event.x(), event.y())
+        if self.gui:
+            sc = self.gui.sketch_curve
+
+            if event.modifiers() == Qt.ShiftModifier:
+                sc.add_crossbar_point(event.x(), event.y())
+            elif event.modifiers() == Qt.ControlModifier:
+                sc.remove_point(event.x(), event.y())
+            else:
+                sc.add_backbone_point(event.x(), event.y())
 
         self.update()
 

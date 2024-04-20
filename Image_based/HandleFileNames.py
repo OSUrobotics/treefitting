@@ -22,6 +22,14 @@
 # Iterators
 #   General use is get the i,j,k triple for each image. From that you can generate
 #     image name, mask name, etc
+#   An index is:
+#     Which subdirectory (may be only one)
+#     Which image
+#     Which mask name/type
+#     Which id for that mask
+#
+#  self.mask_names
+#
 
 from glob import glob
 import json
@@ -170,12 +178,47 @@ class HandleFileNames:
                                 # Add the mask name and the index
                                 if not str.isnumeric(mask_bit_left):
                                     self.mask_id_separator = mask_bit_left[0]
-                                self.mask_ids[i][j].append([])
                                 b_found_mask_name = True
                             if not self.mask_id_separator == "":
                                 mask_bit_left = mask_bit_left[1:]
                             self.mask_ids[i][j][k].append(int(mask_bit_left))
                     self.mask_ids[i][j][k].sort()
+
+    def add_mask_name(self, index, mask_type_name):
+        """ Add another mask type/name to the list
+        @param index - which subdir (-1 is all), which image (-1 is all)
+        @param mask_type_name - actual name to use
+        @return new index"""
+        if index[0] == -1:
+            # Recursive call
+            for i in range(0, len(self.mask_names)):
+                ret_index = self.add_mask_name((i, index[1], index[2], -1), mask_type_name)
+        elif index[1] == -1:
+            # Recursive call
+            for i in range(0, len(self.mask_names[index[0]])):
+                ret_index = self.add_mask_name((index[0], i, index[2], -1), mask_type_name)
+        else:
+            for i, name in enumerate(self.mask_names[index[0]][index[1]]):
+                if name == mask_type_name:
+                    print(f"Mask name {mask_type_name} exists, returning")
+                    return (index[0], index[1], i, index[3])
+            self.mask_names[index[0]][index[1]].append(mask_type_name)
+            self.mask_ids[index[0]][index[1]].append([])
+            ret_index = (index[0], index[1], len(self.mask_names[index[0]][index[1]])-1, index[3])
+        return ret_index
+
+    def add_mask_id(self, index):
+        """ Add another mask id to this file names 
+        @param index - which mask and which subdir
+        @return new index"""
+        if index[3] == -1 or len(self.mask_ids[index[0]][index[1]][index[2]]) == 0:
+            ret_index = (index[0], index[1], index[2], 0)
+        else: 
+            # One more than the last index (assumes mask ids sorted and integers)
+            ret_index = (index[0], index[1], index[2], self.mask_ids[index[0]][index[1]][index[2]][-1] + 1)
+
+        self.mask_ids[index[0]][index[1]][index[2]].append(ret_index[3])
+        return ret_index
 
     def get_image_name(self, path, index, b_add_tag=True):
         """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
@@ -241,6 +284,23 @@ class HandleFileNames:
 
         return im_name
 
+    def _get_mask_name(self, index, b_add_tag=True):
+        """ Get the mask name corresponding to the index given by (subdirectory index, image index, mask name, mask id)
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_add_tag - add the image tag, y/n
+        @return just the mask name """
+        mask_name = self.mask_names[index[0]][index[1]][index[2]]
+        if len(self.mask_ids[index[0]][index[1]][index[2]]) <= index[3] or index[3] == -1:
+            mask_id = -1
+        else:
+            mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+
+        if mask_id != -1:
+            mask_name = mask_name + self.mask_id_separator + str(mask_id)
+        if b_add_tag:
+            mask_name = mask_name + self.mask_tag
+        return mask_name
+
     def get_mask_name(self, path, index, b_add_tag=True):
         """ Get the mask name corresponding to the index given by (subdirectory index, image index, mask name, mask id)
         @param path should be one of self.path, self.path_calculated, or path_debug
@@ -248,16 +308,11 @@ class HandleFileNames:
         @param b_add_tag - add the image tag, y/n
         @return full mask name with path"""
         im_name = self.get_image_name(path, index, b_add_tag=False)
-        im_name = im_name + "_" + self.mask_names[index[0]][index[1]][index[2]]
+        im_name = im_name + "_" + self._get_mask_name(index=index, b_add_tag=b_add_tag)
         if len(self.mask_ids[index[0]][index[1]][index[2]]) <= index[3] or index[3] == -1:
             mask_id = -1
         else:
             mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
-
-        if mask_id != -1:
-            im_name = im_name + self.mask_id_separator + str(mask_id)
-        if b_add_tag:
-            im_name = im_name + self.mask_tag
 
         return im_name
 

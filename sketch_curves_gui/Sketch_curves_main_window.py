@@ -3,7 +3,7 @@
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
 
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit
 import cv2
 
 import os
@@ -20,6 +20,9 @@ from Draw_spline_3D import DrawSpline3D
 from HandleFileNames import HandleFileNames
 
 from extract_curves import ExtractCurves
+from fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
+
+from sketch_curves_gui.Sketches_for_curves import SketchesForCurves
 
 
 class SketchCurvesMainWindow(QMainWindow):
@@ -35,6 +38,8 @@ class SketchCurvesMainWindow(QMainWindow):
         # The layout of the interface
         widget = QWidget()
         self.setCentralWidget(widget)
+        self.lower_left = [0, 0]
+        self.upper_right = [1, 1]
 
         # Two side-by-side panes
         top_level_layout = QHBoxLayout()
@@ -53,6 +58,8 @@ class SketchCurvesMainWindow(QMainWindow):
         self.extract_crv = None
         self.in_reset_file_menus = False
         self.in_read_images = False
+        # self.sketch_curve = SketchesForCurves()
+        self.sketch_curve = SketchesForCurves.read_json("save_crv.json")
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -235,13 +242,15 @@ class SketchCurvesMainWindow(QMainWindow):
         # Drawing
         drawing_states = QGroupBox('Drawing states         ')
         drawing_states_layout = QVBoxLayout()
-        self.draw_backbone_button = QCheckBox('Draw backbone')
-        self.draw_backbone_button.clicked.connect(self.redraw_self)
+        self.draw_backbone_button = QPushButton('New curve')
+        self.draw_backbone_button.clicked.connect(self.new_curve)
         clear_drawings_button = QPushButton('Clear drawings')
         clear_drawings_button.clicked.connect(self.clear_drawings)
+        self.mask_name = QTextEdit("sketch")
 
         drawing_states_layout.addWidget(self.draw_backbone_button)
         drawing_states_layout.addWidget(clear_drawings_button)
+        drawing_states_layout.addWidget(self.mask_name)
 
         drawing_states.setLayout(drawing_states_layout)
 
@@ -358,7 +367,67 @@ class SketchCurvesMainWindow(QMainWindow):
         pass
 
     def clear_drawings(self):
-        pass
+        self.sketch_curve.clear()
+        self.redraw_self()
+
+    def new_curve(self):
+        if self.crv == None:
+            return
+        
+        self.sketch_curve.write_json("save_crv.json")
+        ret_index = self.handle_filenames.add_mask_name(self.last_index, self.mask_name.toPlainText())
+        self.last_index = self.handle_filenames.add_mask_id(ret_index)
+
+        rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
+        mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        fname_calculate = self.handle_filenames.get_mask_name(path= self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+
+        # Actually convert the curve
+        width_rgb_image = self.crv.image_rgb.shape[1]
+        height_rgb_image = self.crv.image_rgb.shape[0]
+        crv_in_image_coords = self.sketch_curve.convert_image(lower_left=self.lower_left, upper_right=self.upper_right, 
+                                                              width=width_rgb_image, height=height_rgb_image)
+        self.sketch_curve.write_json("save_crv_in_image.json")
+
+        # Will create a mask image
+        self.crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname, 
+                                                    sketch_curves=crv_in_image_coords, 
+                                                    fname_mask_image=mask_fname,
+                                                    fname_edge_image=edge_fname,
+                                                    fname_calculated=fname_calculate)
+        self.read_images()
+
+    def set_corners(self):
+        """ Calculate the lower left and upper right corners of the image in the window frame"""
+
+        if self.crv == None:
+            return
+        
+        width_rgb_image = self.crv.image_rgb.shape[1]
+        height_rgb_image = self.crv.image_rgb.shape[0]
+
+        width_window = self.glWidget.width()
+        height_window = self.glWidget.height()
+
+        # The rectangle of the image in window coordinates
+        self.lower_left = [0, 0]
+        self.upper_right = [width_window, height_window]
+
+        if height_window >  width_window:
+            # Rectangle stretches across the image from left to right, height clipped to maintain aspect ratio
+            pixs_missing = height_window - width_window + width_window * (1 - (height_rgb_image / width_rgb_image))
+            self.lower_left[1] = int(pixs_missing * 0.5)
+            self.upper_right[1] = height_window - int(pixs_missing * 0.5) - 1
+        else:
+            # Rectangle stretches across the image from top to bottom, width clipped to maintain aspect ratio
+            pixs_missing_width = width_window - height_window
+
+            pixs_missing_height = height_window * (1 - (height_rgb_image / width_rgb_image))
+            self.lower_left[0] = int(pixs_missing_width * 0.5)
+            self.lower_left[1] = int(pixs_missing_height * 0.5)
+            self.upper_right[0] = width_window - int(pixs_missing_width * 0.5) - 1
+            self.upper_right[1] = height_window - int(pixs_missing_height * 0.5) - 1
 
     def set_crv(self, params):
         """Read in the images etc and recalc (or not)
@@ -369,6 +438,7 @@ class SketchCurvesMainWindow(QMainWindow):
         edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
         mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
         edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+        print(f"{rgb_fname}\n{mask_fname}")
 
         edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
 
@@ -417,8 +487,13 @@ class SketchCurvesMainWindow(QMainWindow):
                                            self.crv.image_edge,
                                            image_flow,
                                            image_depth)
+                self.set_corners()
                 self.redraw_self()
         self.in_read_images = False
+
+    def resizeEvent(self, event):
+        # Really only need to do this on resize
+        self.set_corners()
 
     def redraw_self(self):
         self.glWidget.update()
