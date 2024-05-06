@@ -35,6 +35,7 @@ class BezierCyl3D:
         self.n_around = 64
 
         self.vertex_locs = np.zeros((self.n_along, self.n_around, 3))
+        self.vertex_normals = np.zeros((self.n_along, self.n_around, 3))
         self.make_mesh()
 
     def copy(self, bezier_crv=None, b_compute_mesh=False):
@@ -53,6 +54,7 @@ class BezierCyl3D:
 
         if b_compute_mesh:
             bezier_crv.vertex_locs = np.copy(self.vertex_locs)
+            bezier_crv.vertex_normals = np.copy(self.vertex_normals)
         return bezier_crv
 
     def n_vertices(self):
@@ -62,6 +64,7 @@ class BezierCyl3D:
         self.n_along = n_along
         self.n_around = n_radial
         self.vertex_locs = np.zeros((self.n_along, self.n_around, 3))
+        self.vertex_normals = np.zeros((self.n_along, self.n_around, 3))
 
     def set_pts(self, pt1, pt2, pt3):
         """ Turn into numpy array
@@ -151,20 +154,25 @@ class BezierCyl3D:
     def _calc_cyl_vertices(self):
         """Calculate the cylinder vertices"""
         pt = np.ones(shape=(4,))
+        pt[2] = 0
+        norm = np.zeros(shape=(4,))
         radii = self._calc_radii()
 
         for it, t in enumerate(np.linspace(0, 1.0, self.n_along)):
             mat = self.frenet_frame(t)
-            pt[0] = 0
-            pt[1] = 0
-            pt[2] = 0
+
             for itheta, theta in enumerate(np.linspace(0, np.pi * 2.0, self.n_around, endpoint=False)):
                 pt[0] = np.cos(theta) * radii[it]
                 pt[1] = np.sin(theta) * radii[it]
                 pt[2] = 0
                 pt_on_crv = mat @ pt
 
+                norm[0] = np.cos(theta)
+                norm[1] = np.sin(theta)
+                norm_on_crv = mat @ norm
+
                 self.vertex_locs[it, itheta, :] = pt_on_crv[0:3].transpose()
+                self.vertex_normals[it, itheta, :] = norm_on_crv[0:3].transpose()
 
     def make_mesh(self):
         """ Make a 3D generalized cylinder """
@@ -180,6 +188,9 @@ class BezierCyl3D:
                     fp.write(f"v ")
                     fp.write(" ".join(["{:.6}"] * 3).format(*self.vertex_locs[it, ir, :]))
                     fp.write(f"\n")
+                    fp.write(f"vn ")
+                    fp.write(" ".join(["{:.6}"] * 3).format(*self.vertex_normals[it, ir, :]))
+                    fp.write(f"\n")
             for it in range(0, self.n_along - 1):
                 i_curr = it * self.n_around + 1
                 i_next = (it+1) * self.n_around + 1
@@ -193,7 +204,9 @@ class BezierCyl3D:
         @param fname - file name"""
         fix_nparray = []
         for k, v in self.__dict__.items():
-            if k == "vertex_locs":
+            if k == "vertex_locs" or k == "vertex_normals":
+                fix_nparray.append([k, v])
+                setattr(self, k, None)
                 continue
             try:
                 if v.size == 3:

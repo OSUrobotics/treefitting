@@ -21,6 +21,7 @@ from HandleFileNames import HandleFileNames
 
 from extract_curves import ExtractCurves
 from fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
+from fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
 
 from sketch_curves_gui.Sketches_for_curves import SketchesForCurves
 
@@ -56,10 +57,15 @@ class SketchCurvesMainWindow(QMainWindow):
         self.handle_filenames = None
         self.crv = None
         self.extract_crv = None
+        self.fit_crv_3d = None
         self.in_reset_file_menus = False
         self.in_read_images = False
         # self.sketch_curve = SketchesForCurves()
-        self.sketch_curve = SketchesForCurves.read_json("save_crv.json")
+        self.crv_from_sketch = None
+        if exists("save_crv.json"):
+            self.sketch_curve = SketchesForCurves.read_json("save_crv.json")
+        else:
+            self.sketch_curve = None
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -111,6 +117,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.turntable = SliderFloatDisplay('Rotate turntable', 0.0, 360, 0, 361)
         self.up_down = SliderFloatDisplay('Up down', 0, 360, 0, 361)
         self.zoom = SliderFloatDisplay('Zoom', 0.6, 2.0, 1.0)
+        self.horizontal_angle = SliderFloatDisplay('Angle', 45, 175, 90)
 
         params_camera = QGroupBox('Camera parameters')
         params_camera_layout = QVBoxLayout()
@@ -118,12 +125,21 @@ class SketchCurvesMainWindow(QMainWindow):
         params_camera_layout.addWidget(self.up_down)
         params_camera_layout.addWidget(self.zoom)
         params_camera_layout.addWidget(reset_view)
+        params_camera_layout.addWidget(self.horizontal_angle)
         params_camera.setLayout(params_camera_layout)
 
         params_crvs = QGroupBox('3D Curve parameters')
         params_crvs_layout = QVBoxLayout()
+        self.show_3d_crv_button = QCheckBox('Show 3d crv')
+        self.show_3d_crv_button.setCheckState(2)
+        self.show_3d_crv_button.clicked.connect(self.redraw_self)
+        self.show_3d_crv_axis_button = QCheckBox('Show 3d crv axis')
+        self.show_3d_crv_axis_button.clicked.connect(self.redraw_self)
+        self.show_3d_crv_axis_button.setCheckState(2)
         self.n_around = SliderIntDisplay("N around", 8, 64, 32)
         self.n_along = SliderIntDisplay("N along", 8, 64, 16)
+        params_crvs_layout.addWidget(self.show_3d_crv_button)
+        params_crvs_layout.addWidget(self.show_3d_crv_axis_button)
         params_crvs_layout.addWidget(self.n_around)
         params_crvs_layout.addWidget(self.n_along)
         params_crvs.setLayout(params_crvs_layout)
@@ -371,7 +387,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.redraw_self()
 
     def new_curve(self):
-        if self.crv == None:
+        if self.crv is None:
             return
         
         self.sketch_curve.write_json("save_crv.json")
@@ -381,6 +397,7 @@ class SketchCurvesMainWindow(QMainWindow):
         rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
         edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
         mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        depth_fname = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
         fname_calculate = self.handle_filenames.get_mask_name(path= self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
 
         # Actually convert the curve
@@ -396,6 +413,17 @@ class SketchCurvesMainWindow(QMainWindow):
                                                     fname_mask_image=mask_fname,
                                                     fname_edge_image=edge_fname,
                                                     fname_calculated=fname_calculate)
+        if exists(depth_fname):
+            depth_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+            depth_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+            params = {"camera_width_angle": self.horizontal_angle.value()}
+            self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv_from_sketch.sketch_crv,
+                                              params=params,
+                                              fname_calculated=depth_fname_calculate,
+                                              fname_debug=depth_fname_debug, b_recalc=True)
+        self.reset_file_menus()
+        self.mask_number.set_value(self.last_index[2])
+        self.mask_id_number.set_value(self.last_index[3])
         self.read_images()
 
     def set_corners(self):

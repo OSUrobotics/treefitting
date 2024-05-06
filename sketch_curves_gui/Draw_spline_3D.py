@@ -126,25 +126,55 @@ class DrawSpline3D(QOpenGLWidget):
             GL.glVertex2d(x_center + circ_radius * np.cos(t), y_center + circ_radius * np.sin(t))
         GL.glEnd()
 
-    def draw_crv(self, branch_crv):
+    def draw_crv_3d(self, crv_3d):
         """ Render curve as 3D generalized cylinder
         @param branch_crv - the actual 3D cylinder, which has had make_mesh called
         """
-
-        GL.glColor3f(0.95, 0.9, 0.7)
-        for it in range(0, branch_crv.n_along - 1):
-            GL.glBegin(GL.GL_TRIANGLE_STRIP)
-            i_curr = it * branch_crv.n_around + 1
-            i_next = (it+1) * branch_crv.n_around + 1
-            # The first two vertices
-            #  Alternate left, right
-            for ir in range(0, branch_crv.n_around + 1):
-                ir_index = ir % branch_crv.n_around
-                v = self.vertex_locs[branch_crv.vertex_locs[i_curr, ir_index, :], ir_index, :]
-                GL.glVertex3d(v[0], v[1], v[2])
-                v = self.vertex_locs[branch_crv.vertex_locs[i_next, ir_index, :], ir_index, :]
+        # GL.glEnable(GL.GL_DEPTH_TEST)
+        if self.gui.show_3d_crv_axis_button.checkState():
+            GL.glColor3f(0.75, 0.9, 0.95)
+            GL.glLineWidth(5)
+            GL.glBegin(GL.GL_LINE_STRIP)
+            #GL.glVertex3d(0, 0, -1)
+            for t in np.linspace(0, 1, 15):
+                v = crv_3d.pt_axis(t)
                 GL.glVertex3d(v[0], v[1], v[2])
             GL.glEnd()
+
+        if self.gui.show_3d_crv_button.checkState():
+            GL.glEnable(GL.GL_LIGHTING)
+            GL.glEnable(GL.GL_DEPTH_TEST)
+            ambient_light = 0.1 * np.ones((4,1), dtype=float)
+            diffuse_light = 0.75 * np.ones((4,1), dtype=float)
+            specular_light = diffuse_light * 0.5
+            obj_col = diffuse_light * 0.5
+            GL.glEnable(GL.GL_LIGHT0)
+            GL.glLightfv(GL.GL_LIGHT0, GL.GL_AMBIENT, ambient_light)
+            GL.glLightfv(GL.GL_LIGHT0, GL.GL_DIFFUSE, diffuse_light)
+            GL.glLightfv(GL.GL_LIGHT0, GL.GL_SPECULAR, specular_light)
+            light_pos = np.ones((4,1), dtype=float)
+            light_pos[0] = 2.0
+            light_pos[1] = 5.0
+            GL.glLightfv(GL.GL_LIGHT0, GL.GL_POSITION, light_pos)
+            obj_col[0] = 0.75
+            obj_col[1] = 0.1
+            GL.glMaterialfv(GL.GL_FRONT_AND_BACK, GL.GL_DIFFUSE, obj_col)
+            GL.glColor3f(0.75, 0.5, 0.95)
+            for it in range(0, crv_3d.n_along - 1):
+                GL.glBegin(GL.GL_TRIANGLE_STRIP)
+                # The first two vertices
+                #  Alternate left, right
+                for ir in range(0, crv_3d.n_around):
+                    ir_next = (ir + 1) % crv_3d.n_around
+                    v = crv_3d.vertex_locs[it, ir, :]
+                    n = crv_3d.vertex_normals[it, ir, :]
+                    GL.glVertex3d(v[0], v[1], v[2])
+                    GL.glNormal3d(n[0], n[1], n[2])
+                    v = crv_3d.vertex_locs[it + 1, ir_next, :]
+                    n = crv_3d.vertex_normals[it + 1, ir_next, :]
+                    GL.glVertex3d(v[0], v[1], v[2])
+                    GL.glNormal3d(n[0], n[1], n[2])
+                GL.glEnd()
 
     def bind_texture(self, rgb_image, mask_image, edge_image, flow_image, depth_image):
         print(f"Binding texture {rgb_image.shape} {edge_image.shape}")
@@ -197,7 +227,6 @@ class DrawSpline3D(QOpenGLWidget):
 
     def set_2d_projection(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glPushMatrix()
         GL.glLoadIdentity()
         if self.height() > self.width():
             aspect_ratio_window = self.height() / self.width()
@@ -206,16 +235,13 @@ class DrawSpline3D(QOpenGLWidget):
             aspect_ratio_window = self.width() / self.height()
             GL.glOrtho(-aspect_ratio_window, aspect_ratio_window, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
-        GL.glPushMatrix()
         GL.glLoadIdentity()
 
     def draw_images(self):
         if len(self.image_gl_tex) == 0:
             return
 
-        self.set_2d_projection()
-
-        tex_indx = 0
+        tex_indx = -1
         if self.gui.show_rgb_button.checkState():
             if self.gui.show_edge_button.checkState():
                 if self.gui.show_mask_button.checkState():
@@ -224,6 +250,8 @@ class DrawSpline3D(QOpenGLWidget):
                     tex_indx = 4
             elif self.gui.show_mask_button.checkState():
                 tex_indx = 3
+            else:
+                tex_indx = 0
         elif self.gui.show_edge_button.checkState():
             tex_indx = 2
         elif self.gui.show_mask_button.checkState():
@@ -232,6 +260,9 @@ class DrawSpline3D(QOpenGLWidget):
             tex_indx = 6
         elif self.gui.show_depth_button.checkState():
             tex_indx = 7
+
+        if tex_indx == -1:
+            return
 
         if self.image_gl_tex[tex_indx] != -1:
             GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
@@ -251,11 +282,6 @@ class DrawSpline3D(QOpenGLWidget):
             GL.glVertex2f(-quad_size_x, quad_size_y)
             GL.glEnd()
 
-        GL.glPopMatrix()
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glPopMatrix()
-        GL.glDisable(GL.GL_TEXTURE_2D)
-
     def convert_pts(self, pts):
         pts[:, 0] = 2 * (pts[:, 0] / self.im_size[0] - 0.5)
         pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
@@ -265,11 +291,11 @@ class DrawSpline3D(QOpenGLWidget):
         if not self.gui or not self.gui.crv:
             return
 
-        self.set_2d_projection()
-
         crv = self.gui.crv.mask_crv.bezier_crv_fit_to_mask
         if self.gui.show_edge_button.checkState():
             crv = self.gui.crv.bezier_crv_fit_to_edge
+        elif self.gui.crv_from_sketch:
+            crv = self.gui.crv_from_sketch.sketch_crv
 
         if self.gui.show_backbone_button.checkState():
             n_pts_quad = 6
@@ -381,10 +407,6 @@ class DrawSpline3D(QOpenGLWidget):
         #GL.glVertex2d(-0.25,  0.25)
         #GL.glEnd()
 
-        GL.glPopMatrix()
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glPopMatrix()
-
     def draw_sketch(self):
         """ The marks the user made"""
         if not self.gui or not self.gui.crv:
@@ -422,29 +444,93 @@ class DrawSpline3D(QOpenGLWidget):
             qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
         qp.end()
         
+    def draw_camera_frame_3d(self):
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glLoadIdentity()
+
+        if self.gui == None:
+            return
+
+        z_near = 0.1
+        ang_width_half = 0.5 * np.pi * self.gui.horizontal_angle.value() / 180.0
+        frame_width = z_near * np.tan(ang_width_half)
+        frame_height = z_near * np.tan(ang_width_half)
+        # rev = np.arctan2(frame_width, z_near)
+
+        width_window = self.width()
+        height_window = self.height()
+
+        if width_window > height_window:
+            # height will be set to 1, width to 1 +
+            frame_width = (height_window / width_window) * frame_width
+        else:
+            # Scale height, keep width
+            frame_height = (height_window / width_window) * frame_height
+
+        GL.glFrustum(-frame_width, frame_width, -frame_height, frame_height, z_near, 100.0)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glLoadIdentity()
+
+        """Draw a frame to verify aspect ratio and camera param alignment"""
+        pt_center = self.pt_center
+        pt_center[2] = -1.0
+        if self.gui:
+            if self.gui.fit_crv_3d:
+                pt_center[2] = self.gui.fit_crv_3d.crv_3d.pt_axis(0.5)[2]
+                # pt_center[2] = -1.0
+        scl_factor = 1
+        if hasattr(self.gui, "zoom"):
+            scl_factor = scl_factor / self.gui.zoom.value()
+
+        GL.glLoadIdentity()
+
+        width_rgb_image = 640
+        height_rgb_image = 640
+        if self.gui.crv:
+            if self.gui.crv:
+                width_rgb_image = self.gui.crv.image_rgb.shape[1]
+                height_rgb_image = self.gui.crv.image_rgb.shape[0]
+
+        GL.glDisable(GL.GL_LIGHTING)
+        GL.glDisable(GL.GL_DEPTH_TEST)
+        GL.glLineWidth(6)
+        GL.glBegin(GL.GL_LINE_LOOP)
+        GL.glColor4d(1.0, 0.0, 1.0, 1.0)
+        if width_rgb_image > height_rgb_image:
+            x = 0.975 * np.tan(ang_width_half)
+            y = 0.975 * np.tan(ang_width_half) * (height_rgb_image / width_rgb_image)
+        else:
+            x = 0.975 * np.tan(ang_width_half) * (width_rgb_image / height_rgb_image)
+            y = 0.975 * np.tan(ang_width_half)
+        z = - 1.0
+        for p in ((-x, -y, z), (x, -y, z), (x , y, z), (-x, y, z)):
+            GL.glVertex3d(p[0], p[1], p[2])
+        GL.glEnd()
+
+        # Rotate branch
+        GL.glTranslated(pt_center[0], pt_center[1], pt_center[2])
+        GL.glScaled(scl_factor, scl_factor, scl_factor)
+        GL.glRotated(self.up_down, 1.0, 0.0, 0.0)
+        GL.glRotated(self.turntable, 0.0, 1.0, 0.0)
+        GL.glRotated(self.zRot, 0.0, 0.0, 1.0)
+        GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
     def paintGL(self):
         if self.gui:
             self.gui.set_corners()
 
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-
-        pt_center = self.pt_center
-        scl_factor = 1
-        if hasattr(self.gui, "zoom"):
-            scl_factor = scl_factor / self.gui.zoom.value()
-
-        GL.glLoadIdentity()
-        GL.glRotated(self.up_down, 1.0, 0.0, 0.0)
-        GL.glRotated(self.turntable, 0.0, 1.0, 0.0)
-        GL.glRotated(self.zRot, 0.0, 0.0, 1.0)
-        GL.glScaled(scl_factor, scl_factor, scl_factor)
-        GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
-
+        self.set_2d_projection()
         self.draw_images()
         self.draw_crv_2d()
-        for crv in self.crvs:
-            self.draw_crv_3d(crv)
+
+        GL.glShadeModel(GL.GL_FLAT)
+        GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glDisable(GL.GL_TEXTURE_2D)
+        self.draw_camera_frame_3d()
+        if self.gui.fit_crv_3d:
+            self.draw_crv_3d(self.gui.fit_crv_3d.crv_3d)
 
         if self.show and self.crv_gl_list is not None:
             GL.glCallList(self.crv_gl_list)

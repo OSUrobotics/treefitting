@@ -3,15 +3,154 @@
 # Split masks
 #  1) if there's one mask image with multiple masks, split it into mask image 0, 1, etc
 
+import os
+import sys
+sys.path.insert(0, os.path.abspath('./Image_based'))
+
 import numpy as np
 from glob import glob
 import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d import draw_line, draw_box, draw_cross, LineSeg2D
+from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
+
+
+def convert_jet_to_grey(img):
+    (height, width) = img.shape[:2]
+
+    im_size = 16
+    n_pixs = im_size * im_size
+    im_all = np.zeros((im_size, im_size), dtype='uint8')
+    for i in range(0, im_size * im_size):
+        im_all[i // im_size, i % im_size] = i
+    im_rgb = cv2.applyColorMap(im_all, cv2.COLORMAP_JET)
+    im_rgb_linear = im_rgb.reshape((im_size * im_size, 3))
+
+    r_indx = 2
+    g_indx = 1
+    b_indx = 0
+    b_check = np.logical_and(np.logical_and(im_rgb_linear[:, r_indx] == 0, im_rgb_linear[:, g_indx] == 0), im_rgb_linear[:, b_indx] < 255)
+    b_offset = np.count_nonzero(b_check)
+    c_check = im_rgb_linear[:, b_indx] == 255
+    c_offset = b_offset + np.count_nonzero(c_check)
+    g_check = im_rgb_linear[:, g_indx] == 255
+    g_offset = c_offset + np.count_nonzero(g_check)
+    y_check = np.logical_and(im_rgb_linear[:, b_indx] == 0, im_rgb_linear[:, r_indx] == 255)
+    y_offset = g_offset + np.count_nonzero(y_check)
+    r_check = np.logical_and(np.logical_and(im_rgb_linear[:, b_indx] == 0, im_rgb_linear[:, g_indx] == 0), im_rgb_linear[:, r_indx] < 255)
+    r_offset = y_offset + np.count_nonzero(r_check)
+    b_c_check = np.count_nonzero(np.logical_and(b_check, c_check))
+    b_g_check = np.count_nonzero(np.logical_and(b_check, g_check))
+    b_y_check = np.count_nonzero(np.logical_and(b_check, y_check))
+    b_r_check = np.count_nonzero(np.logical_and(b_check, r_check))
+
+    c_g_check = np.count_nonzero(np.logical_and(c_check, g_check))
+    g_y_check = np.count_nonzero(np.logical_and(g_check, y_check))
+    y_r_check = np.count_nonzero(np.logical_and(y_check, r_check))
+    # c = img[:, :, b_indx] == 255
+    #r = np.logical_and(img[:, :, g_indx] == 0, img[:, :, b_indx] == 0)
+    #b  = np.logical_and(np.logical_and(img_r == 0, img_g == 0), img_b < 255)
+    #y = np.logical_and(img[:, :, r_indx] == 255, img[:, :, b_indx] == 0)
+    #c = img[:, :, g_indx] == 255
+    #b = np.logical_and(img[:, :, g_indx] == 255, img[:, :, r_indx] == 0)
+
+    im_gray = np.zeros((height, width), dtype='uint8')
+    div = 255 // 3
+    for r in range(0, height):
+        for c in range(1, width):
+            bgr = img[r, c]
+            if bgr[2] > bgr[1] and bgr[2] > bgr[0]:
+                gray = 2 * div + bgr[2] // 3
+                im_gray[r, c] = gray
+            elif bgr[0] > bgr[1] and bgr[0] > bgr[2]:
+                gray = bgr[0] // 3
+                im_gray[r, c] = gray
+            else:
+                gray = div + bgr[1] // 3
+                im_gray[r, c] = gray
+                """
+            bgr = img[r, c]
+            if bgr[0] < 20 and bgr[1] < 20 and bgr[2] < 255:
+                bgr[0] = 0
+                bgr[1] = 0
+            if bgr[1] < 20 and bgr[2] < 20 and bgr[0] < 255:
+                bgr[1] = 0
+                bgr[2] = 0
+            if bgr[r_indx] == 0 and bgr[g_indx] == 0 and bgr[b_indx] < 255:
+                gray = bgr[b_indx] // 8
+                gray = min(gray, b_offset)
+                gray = max(gray, 0)
+                im_gray[r, c] = gray
+            elif bgr[b_indx] == 255 and bgr[r_indx] == 0:
+                gray = b_offset + bgr[g_indx] // 4
+                gray = min(gray, c_offset)
+                gray = max(gray, b_offset)
+                im_gray[r, c] = gray
+            elif bgr[g_indx] == 255:
+                gray = c_offset + bgr[r_indx] // 4
+                gray = min(gray, g_offset)
+                gray = max(gray, c_offset)
+                im_gray[r, c] = gray
+            elif bgr[b_indx] == 0 and bgr[r_indx] == 255:
+                gray = g_offset + (255 - bgr[g_indx]) // 4
+                gray = min(gray, y_offset)
+                gray = max(gray, g_offset)
+                im_gray[r, c] = gray
+            elif bgr[b_indx] == 0 and bgr[g_indx] == 0:
+                gray = y_offset + (255 - bgr[r_indx]) // 4
+                gray = min(gray, r_offset)
+                gray = max(gray, y_offset)
+                im_gray[r, c] = gray
+            else:
+                im_gray[r, c] = 0 #gray
+    """
+    """            
+    im_gray_linear = np.zeros((im_size * im_size), dtype='uint8')
+    b_offset = np.count_nonzero(b_check)
+    c_offset = b_offset + 256 // 4
+    #c_offset = y_offset + 256 // 4
+    #b_end = c_offset + 256 // 4
+    ugh = np.zeros((height, width)) + 128
+    foo = img[b, b_indx]
+    im_gray[b] = (img_b[b] - 128) // 4
+    im_gray_linear[b_check] = (im_rgb_linear[b_check, b_indx] - 128) // 4
+    im_gray[c] = b_offset + img_g[c] // 4
+    im_gray_linear[b_check] = b_offset + im_rgb_linear[c_check, g_indx] // 4
+    #im_gray[y] = r_offset + img[y, g_indx] // 4
+    #im_gray[c] = y_offset + img[c, b_indx] // 4
+    #im_gray[b] = c_offset + (255 - img[b, b_indx]) // 4
+    #np.max((252 - img[b2, b_indx]) // 4)
+    #np.min((252 - img[b2, b_indx]) // 4)
+    #im_gray[b2] = b_end + (252 - img[b2, b_indx]) // 4
+
+
+    # cm = LinearSegmentedColormap("jet", _jet_data, N=2 ** 8)
+    # cm = colormaps['turbo'] swap with jet if you use turbo colormap instead
+
+    # cm._init()  # Must be called first. cm._lut data field created here
+
+    #FLANN_INDEX_KDTREE = 1
+    #index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+    #search_params = dict(checks=50)
+    #fm = cv2.FlannBasedMatcher(index_params, search_params)
+
+    # JET, BGR order, excluding special palette values (>= 256)
+    #fm.add(255 * np.float32([im_rgb[:256, (2, 1, 0)]]))  # jet
+    #fm.train()
+
+    # look up all pixels
+    #query = img.reshape((-1, 3)).astype(np.float32)
+    #matches = fm.match(query)
+
+    # statistics: `result` is palette indices ("grayscale image")
+    #output = np.uint16([m.trainIdx for m in matches]).reshape(height, width)
+    #result = np.where(output < 256, output, 0).astype(np.uint8)
+    # dist = np.uint8([m.distance for m in matches]).reshape(height, width)
+    """
+    return im_gray  # , dist uncomment if you wish accuracy image
 
 
 def split_mask(in_im_mask, b_one_mask=True):
@@ -73,6 +212,14 @@ def split_masks(path, im_name, b_one_mask=True, b_output_debug=True):
 
 
 if __name__ == '__main__':
+    path = "./data/forcindy/"
+    fname_img_depth = path + "0_depth.png"
+    im = cv2.imread(fname_img_depth)
+    im_grey = convert_jet_to_grey(im)
+    cv2.imwrite(path + "0_depth_back.png", im_grey)
+    im_rgb = cv2.applyColorMap(im_grey, cv2.COLORMAP_JET)
+    cv2.imwrite(path + "0_depth_back_rgb.png", im_rgb)
+
     path = "./data/predictions/"
     #path = "./forcindy/"
     for im_i in range(0, 49):

@@ -54,6 +54,15 @@ class BezierCyl2D:
         @param t - t between 0 and 1"""
         return (1 - t) * self.start_radius + t * self.end_radius
 
+    def curve_length(self, t_step=0.1):
+        """ Approximate length of curve
+        @param t_step - t values to sample at
+        @return approximate length of curve"""
+        pts = self.pt_axis(np.linspace(0, 1, int(1.0 / t_step)))
+        pts_diff_sq = (pts[1:, :] - pts[0:-1, :]) ** 2
+        norm_sq = np.sum(pts_diff_sq, axis=1)
+        return np.sum(np.sqrt(norm_sq))
+
     @staticmethod
     def _orientation(start_pt, end_pt):
         """Set the orientation and ensure left-right or down-up

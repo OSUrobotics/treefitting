@@ -69,7 +69,7 @@ class FitBezierCyl2D(BezierCyl2D):
         pts_diffs = np.sum(np.abs(new_pts - b_rhs[0:3, :]))
 
         # Don't let the end points contract
-        if self.orientation is "vertical":
+        if self.orientation == "vertical":
             new_pts[0, 1] = self.p0[1]
             new_pts[2, 1] = self.p2[1]
         else:

@@ -123,10 +123,10 @@ class FitBezierCyl2DSketch:
             radii[i] = 0.5 * np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
         radius = np.mean(np.array(radii))
         sketch_crv = BezierCyl2D(start_pt=start_pt, mid_pt=mid_pt, end_pt=end_pt, radius=radius)
-        if len(sketch_crv.cross_bars) > 1:
-            half_way = len(sketch_crv.cross_baars) // 2
-            sketch_crv.start_radius = np.radius = np.mean(np.array(radii[0:half_way]))
-            sketch_crv.end_radius = np.radius = np.mean(np.array(radii[half_way:]))
+        if len(sketch_curves.cross_bars) > 1:
+            half_way = len(sketch_curves.cross_bars) // 2
+            sketch_curves.start_radius = np.radius = np.mean(np.array(radii[0:half_way]))
+            sketch_curves.end_radius = np.radius = np.mean(np.array(radii[half_way:]))
 
         fit_crv = FitBezierCyl2D(sketch_crv)
         ts = np.linspace(0, 1, len(sketch_curves.backbone_pts))        
