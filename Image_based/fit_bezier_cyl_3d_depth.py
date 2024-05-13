@@ -16,6 +16,7 @@ from bezier_cyl_2d import BezierCyl2D
 from bezier_cyl_3d import BezierCyl3D
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from split_masks import convert_jet_to_grey
+from camera_projections import frustrum_matrix, from_image_to_box
 
 
 class FitBezierCyl3dDepth:
@@ -205,39 +206,61 @@ class FitBezierCyl3dDepth:
         @return: 3d curve
         """
 
+        params['image_size'] = stats_depth['image_size']
+        mat = frustrum_matrix(params)
+        mat_inv = np.linalg.inv(mat)
+
         pts = []
         image_width = stats_depth["image_size"][0]
         image_height = stats_depth["image_size"][1]
+
         cam_width_ang_half = 0.5 * params['camera_width_angle']
         cam_height_ang_half = 0.5 * params['camera_width_angle'] * stats_depth['image_size'][1] / stats_depth['image_size'][0]
         print(f"cam x ang {cam_width_ang_half * 2} cam y ang {cam_height_ang_half * 2} {image_width}, {image_height}")
-        for i in range(0, stats_depth["n_segs"]):
-            z_at_center = stats_depth["z_at_center"][i]
-            t = 0.5 * (stats_depth["ts"][i][0] + stats_depth["ts"][i][1])
-            radius_3d = stats_depth["radius_3d"][i]
-            pt2d = crv_2d.pt_axis(t)
-            # -1 to 1
-            ang_x = 2.0 * (pt2d[0] - image_width / 2) / image_width
-            # - ang/2 to ang/2
-            ang_x_degrees = cam_width_ang_half * ang_x
-            # radians
-            ang_x_radians = np.pi * ang_x_degrees / 180.0
 
-            # -1 to 1
-            ang_y = -2.0 * (pt2d[1] - image_height / 2) / image_height
-            # - ang/2 to ang/2
-            ang_y_degrees = cam_height_ang_half * ang_y
-            # radians
-            ang_y_radians = np.pi * ang_y_degrees / 180.0
+        pt_z_origin = np.ones(shape=(4,))
+        pt_post_proj = np.ones(shape=(4,))
+        pt_z_origin[0] = 0.0
+        pt_z_origin[1] = 0.0
 
-            x = np.tan(ang_x_radians) * z_at_center
-            y = np.tan(ang_y_radians) * z_at_center
-            print(f"x {pt2d[0]} {ang_x} {x} y {pt2d[1]} {ang_y} {y}")
-            pts.append([x, y, -z_at_center])
+        ts_pts = [0, 0.5, 1.0]
+        for t in ts_pts:
+            if t < stats_depth["ts"][0][1]:
+                z_at_center = stats_depth["z_at_center"][0]
+            elif t > stats_depth["ts"][-1][0]:
+                z_at_center = stats_depth["z_at_center"][-1]
+            else:
+                for i, ts in enumerate(stats_depth["ts"]):
+                    if ts[0] <= t <= ts[1]:
+                        z_at_center = stats_depth["z_at_center"][i]
 
-        i_mid = len(stats_depth["z_at_center"]) // 2
-        p1 = []
-        crv_3d = BezierCyl3D(pts[0], pts[i_mid], pts[-1], stats_depth["radius_3d"][0], stats_depth["radius_3d"][-1])
+            # Project the point 0, 0, d into the frustum box to get w, d'
+            pt_z_origin[2] = -z_at_center
+            pt_z_proj = mat @ pt_z_origin
+
+            # Convert point in image coordinates to frustum box post project
+            pt_crv_2d = crv_2d.pt_axis(t)
+            pt_proj_box = from_image_to_box(params, pt_crv_2d)
+
+            # Now use the w to get the point pre-divide
+            pt_post_proj[0] = pt_proj_box[0] * pt_z_proj[3]
+            pt_post_proj[1] = pt_proj_box[1] * pt_z_proj[3]
+            pt_post_proj[2] = pt_z_proj[2]
+            pt_post_proj[3] = pt_z_proj[3]
+
+            # Now undo the projection
+            pt_in_space = mat_inv @ pt_post_proj
+
+            # Check result
+            pts.append(pt_in_space[0:3])
+
+        #for i in range(0, stats_depth["n_segs"]):
+            #z_at_center = stats_depth["z_at_center"][i]
+            #t = 0.5 * (stats_depth["ts"][i][0] + stats_depth["ts"][i][1])
+            #radius_3d = stats_depth["radius_3d"][i]
+
+        #i_mid = len(stats_depth["z_at_center"]) // 2
+        crv_3d = BezierCyl3D(pts[0], pts[1], pts[2], stats_depth["radius_3d"][0], stats_depth["radius_3d"][-1])
         return crv_3d
 
 

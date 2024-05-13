@@ -236,10 +236,11 @@ class HandleFileNames:
 
         return im_name
 
-    def get_edge_image_name(self, path, index, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+    def get_edge_image_name(self, path, index, b_optical_flow=False, b_add_tag=True):
+        """ Get the edge image name corresponding to the index given by (subdirectory index, image index, -)
         @param path should be one of self.path, self.path_calculated, or path_debug
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_optical_flow True if add OF to edge name
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
@@ -247,6 +248,8 @@ class HandleFileNames:
         if len(self.sub_dirs[index[0]]) > 0:
             im_name = im_name + self.sub_dirs[index[0]] + "/"
         im_name = im_name + self.image_names[index[0]][index[1]] + "_edge"
+        if b_optical_flow:
+            im_name = im_name + "_OF"
         if b_add_tag:
             im_name = im_name + self.image_tag
 
@@ -356,14 +359,17 @@ class HandleFileNames:
             json.dump(self.__dict__, f, indent=2)
 
     @staticmethod
-    def read_filenames(fname):
+    def read_filenames(fname, path=None):
         """ Read in all the variables and put them back in the class
         @param fname file to read from
         @return a Handle File Names instance"""
         with open(fname, "r") as f:
             my_data = json.load(f)
 
-            handle_files = HandleFileNames(my_data["path"])
+            if not path:
+                path = my_data["path"]
+
+            handle_files = HandleFileNames(path)
             for k, v in my_data.items():
                 setattr(handle_files, k, v)
 
@@ -371,6 +377,13 @@ class HandleFileNames:
 
 
 if __name__ == '__main__':
+    # Example bb
+    path_bpd = "./data/blueberries/"
+    all_files = HandleFileNames(path_bpd, img_type="jpg")
+    all_files.add_directory(name_filter="rgb", name_separator="_")
+    all_files.add_mask_images(["all"])
+    all_files.write_filenames("./data/blueberries_fnames.json")
+
     # Example 2
     path_bpd = "./data/forcindy/"
     all_files = HandleFileNames(path_bpd)

@@ -13,6 +13,9 @@ import cv2
 from ctypes import c_uint8
 
 from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
+from camera_projections import frame_at_z_near
+
+
 import numpy as np
 
 
@@ -70,7 +73,7 @@ class DrawSpline3D(QOpenGLWidget):
         return QSize(50, 50)
 
     def sizeHint(self):
-        return QSize(1200, 1200)
+        return QSize(640, 480)
 
     def set_up_down_rotation(self, angle):
         angle = self.normalize_angle(angle)
@@ -228,12 +231,13 @@ class DrawSpline3D(QOpenGLWidget):
     def set_2d_projection(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
-        if self.height() > self.width():
-            aspect_ratio_window = self.height() / self.width()
-            GL.glOrtho(-1.0, 1.0, -aspect_ratio_window, aspect_ratio_window, -1.0, 1.0)
-        else:
-            aspect_ratio_window = self.width() / self.height()
-            GL.glOrtho(-aspect_ratio_window, aspect_ratio_window, -1.0, 1.0, -1.0, 1.0)
+        aspect_ratio_window = self.height() / self.width()
+        if self.gui.crv:
+            width_rgb_image = self.gui.crv.image_rgb.shape[1]
+            height_rgb_image = self.gui.crv.image_rgb.shape[0]
+            aspect_ratio_window = height_rgb_image / width_rgb_image
+        GL.glOrtho(-1.0, 1.0, -aspect_ratio_window, aspect_ratio_window, -1.0, 1.0)
+
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
 
@@ -287,15 +291,7 @@ class DrawSpline3D(QOpenGLWidget):
         pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
         return pts
 
-    def draw_crv_2d(self):
-        if not self.gui or not self.gui.crv:
-            return
-
-        crv = self.gui.crv.mask_crv.bezier_crv_fit_to_mask
-        if self.gui.show_edge_button.checkState():
-            crv = self.gui.crv.bezier_crv_fit_to_edge
-        elif self.gui.crv_from_sketch:
-            crv = self.gui.crv_from_sketch.sketch_crv
+    def draw_crv_2d(self, crv):
 
         if self.gui.show_backbone_button.checkState():
             n_pts_quad = 6
@@ -451,7 +447,20 @@ class DrawSpline3D(QOpenGLWidget):
         if self.gui == None:
             return
 
-        z_near = 0.1
+        width_rgb_image = 640
+        height_rgb_image = 480
+        if self.gui.crv:
+            if self.gui.crv:
+                width_rgb_image = self.gui.crv.image_rgb.shape[1]
+                height_rgb_image = self.gui.crv.image_rgb.shape[0]
+
+        params = {"z_near": 1.0,
+                  "z_far": 100.0,
+                  "camera_width_angle": self.gui.horizontal_angle.value(),
+                  "image_size": [width_rgb_image, height_rgb_image]}
+
+        frame = frame_at_z_near(params)
+        z_near = 1.0
         ang_width_half = 0.5 * np.pi * self.gui.horizontal_angle.value() / 180.0
         frame_width = z_near * np.tan(ang_width_half)
         frame_height = z_near * np.tan(ang_width_half)
@@ -467,7 +476,7 @@ class DrawSpline3D(QOpenGLWidget):
             # Scale height, keep width
             frame_height = (height_window / width_window) * frame_height
 
-        GL.glFrustum(-frame_width, frame_width, -frame_height, frame_height, z_near, 100.0)
+        GL.glFrustum(frame[0], frame[1], frame[2], frame[3], params['z_near'], params['z_far'])
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
 
@@ -483,13 +492,6 @@ class DrawSpline3D(QOpenGLWidget):
             scl_factor = scl_factor / self.gui.zoom.value()
 
         GL.glLoadIdentity()
-
-        width_rgb_image = 640
-        height_rgb_image = 640
-        if self.gui.crv:
-            if self.gui.crv:
-                width_rgb_image = self.gui.crv.image_rgb.shape[1]
-                height_rgb_image = self.gui.crv.image_rgb.shape[0]
 
         GL.glDisable(GL.GL_LIGHTING)
         GL.glDisable(GL.GL_DEPTH_TEST)
@@ -522,7 +524,15 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         self.set_2d_projection()
         self.draw_images()
-        self.draw_crv_2d()
+
+        if self.gui.show_sketch_crv_button.checkState():
+            if self.gui.crv_from_sketch:
+                self.draw_crv_2d(self.gui.crv_from_sketch.sketch_crv)
+        if self.gui.crv:
+            if self.gui.show_mask_crv_button.checkState():
+                self.draw_crv_2d(self.gui.crv.mask_crv.bezier_crv_fit_to_mask)
+            if self.gui.show_edge_crv_button.checkState():
+                self.draw_crv_2d(self.gui.crv.bezier_crv_fit_to_edge)
 
         GL.glShadeModel(GL.GL_FLAT)
         GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
@@ -547,8 +557,8 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
-        GL.glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
         GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glLoadIdentity()
 
         DrawSpline3D.gl_inited = True        
 

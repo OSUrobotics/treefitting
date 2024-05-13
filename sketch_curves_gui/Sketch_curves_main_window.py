@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 # Get OpenGL
-from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
 
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit, QSizePolicy
 import cv2
 
 import os
@@ -76,7 +76,7 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
         self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
-        self.file_name = QLineEdit("forcindy_fnames.json")
+        self.file_name = QLineEdit("blueberries_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)
@@ -165,6 +165,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.glWidget.turntableRotationChanged.connect(self.turntable.slider.setValue)
         self.zoom.slider.valueChanged.connect(self.redraw_self)
 
+        self.blank_text = QTextEdit('Space')
         quit_button = QPushButton('Quit')
         quit_button.clicked.connect(app.exit)
         quit_button.setMinimumWidth(640)
@@ -173,7 +174,8 @@ class SketchCurvesMainWindow(QMainWindow):
         mid_layout = QVBoxLayout()
 
         mid_layout.addWidget(self.glWidget)
-        mid_layout.addWidget(quit_button)
+        mid_layout.addWidget(self.blank_text)
+        mid_layout.addWidget(quit_button, stretch=20)
 
         return mid_layout
 
@@ -233,7 +235,10 @@ class SketchCurvesMainWindow(QMainWindow):
         curve_drawing_layout.addWidget(self.width_inside)
         curve_drawing.setLayout(curve_drawing_layout)
 
-        # For showing images
+        # For showing images and curves
+        shows = QGroupBox('Shows')
+        shows_layout = QHBoxLayout()
+
         self.show_rgb_button = QCheckBox('Show rgb')
         self.show_rgb_button.setCheckState(2)
         self.show_rgb_button.clicked.connect(self.redraw_self)
@@ -246,6 +251,14 @@ class SketchCurvesMainWindow(QMainWindow):
         self.show_depth_button = QCheckBox('Show depth')
         self.show_depth_button.clicked.connect(self.redraw_self)
 
+        self.show_sketch_crv_button = QCheckBox('Show sketch')
+        self.show_sketch_crv_button.clicked.connect(self.redraw_self)
+        self.show_mask_crv_button = QCheckBox('Show mask')
+        self.show_mask_crv_button.clicked.connect(self.redraw_self)
+        self.show_edge_crv_button = QCheckBox('Show edge')
+        self.show_edge_crv_button.clicked.connect(self.redraw_self)
+        self.show_edge_crv_button.setCheckState(2)
+
         show_images = QGroupBox('Image shows')
         show_images_layout = QVBoxLayout()
         show_images_layout.addWidget(self.show_rgb_button)
@@ -255,6 +268,16 @@ class SketchCurvesMainWindow(QMainWindow):
         show_images_layout.addWidget(self.show_depth_button)
         show_images.setLayout(show_images_layout)
 
+        show_curves = QGroupBox('Curve shows')
+        show_curves_layout = QVBoxLayout()
+        show_curves_layout.addWidget(self.show_sketch_crv_button)
+        show_curves_layout.addWidget(self.show_mask_crv_button)
+        show_curves_layout.addWidget(self.show_edge_crv_button)
+        show_curves.setLayout(show_curves_layout)
+
+        shows_layout.addWidget(show_images)
+        shows_layout.addWidget(show_curves)
+        shows.setLayout(shows_layout)
         # Drawing
         drawing_states = QGroupBox('Drawing states         ')
         drawing_states_layout = QVBoxLayout()
@@ -275,7 +298,7 @@ class SketchCurvesMainWindow(QMainWindow):
 
         right_side_layout.addWidget(resets)
         right_side_layout.addWidget(curve_drawing)
-        right_side_layout.addWidget(show_images)
+        right_side_layout.addWidget(shows)
         right_side_layout.addStretch()
         right_side_layout.addWidget(drawing_states)
 
@@ -356,11 +379,25 @@ class SketchCurvesMainWindow(QMainWindow):
         self.read_images()
         self.reset_params_menus()
 
+        if self.crv:
+            width_rgb_image = self.crv.image_rgb.shape[1]
+            height_rgb_image = self.crv.image_rgb.shape[0]
+            aspect_ratio = height_rgb_image / width_rgb_image
+
+            w = self.glWidget.width()
+            h = int(aspect_ratio * w)
+
+
+            self.glWidget.resize(w, h)
+
     def reset_view(self):
         self.turntable.set_value(0.0)
         self.up_down.set_value(0.0)
         self.zoom.set_value(1.0)
         self.redraw_self()
+
+    def sizePolicy(self) -> 'QSizePolicy':
+        return QSizePolicy.Fixed
 
     def refit(self):
         params = {}
@@ -395,9 +432,8 @@ class SketchCurvesMainWindow(QMainWindow):
         self.last_index = self.handle_filenames.add_mask_id(ret_index)
 
         rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_optical_flow=True, b_add_tag=True)
         mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        depth_fname = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
         fname_calculate = self.handle_filenames.get_mask_name(path= self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
 
         # Actually convert the curve
@@ -413,17 +449,10 @@ class SketchCurvesMainWindow(QMainWindow):
                                                     fname_mask_image=mask_fname,
                                                     fname_edge_image=edge_fname,
                                                     fname_calculated=fname_calculate)
-        if exists(depth_fname):
-            depth_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
-            depth_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
-            params = {"camera_width_angle": self.horizontal_angle.value()}
-            self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv_from_sketch.sketch_crv,
-                                              params=params,
-                                              fname_calculated=depth_fname_calculate,
-                                              fname_debug=depth_fname_debug, b_recalc=True)
         self.reset_file_menus()
         self.mask_number.set_value(self.last_index[2])
         self.mask_id_number.set_value(self.last_index[3])
+        self.refit()
         self.read_images()
 
     def set_corners(self):
@@ -442,33 +471,20 @@ class SketchCurvesMainWindow(QMainWindow):
         self.lower_left = [0, 0]
         self.upper_right = [width_window, height_window]
 
-        if height_window >  width_window:
-            # Rectangle stretches across the image from left to right, height clipped to maintain aspect ratio
-            pixs_missing = height_window - width_window + width_window * (1 - (height_rgb_image / width_rgb_image))
-            self.lower_left[1] = int(pixs_missing * 0.5)
-            self.upper_right[1] = height_window - int(pixs_missing * 0.5) - 1
-        else:
-            # Rectangle stretches across the image from top to bottom, width clipped to maintain aspect ratio
-            pixs_missing_width = width_window - height_window
-
-            pixs_missing_height = height_window * (1 - (height_rgb_image / width_rgb_image))
-            self.lower_left[0] = int(pixs_missing_width * 0.5)
-            self.lower_left[1] = int(pixs_missing_height * 0.5)
-            self.upper_right[0] = width_window - int(pixs_missing_width * 0.5) - 1
-            self.upper_right[1] = height_window - int(pixs_missing_height * 0.5) - 1
-
     def set_crv(self, params):
         """Read in the images etc and recalc (or not)
         @param params - if None, recalculate"""
         print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=self.last_index, b_add_tag=True)}")
 
         rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_optical_flow=True, b_add_tag=True)
         mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
         edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
         print(f"{rgb_fname}\n{mask_fname}")
 
-        edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+        edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated,
+                                                                   index=self.last_index,
+                                                                   b_add_tag=False)
 
         if not exists(mask_fname):
             print(f"Error, file {mask_fname} does not exist")
@@ -486,6 +502,16 @@ class SketchCurvesMainWindow(QMainWindow):
                                          fname_debug=edge_fname_debug,
                                          b_recalc=b_recalc)
         self.crv = self.extract_crv.bezier_edge
+
+        depth_fname = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        if exists(depth_fname):
+            depth_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+            depth_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+            params = {"camera_width_angle": self.horizontal_angle.value()}
+            self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv.bezier_crv_fit_to_edge,
+                                                  params=params,
+                                                  fname_calculated=depth_fname_calculate,
+                                                  fname_debug=depth_fname_debug, b_recalc=b_recalc)
 
     def read_images(self):
         if self.in_read_images:
