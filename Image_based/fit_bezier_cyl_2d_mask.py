@@ -204,6 +204,8 @@ class FitBezierCyl2DMask:
 
 
 if __name__ == '__main__':
+    im = cv2.imread("/Users/grimmc/Downloads/depth_raw_3.jpg")
+    print(f" {im.min()}, {im.max()}")
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
     all_files = HandleFileNames.read_filenames(path_bpd)
