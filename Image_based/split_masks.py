@@ -16,6 +16,36 @@ from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
+from HandleFileNames import HandleFileNames
+
+
+def create_optical_flow_edge_image(of_image_name, of_edge_image_name):
+    """Create an edge image for the optical flow
+    @param of_image_name - optical flow image name
+    @param of_edge_image_name - output file name"""
+    im_of_color = cv2.imread(of_image_name)
+    im_of_gray = cv2.cvtColor(im_of_color, cv2.COLOR_BGR2GRAY)
+    im_of_edge = cv2.Canny(im_of_gray, 50, 150, apertureSize=3)
+    cv2.imwrite(of_edge_image_name, im_of_edge)
+
+
+def create_optical_flow_edge_images(handle_fnames, b_use_calculated):
+    """ Convert an entire set of optical flow images to edge images
+    @param andle_fnames - handle file name file
+    @param b_use_calculated - are optical flow images in calculated or the main directory?"""
+    all_files = HandleFileNames.read_filenames(handle_fnames)
+
+    for ind in all_files.loop_images():
+        # Not putting tags on optical flow names
+        of_fname = all_files.get_flow_image_name(path=all_files.path, index=ind, b_add_tag=True)
+        if b_use_calculated:
+            of_edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_optical_flow=True, b_add_tag=b_add_tag)
+        else:
+            of_edge_fname = all_files.get_edge_image_name(path=all_files.path, index=ind, b_optical_flow=True, b_add_tag=True)
+
+        if not exists(of_fname):
+            raise ValueError(f"Error, file {of_fname} does not exist")
+        create_optical_flow_edge_image(of_fname, of_edge_fname)
 
 
 def convert_jet_to_grey(img):
@@ -213,6 +243,8 @@ def split_masks(path, im_name, b_one_mask=True, b_output_debug=True):
 
 if __name__ == '__main__':
     path = "./data/forcindy/"
+
+    create_optical_flow_edge_images("./data/forcindy_fnames.json", b_use_calculated=True)
     fname_img_depth = path + "0_depth.png"
     im = cv2.imread(fname_img_depth)
     im_grey = convert_jet_to_grey(im)

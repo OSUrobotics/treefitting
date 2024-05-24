@@ -287,9 +287,10 @@ if __name__ == '__main__':
 
     b_do_debug = True
     b_do_recalc = True
+    b_use_optical_flow_edge = True
     for ind in all_files.loop_masks():
         rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_add_tag=True)
+        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_optical_flow=b_use_optical_flow_edge, b_add_tag=True)
         mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
         ec_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
         if not b_do_debug:
