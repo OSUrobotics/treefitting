@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Handle file names when processing images in directories
+# File name handling
 # Assumptions (directories)
 #   Path is the path to the top of the directory
 #   Sub_dirs is the list of sub directories in Path (if any)
