@@ -376,17 +376,6 @@ class HandleFileNames:
 
         return handle_files
 
-    @staticmethod
-    def get_name_base_no_number(fname):
-        """Take out everything after ., and take out numbers
-        @param fname - the file name
-        @return the file name, stripped"""
-        name_pieces1 = fname.split(".")[0]
-        name_pieces2 = name_pieces1.split("_")[0]
-        name = "rbg"
-        for s in name_pieces2:
-            if 
-        name_pieces_prev = fnames_images[im_prev]
 
 def make_blueberry_dataset(path_src, path_dest, img_type="jpg", n_each_folder=2, pair_spacing=0):
     """Assumes there's a folder with multiple folders with multiple images in each folder
@@ -432,7 +421,7 @@ def make_blueberry_dataset(path_src, path_dest, img_type="jpg", n_each_folder=2,
 
         if fnames_images is None:
             print("Subdir {n} has no images of type {img_type}")
-            continue;
+            continue
         
         if not exists(path_dest_subdir):
             if b_use_sub_folder_names:
@@ -458,14 +447,8 @@ def make_blueberry_dataset(path_src, path_dest, img_type="jpg", n_each_folder=2,
                 sys_cmd_str = f"cp {search_dir_path}/{fnames_images[im_next]} {path_dest_subdir}{fnames_images[im_next]}"
                 system(sys_cmd_str)
 
-        if b_use_sub_folder_names:
-            all_files.add
-
-
 
     all_files = HandleFileNames(path_dest, img_type=img_type)
-
-
 
 
 if __name__ == '__main__':
