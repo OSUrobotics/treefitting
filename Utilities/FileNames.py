@@ -51,11 +51,10 @@
 from glob import glob
 import json
 from os.path import exists, isdir
-from os import mkdir
-import numpy as np
+from os import mkdir, walk
 
 
-class HandleFileNames:
+class FileNames:
     def __init__(self, path, img_type="png"):
         """Make directories/filenames
         @param path: the top level path
@@ -376,7 +375,7 @@ class HandleFileNames:
             if not path:
                 path = my_data["path"]
 
-            handle_files = HandleFileNames(path)
+            handle_files = FileNames(path)
             for k, v in my_data.items():
                 setattr(handle_files, k, v)
 
@@ -384,10 +383,38 @@ class HandleFileNames:
 
 
 if __name__ == '__main__':
+    from shutil import copyfile
+    b_get_box_files = False
+    if b_get_box_files:
+        dest_path = "../Image_based/data/EnvyTree/"
+        if not exists(dest_path):
+            mkdir(dest_path)
+
+        tree_search_path = f"/Users/cindygrimm/MyBox/Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
+        for (root, dirs, files) in walk(tree_search_path, topdown=True):
+            follow_path_name = root[len(tree_search_path):]
+            path_pieces = str.split(follow_path_name, "/")
+            if "depth" in path_pieces[-1]:
+                continue
+            sub_dir_name = "_".join(path_pieces[0:-1])
+            count = 0
+            files.sort()
+            n_skip = 10   #max(1, len(files) // 10)
+            for nf, ff in enumerate(files):
+                if ff[-4:] == ".png" and nf % n_skip == 0:
+                    if not exists(dest_path + "/" + sub_dir_name):
+                        mkdir(dest_path + "/" + sub_dir_name)
+                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
+                    print(f"{ff}")
+
+    path_bpd_envy = "../Image_based/data/EnvyTree/"
+    all_files_envy = FileNames(path_bpd_envy, img_type="png")
+    all_files_envy.add_sub_directories()
+    all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
     # Example bb
     """
     path_bpd = "./data/blueberries/"
-    all_files = HandleFileNames(path_bpd, img_type="jpg")
+    all_files = FileNames(path_bpd, img_type="jpg")
     all_files.add_directory(name_filter="rgb", name_separator="_")
     all_files.add_mask_images(["all"])
     all_files.write_filenames("./data/blueberries_fnames.json")
@@ -396,7 +423,7 @@ if __name__ == '__main__':
     # Example 2
     fname_for_json_file = "../Image_based/data/forcindy_fnames.json"
     path_bpd = "../Image_based/data/forcindy/"
-    all_files = HandleFileNames(path=path_bpd, img_type="png")
+    all_files = FileNames(path=path_bpd, img_type="png")
     all_files.mask_names = ["trunk", "sidebranch"]
     # Filename is, eg, 0.png
     all_files.add_directory()
@@ -420,4 +447,4 @@ if __name__ == '__main__':
     all_files_trunk.check_names()
     """
 
-    check_read = HandleFileNames.read_filenames(fname_for_json_file)
+    check_read = FileNames.read_filenames(fname_for_json_file)

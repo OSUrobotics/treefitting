@@ -10,14 +10,13 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('./'))
 sys.path.insert(0, os.path.abspath('./Image_based'))
+sys.path.insert(0, os.path.abspath('./Utilities'))
 sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
-sys.path.insert(0, os.path.abspath('../'))
-sys.path.insert(0, os.path.abspath('../Image_based'))
 from os.path import exists
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
 from Draw_spline_3D import DrawSpline3D
-from HandleFileNames import HandleFileNames
+from FileNames import FileNames
 
 from extract_curves import ExtractCurves
 from fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
@@ -75,8 +74,8 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/forcindy/")
-        self.file_name = QLineEdit("forcindy_fnames.json")
+        self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
+        self.file_name = QLineEdit("envy_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)
@@ -319,6 +318,12 @@ class SketchCurvesMainWindow(QMainWindow):
                      self.mask_number.slider.maximum(),
                      self.mask_id_number.slider.maximum())
         print(f"Sliders orig {sldr_maxs_orig}")
+        if self.sub_dir_number.slider.maximum() > len(self.handle_filenames.sub_dirs):
+            self.sub_dir_number.slider.setMaximum(len(self.handle_filenames.sub_dirs))
+            b_changed = True
+        if indx_sub_dir >= self.sub_dir_number.slider.maximum():
+            indx_sub_dir = 0
+
         if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[indx_sub_dir]):
             self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[indx_sub_dir]))
             b_changed = True
@@ -327,8 +332,8 @@ class SketchCurvesMainWindow(QMainWindow):
             indx_image = 0
             self.image_number.set_value(indx_image)
 
-        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]):
-            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names[indx_sub_dir][indx_image]))
+        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_names):
+            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names))
             b_changed = True
             print(f" Changing mask number {self.mask_number.slider.maximum()} {indx_mask}")
         if indx_mask >= self.mask_number.slider.maximum():
@@ -372,9 +377,7 @@ class SketchCurvesMainWindow(QMainWindow):
 
     def read_file_names(self):
         fname = self.path_name.text() + self.file_name.text()
-        self.handle_filenames = HandleFileNames.read_filenames(fname)
-        self.sub_dir_number.slider.setMaximum(len(self.handle_filenames.image_names))
-        self.sub_dir_number.slider.setValue(0)
+        self.handle_filenames = FileNames.read_filenames(fname)
         self.reset_file_menus()
         self.read_images()
         self.reset_params_menus()
@@ -431,10 +434,10 @@ class SketchCurvesMainWindow(QMainWindow):
         ret_index = self.handle_filenames.add_mask_name(self.last_index, self.mask_name.toPlainText())
         self.last_index = self.handle_filenames.add_mask_id(ret_index)
 
-        rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_optical_flow=True, b_add_tag=True)
-        mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        fname_calculate = self.handle_filenames.get_mask_name(path= self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
+        rgb_fname = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(index=self.last_index, b_optical_flow=True, b_add_tag=True)
+        mask_fname = self.handle_filenames.get_mask_name(b_add_tag=True)
+        fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
 
         # Actually convert the curve
         width_rgb_image = self.crv.image_rgb.shape[1]
@@ -474,16 +477,15 @@ class SketchCurvesMainWindow(QMainWindow):
     def set_crv(self, params):
         """Read in the images etc and recalc (or not)
         @param params - if None, recalculate"""
-        print(f"{self.handle_filenames.get_image_name(self.handle_filenames.path, index=self.last_index, b_add_tag=True)}")
+        print(f"{self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)}")
 
-        rgb_fname = self.handle_filenames.get_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_optical_flow=True, b_add_tag=True)
-        mask_fname = self.handle_filenames.get_mask_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-        edge_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+        rgb_fname = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
+        edge_fname = self.handle_filenames.get_edge_image_name(index=self.last_index, b_optical_flow=True, b_add_tag=True)
+        mask_fname = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=True)
+        edge_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
         print(f"{rgb_fname}\n{mask_fname}")
 
-        edge_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated,
-                                                                   index=self.last_index,
+        edge_fname_calculate = self.handle_filenames.get_edge_name(index=self.last_index,
                                                                    b_add_tag=False)
 
         if not exists(mask_fname):
@@ -503,10 +505,10 @@ class SketchCurvesMainWindow(QMainWindow):
                                          b_recalc=b_recalc)
         self.crv = self.extract_crv.bezier_edge
 
-        depth_fname = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+        depth_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
         if exists(depth_fname):
-            depth_fname_calculate = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_calculated, index=self.last_index, b_add_tag=False)
-            depth_fname_debug = self.handle_filenames.get_mask_name(path=self.handle_filenames.path_debug, index=self.last_index, b_add_tag=False)
+            depth_fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=False)
+            depth_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
             params = {"camera_width_angle": self.horizontal_angle.value()}
             self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv.bezier_crv_fit_to_edge,
                                                   params=params,
@@ -522,8 +524,8 @@ class SketchCurvesMainWindow(QMainWindow):
             b_get_image, self.last_index = self.reset_file_menus()
             print(f" masks {self.handle_filenames.mask_ids[self.last_index[0]][self.last_index[1]][self.last_index[2]]}")
             if b_get_image:
-                image_flow_name = self.handle_filenames.get_flow_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
-                image_depth_name = self.handle_filenames.get_depth_image_name(path=self.handle_filenames.path, index=self.last_index, b_add_tag=True)
+                image_flow_name = self.handle_filenames.get_flow_image_name(index=self.last_index, b_add_tag=True)
+                image_depth_name = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
 
                 if exists(image_flow_name):
                     image_flow = cv2.imread(image_flow_name)
