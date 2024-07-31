@@ -125,6 +125,10 @@ class FileNames:
         subdir/imagename_maskname_id.mask_tag   - assuming seperator is _
         Assumes that mask_names, mask_tag, and mask_id_separator are set"""
 
+        if len(self.mask_names) == 0:
+            self.mask_names = ["trunk"]
+            print("Warning, no mask names")
+
         # Loop over all sub directories, all images
         self.mask_ids = []
         for i, d in enumerate(self.sub_dirs):
@@ -180,6 +184,8 @@ class FileNames:
         for n in fnames:
             if not isdir(n):
                 continue
+            if "CalculatedData" in n or "DebugImages" in n:
+                continue
 
             im_names = self._find_files(n + "/", name_filter=im_name_filter)
             if im_names is []:
@@ -202,26 +208,28 @@ class FileNames:
         """ Add another mask type/name to the list
                 Will make empty mask_id lists for that name
         @param mask_type_name - actual name to use
-        @return True/False if mask name exists"""
+        @return index of mask id"""
 
-        for n in mask_type_name:
+        for ind, n in enumerate(mask_type_name):
             if n == mask_type_name:
                 print(f"Mask name {n} already exists")
-                return False
+                return (0, 0, ind, 0)
         # Add the actual name
         self.mask_names.append(mask_type_name)
 
         # Add the mask id lists
-        for i in self.mask_ids:
-            for j in self.mask_ids[i]:
-                for k in self.mask_ids[i][j]:
-                    self.mask_ids[i][j][k].append([])
+        for i, _ in enumerate(self.mask_ids):
+            for j, _ in enumerate(self.mask_ids[i]):
+                # One new list for the mask for each image
+                self.mask_ids[i][j].append([])
+        return (0, 0, len(self.mask_names) - 1, 0)
 
     def add_mask_id(self, index, mask_id):
         """ Add another mask id to this image/mask pair
         @param index - which subdir, image, mask
         @param mask_id - should be string
         @return new index"""
+
         if index[3] == -1 or len(self.mask_ids[index[0]][index[1]][index[2]]) == 0:
             ret_index = (index[0], index[1], index[2], 0)
         else:
@@ -250,7 +258,7 @@ class FileNames:
 
         return im_name
 
-    def get_edge_image_name(self, index, b_optical_flow=False, b_add_tag=True):
+    def get_edge_name(self, index, b_optical_flow=False, b_add_tag=True):
         """ Get the edge image name corresponding to the index given by (subdirectory index, image index, -)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_optical_flow True if add OF to edge name
@@ -304,23 +312,33 @@ class FileNames:
         @return just the mask name """
         image_name = self.image_names[index[0]][index[1]]
         mask_name = self.mask_names[index[2]]
-        mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+
+        # No mask id for this mask
+        if len(self.mask_ids[index[0]][index[1]][index[2]]) <= index[3]:
+            mask_id = ""
+        else:
+            mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+
         mask_name_full = image_name + self.name_seperator + mask_name + self.mask_id_separator + mask_id
 
         if b_add_tag:
             mask_name_full = mask_name_full + self.mask_tag
         return mask_name_full
 
-    def get_mask_name(self, index, b_debug_path=False, b_add_tag=True):
+    def get_mask_name(self, index, b_debug_path=False, b_calculate_path=False, b_add_tag=True):
         """ Get the mask name with path corresponding to the index given by (subdirectory index, image index, mask name, mask id)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_debug_path Use debug path y/an
+        @param b_debug_path Use debug path y/n
+        @param b_calcualte_path Use calculate path y/n [only pick one of these two]
         @param b_add_tag - add the image tag, y/n
         @return full mask name with path"""
         if b_debug_path:
             im_name = self.path_debug
+        elif b_calculate_path:
+            im_name = self.path_calculated
         else:
             im_name = self.path
+
         im_name = im_name + self.sub_dirs[index[0]] + "/" + self._get_mask_name(index=index, b_add_tag=b_add_tag)
 
         return im_name
@@ -369,6 +387,10 @@ class FileNames:
         """ Read in all the variables and put them back in the class
         @param fname file to read from
         @return a Handle File Names instance"""
+        if not exists(fname):
+            if exists(path + "/" + fname):
+                fname = path + "/" + fname
+                
         with open(fname, "r") as f:
             my_data = json.load(f)
 
@@ -386,7 +408,7 @@ if __name__ == '__main__':
     from shutil import copyfile
     b_get_box_files = False
     if b_get_box_files:
-        dest_path = "../Image_based/data/EnvyTree/"
+        dest_path = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
         if not exists(dest_path):
             mkdir(dest_path)
 
@@ -407,8 +429,9 @@ if __name__ == '__main__':
                     copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
                     print(f"{ff}")
 
-    path_bpd_envy = "../Image_based/data/EnvyTree/"
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
     all_files_envy = FileNames(path_bpd_envy, img_type="png")
+    all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
     all_files_envy.add_sub_directories()
     all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
     # Example bb

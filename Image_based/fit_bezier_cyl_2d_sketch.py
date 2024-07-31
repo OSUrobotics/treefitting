@@ -15,7 +15,7 @@ from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from line_seg_2d import LineSeg2D
-from HandleFileNames import HandleFileNames
+from FileNames import FileNames
 from fit_bezier_cyl_2d_mask import FitBezierCyl2DMask
 
 import os
@@ -139,32 +139,67 @@ class FitBezierCyl2DSketch:
 
         return fit_crv.get_copy_of_2d_bezier_curve()
 
+    @staticmethod
+    def create_from_filenames(filenames, sketch_crv, index=(0, 0, 0, 0), b_do_debug=True, b_use_optical_flow_edge=False):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param sketch_crv - 2d sketched curv in image coords
+        @param b_do_debug - spit out a debug image y/n
+        @return FitBezierCyl2DSketch"""
+
+        rgb_fname = filenames.get_image_name(index=index, b_add_tag=True)
+
+        if not exists(rgb_fname):
+            raise ValueError(f"No file {rgb_fname}")
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            edge_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            edge_fname_debug = None
+
+        edge_fname = filenames.get_edge_name(index=index, b_add_tag=True, b_optical_flow=b_use_optical_flow_edge)
+
+        # The stub of the filename to save all of the data to
+        edge_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname, 
+                                                sketch_curves=sketch_crv, 
+                                                fname_mask_image=mask_fname,
+                                                fname_edge_image=edge_fname,
+                                                fname_debug=edge_fname_debug)
+        return crv_from_sketch
+
+
 
 if __name__ == '__main__':
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    all_files = FileNames.read_filenames(path=path_bpd_envy, 
+                                         fname="envy_fnames.json")
 
     # path_bpd = "./data/trunk_segmentation_names.json"
-    path_bpd = "./Image_based/data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    # path_bpd = "./Image_based/data/forcindy_fnames.json"
+    # all_files = FileNames.read_filenames(path_bpd)
 
-    index = (-1, -1, 0, 0)
-    ret_index_mask_name = all_files.add_mask_name(index, "sketch")
-    index_add = (0, 0, ret_index_mask_name[2], 0)
-    ret_index_mask_id = all_files.add_mask_id(index_add)
-
-    crv_in_image_coords = SketchesForCurves.read_json("save_crv_in_image.json")
+    mask_index = all_files.add_mask_name("sketch")
+    ret_index_mask_id = all_files.add_mask_id(index=mask_index, mask_id="s1")
 
     b_do_debug = True
+    b_use_optical_flow = False
 
-    rgb_fname = all_files.get_image_name(path=all_files.path, index=ret_index_mask_id, b_add_tag=True)
-    edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ret_index_mask_id, b_add_tag=True)
-    mask_fname = all_files.get_mask_name(path=all_files.path, index=ret_index_mask_id, b_add_tag=True)
-    edge_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ret_index_mask_id, b_add_tag=False)
-    if not b_do_debug:
-        edge_fname_debug = None
-    crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname, 
-                                           sketch_curves=crv_in_image_coords, 
-                                           fname_mask_image=mask_fname,
-                                           fname_edge_image=edge_fname,
-                                           fname_debug=edge_fname_debug)
+    crv_sketch_name = "save_crv_in_image.json"
+    if exists(crv_sketch_name):
+        crv_in_image_coords = SketchesForCurves.read_json(crv_sketch_name)
+
+        crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(all_files, 
+                                                                    crv_in_image_coords,
+                                                                    ret_index_mask_id,
+                                                                    b_do_debug=b_do_debug,
+                                                                    b_use_optical_flow_edge=b_use_optical_flow)
 
     print("foo")

@@ -12,8 +12,8 @@ import cv2
 import json
 from os.path import exists
 from line_seg_2d import LineSeg2D
-from HandleFileNames import HandleFileNames
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
+from FileNames import FileNames
 
 
 class ExtractCurves:
@@ -38,6 +38,10 @@ class ExtractCurves:
                                               params=params,
                                               fname_debug=fname_debug,
                                               b_recalc=b_recalc)
+        
+        if not exists(fname_mask_image):
+            self.params = None
+            return
 
         # List o pairs (t, plus/minus)
         self.left_curve = []
@@ -279,11 +283,50 @@ class ExtractCurves:
         # Left curve as t, perc pairs and same for right
         return crvs[0], crvs[1]
 
+    @staticmethod
+    def create_from_filenames(filenames, index=(0,0,0,0), b_do_recalc=False, b_do_debug=True, b_use_optical_flow_edge=False):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param b_do_recalc - recalculate from scratch
+        @param b_do_debug - spit out a debug image y/n
+        @param b_use_optical_flow_edge - use optical flow edge image instead of rgb edge image
+        @return extract curves"""
+
+        rgb_fname = filenames.get_image_name(index=index, b_add_tag=True)
+
+        if not exists(rgb_fname):
+            raise ValueError(f"No file {rgb_fname}")
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        edge_fname = filenames.get_edge_name(index=index, b_optical_flow=b_use_optical_flow_edge, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            mask_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            mask_fname_debug = None
+
+        # The stub of the filename to save all of the data to
+        mask_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        profile_crvs = ExtractCurves(rgb_fname, edge_fname, mask_fname,
+                                     fname_calculated=mask_fname_calculate,
+                                     fname_debug=mask_fname_debug, b_recalc=b_do_recalc)
+        return profile_crvs
+
 
 if __name__ == '__main__':
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
+                                               fname="envy_fnames.json")
+    ExtractCurves.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    all_files = FileNames.read_filenames(path_bpd)
 
     b_do_debug = True
     b_do_recalc = True

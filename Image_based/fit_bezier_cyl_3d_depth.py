@@ -11,7 +11,7 @@ import cv2
 import json
 from os.path import exists
 from line_seg_2d import LineSeg2D
-from HandleFileNames import HandleFileNames
+from FileNames import FileNames
 from bezier_cyl_2d import BezierCyl2D
 from bezier_cyl_3d import BezierCyl3D
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
@@ -267,7 +267,7 @@ class FitBezierCyl3dDepth:
 if __name__ == '__main__':
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    all_files = FileNames.read_filenames(path_bpd)
 
     b_do_debug = True
     b_do_recalc = True

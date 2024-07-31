@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 
-# Get OpenGL
-from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
-
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit, QSizePolicy
-import cv2
-
 import os
 import sys
 sys.path.insert(0, os.path.abspath('./'))
 sys.path.insert(0, os.path.abspath('./Image_based'))
 sys.path.insert(0, os.path.abspath('./Utilities'))
 sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
+sys.path.insert(0, os.path.abspath('../'))
+sys.path.insert(0, os.path.abspath('../Image_based'))
+sys.path.insert(0, os.path.abspath('../Utilities'))
+sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
 from os.path import exists
+
+# Get OpenGL
+from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
+
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit, QSizePolicy
+import cv2
+import numpy as np
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
 from Draw_spline_3D import DrawSpline3D
@@ -59,12 +64,10 @@ class SketchCurvesMainWindow(QMainWindow):
         self.fit_crv_3d = None
         self.in_reset_file_menus = False
         self.in_read_images = False
-        # self.sketch_curve = SketchesForCurves()
+        self.sketch_curve = SketchesForCurves()
         self.crv_from_sketch = None
         if exists("save_crv.json"):
             self.sketch_curve = SketchesForCurves.read_json("save_crv.json")
-        else:
-            self.sketch_curve = None
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -94,6 +97,7 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.addWidget(QLabel("Mask id:"))
         path_names_layout.addWidget(self.mask_id_number)
         path_names_layout.addWidget(self.image_name)
+        path_names_layout.setSpacing(5)
         path_names.setLayout(path_names_layout)
 
         self.sub_dir_number.slider.valueChanged.connect(self.read_images)
@@ -203,6 +207,7 @@ class SketchCurvesMainWindow(QMainWindow):
         resets = QGroupBox('Resets')
         resets_layout = QVBoxLayout()
         resets_layout.addWidget(restart_fit_button)
+        resets_layout.setSpacing(5)
         resets.setLayout(resets_layout)
 
         curve_drawing = QGroupBox('Curve drawing')
@@ -232,6 +237,7 @@ class SketchCurvesMainWindow(QMainWindow):
         curve_drawing_layout.addWidget(self.edge_max)
         curve_drawing_layout.addWidget(self.n_per_seg)
         curve_drawing_layout.addWidget(self.width_inside)
+        curve_drawing_layout.setSpacing(5)
         curve_drawing.setLayout(curve_drawing_layout)
 
         # For showing images and curves
@@ -265,6 +271,7 @@ class SketchCurvesMainWindow(QMainWindow):
         show_images_layout.addWidget(self.show_edge_button)
         show_images_layout.addWidget(self.show_opt_flow_button)
         show_images_layout.addWidget(self.show_depth_button)
+        show_images_layout.setSpacing(5)
         show_images.setLayout(show_images_layout)
 
         show_curves = QGroupBox('Curve shows')
@@ -353,7 +360,13 @@ class SketchCurvesMainWindow(QMainWindow):
             b_changed = True
         print(f" New index {indx}")
 
-        self.image_name.setText(self.handle_filenames.get_image_name("", index=indx))
+        img_name = self.handle_filenames.get_image_name(index=indx)
+        img_name_split = img_name.split("/")
+        if len(img_name_split) > 2:
+            self.image_name.setAccessibleName(img_name_split[-2])
+            self.image_name.setText(img_name_split[-1])
+        else:
+            self.image_name.setText(img_name)
         sldr_maxs = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
@@ -365,6 +378,9 @@ class SketchCurvesMainWindow(QMainWindow):
 
     def reset_params_menus(self):
         """ Set all the sliders based on the stored curve"""
+        if not self.extract_crv.params:
+            return
+        
         self.step_size.set_value(self.extract_crv.params["step_size"])
         self.width_mask.set_value(self.extract_crv.params["width_mask"])
         self.width_edge.set_value(self.extract_crv.params["width_edge"])
@@ -377,7 +393,7 @@ class SketchCurvesMainWindow(QMainWindow):
 
     def read_file_names(self):
         fname = self.path_name.text() + self.file_name.text()
-        self.handle_filenames = FileNames.read_filenames(fname)
+        self.handle_filenames = FileNames.read_filenames(fname, path=self.path_name.text())
         self.reset_file_menus()
         self.read_images()
         self.reset_params_menus()
@@ -431,13 +447,9 @@ class SketchCurvesMainWindow(QMainWindow):
             return
         
         self.sketch_curve.write_json("save_crv.json")
-        ret_index = self.handle_filenames.add_mask_name(self.last_index, self.mask_name.toPlainText())
-        self.last_index = self.handle_filenames.add_mask_id(ret_index)
-
-        rgb_fname = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(index=self.last_index, b_optical_flow=True, b_add_tag=True)
-        mask_fname = self.handle_filenames.get_mask_name(b_add_tag=True)
-        fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
+        ret_index = self.handle_filenames.add_mask_name(self.mask_name.toPlainText())
+        mask_id = f"{self.mask_id_number.slider.maximum()}"
+        self.last_index = self.handle_filenames.add_mask_id(ret_index, mask_id)
 
         # Actually convert the curve
         width_rgb_image = self.crv.image_rgb.shape[1]
@@ -447,11 +459,9 @@ class SketchCurvesMainWindow(QMainWindow):
         self.sketch_curve.write_json("save_crv_in_image.json")
 
         # Will create a mask image
-        self.crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname, 
-                                                    sketch_curves=crv_in_image_coords, 
-                                                    fname_mask_image=mask_fname,
-                                                    fname_edge_image=edge_fname,
-                                                    fname_calculated=fname_calculate)
+        self.crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(self.handle_filenames,
+                                                                          crv_in_image_coords,
+                                                                          self.last_index)
         self.reset_file_menus()
         self.mask_number.set_value(self.last_index[2])
         self.mask_id_number.set_value(self.last_index[3])
@@ -479,30 +489,13 @@ class SketchCurvesMainWindow(QMainWindow):
         @param params - if None, recalculate"""
         print(f"{self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)}")
 
-        rgb_fname = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
-        edge_fname = self.handle_filenames.get_edge_image_name(index=self.last_index, b_optical_flow=True, b_add_tag=True)
-        mask_fname = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=True)
-        edge_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
-        print(f"{rgb_fname}\n{mask_fname}")
-
-        edge_fname_calculate = self.handle_filenames.get_edge_name(index=self.last_index,
-                                                                   b_add_tag=False)
-
-        if not exists(mask_fname):
-            print(f"Error, file {mask_fname} does not exist")
-        if not exists(rgb_fname):
-            raise ValueError(f"Error, file {rgb_fname} does not exist")
-
-        #self.crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=False)
-
         b_recalc = False
         if params is not None:
             b_recalc = True
-        self.extract_crv = ExtractCurves(rgb_fname, edge_fname, mask_fname,
-                                         fname_calculated=edge_fname_calculate,
-                                         params=params,
-                                         fname_debug=edge_fname_debug,
-                                         b_recalc=b_recalc)
+        self.extract_crv = ExtractCurves.create_from_filenames(self.handle_filenames,
+                                                               index=self.last_index,
+                                                               b_do_debug=False,
+                                                               b_do_recalc=b_recalc)
         self.crv = self.extract_crv.bezier_edge
 
         depth_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
@@ -538,8 +531,14 @@ class SketchCurvesMainWindow(QMainWindow):
                     image_depth = None
 
                 self.set_crv(params=None)
+                if self.crv.mask_crv.stats_dict.mask_image.size < 256:
+                    img_mask = np.zeros((self.crv.image_rgb.shape[0],
+                                         self.crv.image_rgb.shape[1]), np.uint8)
+                else:
+                    img_mask = self.crv.mask_crv.stats_dict.mask_image
+
                 self.glWidget.bind_texture(self.crv.image_rgb,
-                                           self.crv.mask_crv.stats_dict.mask_image,
+                                           img_mask,
                                            self.crv.image_edge,
                                            image_flow,
                                            image_depth)

@@ -16,7 +16,7 @@ from bezier_cyl_2d import BezierCyl2D
 from line_seg_2d import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
-from HandleFileNames import HandleFileNames
+from FileNames import FileNames
 
 
 def create_optical_flow_edge_image(of_image_name, of_edge_image_name):
