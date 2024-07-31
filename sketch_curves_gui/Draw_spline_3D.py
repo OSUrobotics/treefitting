@@ -215,11 +215,11 @@ class DrawSpline3D(QOpenGLWidget):
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
         if len(self.image_gl_tex) == 0:
-            n_textures = 8
+            n_textures = 9
             self.image_gl_tex = GL.glGenTextures(n_textures)
         for i, im in enumerate([im_sq, im_sq_mask, im_sq_edge, im_sq_rgb_mask, im_sq_rgb_edge, im_sq_rgb_mask_edge, im_sq_flow, im_sq_depth]):
             if im is None:
-                self.image_gl_tex[i] = -1
+                self.image_gl_tex[i] = 100
             else:
                 GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[i])
                 GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST)
@@ -268,7 +268,7 @@ class DrawSpline3D(QOpenGLWidget):
         if tex_indx == -1:
             return
 
-        if self.image_gl_tex[tex_indx] != -1:
+        if self.image_gl_tex[tex_indx] != 100:
             GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
             GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[tex_indx])
             GL.glEnable(GL.GL_TEXTURE_2D)
@@ -293,6 +293,9 @@ class DrawSpline3D(QOpenGLWidget):
 
     def draw_crv_2d(self, crv):
 
+        if not crv:
+            return
+        
         if self.gui.show_backbone_button.checkState():
             n_pts_quad = 6
             pts = self.convert_pts(crv.pt_axis(np.linspace(0, 1, n_pts_quad)))
@@ -405,7 +408,7 @@ class DrawSpline3D(QOpenGLWidget):
 
     def draw_sketch(self):
         """ The marks the user made"""
-        if not self.gui or not self.gui.crv:
+        if not self.gui or not self.gui.crv or not self.gui.sketch_curve:
             return
         qp = QPainter()
         qp.begin(self)

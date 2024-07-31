@@ -17,7 +17,7 @@ from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
 from BaseStatsImage import BaseStatsImage
-from HandleFileNames import HandleFileNames
+from FileNames import FileNames
 
 
 class FitBezierCyl2DMask:
@@ -34,6 +34,10 @@ class FitBezierCyl2DMask:
         # First do the stats - this also reads the image in
         self.stats_dict = BaseStatsImage(fname_mask_image, fname_calculated, fname_debug, b_recalc)
 
+        if not exists(fname_mask_image):
+            self.params = None
+            return
+        
         # Now initialize bezier curve with info from stats - no need to cache this because it's so light-weight
         p0 = self.stats_dict.stats_dict["lower_left"]
         p2 = self.stats_dict.stats_dict["upper_right"]
@@ -202,24 +206,43 @@ class FitBezierCyl2DMask:
 
         return np.count_nonzero(pixs_in_both_masks) / np.count_nonzero(pixs_in_union)
 
+    @staticmethod
+    def create_from_filenames(filenames, index=(0,0,0,0), b_do_recalc=False, b_do_debug=True):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param b_do_recalc - recalculate from scratch
+        @param b_do_debug - spit out a debug image y/n
+        @return BezierCyl2DMask"""
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            mask_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            mask_fname_debug = None
+
+        # The stub of the filename to save all of the data to
+        mask_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        b_crv_mask = FitBezierCyl2DMask(mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
+        return b_crv_mask
+
 
 if __name__ == '__main__':
-    im = cv2.imread("/Users/grimmc/Downloads/depth_raw_3.jpg")
-    print(f" {im.min()}, {im.max()}")
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
+                                               fname="envy_fnames.json")
+    FitBezierCyl2DMask.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    all_files = FileNames.read_filenames(path_bpd)
 
     b_do_debug = True
     b_do_recalc = False
     for ind in all_files.loop_masks():
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
-        if not b_do_debug:
-            mask_fname_debug = None
-
-        mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
-
-        if not exists(mask_fname):
-            raise ValueError(f"Error, file {mask_fname} does not exist")
-        b_stats = FitBezierCyl2DMask(mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
+        FitBezierCyl2DMask.create_from_filenames(all_files, ind, b_do_debug=b_do_debug, b_do_recalc=b_do_recalc)

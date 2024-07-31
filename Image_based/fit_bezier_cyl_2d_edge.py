@@ -26,8 +26,8 @@ from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
 from line_seg_2d import LineSeg2D
-from HandleFileNames import HandleFileNames
 from fit_bezier_cyl_2d_mask import FitBezierCyl2DMask
+from FileNames import FileNames
 
 
 class FitBezierCyl2DEdge:
@@ -83,6 +83,10 @@ class FitBezierCyl2DEdge:
 
         #   This is the curve that will be fit to the edge
         self.bezier_crv_fit_to_edge = None
+
+        if not exists(fname_mask_image):
+            self.params = None
+            return
 
         # Copy params used in fit mask and add the new ones
         self.params = {}
@@ -424,28 +428,56 @@ class FitBezierCyl2DEdge:
         else:
             self.bezier_crv_fit_to_edge.draw_boundary(image_debug, 10)
 
+    @staticmethod
+    def create_from_filenames(filenames, index=(0,0,0,0), b_do_recalc=False, b_do_debug=True, b_use_optical_flow_edge=False):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param b_do_recalc - recalculate from scratch
+        @param b_do_debug - spit out a debug image y/n
+        @param b_use_optical_flow_edge - use optical flow edge image instead of rgb edge image        
+        @return FitBezierCyl2DEdge"""
+
+        rgb_fname = filenames.get_image_name(index=index, b_add_tag=True)
+
+        if not exists(rgb_fname):
+            raise ValueError(f"No file {rgb_fname}")
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            edge_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            edge_fname_debug = None
+
+        edge_fname = filenames.get_edge_name(index=index, b_add_tag=True, b_optical_flow=b_use_optical_flow_edge)
+
+        # The stub of the filename to save all of the data to
+        edge_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        edge_crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=b_do_recalc)
+        return edge_crv
+
 
 if __name__ == '__main__':
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
+                                               fname="envy_fnames.json")
+    FitBezierCyl2DEdge.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    all_files = FileNames.read_filenames(path_bpd)
 
     b_do_debug = True
     b_do_recalc = False
+    b_use_optical_flow = False
     for ind in all_files.loop_masks():
-        rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_add_tag=True)
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
-        if not b_do_debug:
-            edge_fname_debug = None
-
-        edge_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
-
-        if not exists(mask_fname):
-            raise ValueError(f"Error, file {mask_fname} does not exist")
-        if not exists(rgb_fname):
-            raise ValueError(f"Error, file {rgb_fname} does not exist")
-
-        edge_crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, edge_fname_debug, b_recalc=b_do_recalc)
+        FitBezierCyl2DEdge.create_from_filenames(all_files, 
+                                                 b_do_debug=b_do_debug,
+                                                 b_do_recalc=b_do_recalc,
+                                                 b_use_optical_flow_edge=b_use_optical_flow)
     print("foo")

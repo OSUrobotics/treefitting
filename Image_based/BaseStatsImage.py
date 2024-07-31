@@ -13,7 +13,12 @@ import cv2
 from os.path import exists
 import json
 from line_seg_2d import LineSeg2D
-from HandleFileNames import HandleFileNames
+
+from os.path import abspath as os_abs_path
+from sys import path as syspath
+syspath.insert(0, os_abs_path('../Utilities'))
+syspath.insert(0, os_abs_path('./Utilities'))
+from FileNames import FileNames
 
 
 class BaseStatsImage:
@@ -47,7 +52,12 @@ class BaseStatsImage:
         @param b_recalc: Force recalculate the result, y/n"""
 
         self.stats_dict = None
-        mask_image_rgb = cv2.imread(fname_mask_image)
+        if exists(fname_mask_image):
+            mask_image_rgb = cv2.imread(fname_mask_image)
+        else:
+            self.mask_image = np.zeros((8, 8), dtype=np.uint8)
+            return
+        
         if len(mask_image_rgb.shape) == 3:
             self.mask_image = cv2.cvtColor(mask_image_rgb, cv2.COLOR_BGR2GRAY)
         else:
@@ -179,22 +189,43 @@ class BaseStatsImage:
         ymax = self.stats_dict["y_max"]
         LineSeg2D.draw_rect(in_image, [[xmin, xmax], [ymin, ymax]], (256, 128, 128), 2)
 
+    @staticmethod
+    def create_from_filenames(filenames, index=(0,0,0,0), b_do_recalc=False, b_do_debug=True):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param b_do_recalc - recalculate from scratch
+        @param b_do_debug - spit out a debug image y/n
+        @return base stats image"""
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            mask_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            mask_fname_debug = None
+
+        # The stub of the filename to save all of the data to
+        mask_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        b_stats = BaseStatsImage(mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
+        return b_stats
+
 
 if __name__ == '__main__':
+    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
+                                               fname="envy_fnames.json")
+    BaseStatsImage.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+
     #path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = HandleFileNames.read_filenames(path_bpd)
+    all_files = FileNames.read_filenames(path_bpd)
 
     b_do_debug = True
     b_do_recalc = False
     for ind in all_files.loop_masks():
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        mask_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
-        if not b_do_debug:
-            mask_fname_debug = None
-
-        mask_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
-
-        if not exists(mask_fname):
-            raise ValueError(f"Error, file {mask_fname} does not exist")
-        b_stats = BaseStatsImage(mask_fname, mask_fname_calculate, mask_fname_debug, b_recalc=b_do_recalc)
+        BaseStatsImage.create_from_filenames(all_files, ind, b_do_debug=b_do_debug, b_do_recalc=b_do_recalc)
