@@ -364,6 +364,7 @@ class BSplineCurve(object):
         spline = self.eval_crv(tr)
         spline = np.array(spline)
         ctrl_array = np.reshape(self.ctrl_pts, (-1, self.dim))
+        print(spline)
         # print(f"{min(spline[:, 0])} to {max(spline[:, 0])} with {len(ctrl_array)} points")
         (ln,) = self.ax.plot(
             ctrl_array[:, 0], ctrl_array[:, 1], "bo", label="control points"
@@ -414,27 +415,3 @@ class BSplineCurve(object):
 
     def enable_onclick(self):
         self.cid = self.fig.canvas.mpl_connect("button_press_event", self.onclick)
-
-
-def plot_test():
-    fig, ax = plt.subplots()
-    fig.set_size_inches(16, 9)
-    bs = BSplineCurve(
-        ctrl_pts=[
-            np.array([0, 0]),
-            np.array([3, 5]),
-            np.array([6, -5]),
-            np.array([6.5, -3]),
-        ],
-        degree="cubic",
-        figax=(fig, ax),
-    )
-    bs.enable_onclick()
-    # bs.plot_basis(plt)
-    bs.plot_curve()
-    plt.show()
-    fig.canvas.mpl_disconnect(bs.cid)
-    return
-
-
-
