@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import json
 import numpy as np
+from copy import deepcopy
 
 class fit_params:
     def __init__(
         self,
-        json_string = None,
+        json_string = "{}",
     ):
         self.load_json(json_string)
 
@@ -13,7 +14,12 @@ class fit_params:
         return str in self.__dict__.keys()
 
     def get_param(self, str):
-        return self.__dict__[str]
+        """ check if a parameter exists in the dictionary and return it if it does, None on failure
+
+        :param str: parameter name
+        :return: parameter value or None
+        """
+        return self.__dict__.get(str)
     
     def add_param(self, str, val):
         self.__dict__[str] = val
@@ -29,10 +35,15 @@ class fit_params:
         for key in self.__dict__.keys():
             if isinstance(self.__dict__[key], list):
                 self.__dict__[key] = np.array(self.__dict__[key])
+    
+    def __repr__(self):
+        return f'{self.json_dump()}'
 
-if __name__ == "__main__":
-    fp = fit_params(
-        1.0, residuals=np.array([0.6, 0.3, 0.2]), ts=np.array([0.2, 0.7, 1.0])
-    )
-    print(fp.json_dump())
-    pass
+    def __deepcopy__(self, memo):
+        # Create a new instance of fit_params
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, deepcopy(v, memo))
+        return result
