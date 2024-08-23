@@ -7,16 +7,39 @@ class LineSeg2D:
 
     def __init__(self, p1, p2):
         """Line segment with Ax + By + C form for closest point
-        @param p1: Pt 1
-        @param p2: Pt 2"""
+        @param p1: Pt 1, as list or numpy array
+        @param p2: Pt 2, as list or numpy array"""
 
-        self.p1 = p1
-        self.p2 = p2
-        self.a, self.b, self.c = self.line(p1, p2)
-        check1 = self.a * p1[0] + self.b * p1[1] + self.c
-        check2 = self.a * p2[0] + self.b * p2[1] + self.c
+        self._p1 = np.array(p1)
+        self._p2 = np.array(p2)
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
+        check1 = self._a * p1[0] + self._b * p1[1] + self._c
+        check2 = self._a * p2[0] + self._b * p2[1] + self._c
         if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
             raise ValueError("LineSeg2D: Making line, pts not on line")
+
+    @property
+    def p1(self):
+        return self._p1
+
+    @p1.setter
+    def p1(self, p):
+        self._p1 = np.array(p)
+        if self._p1.shape[0] != 1:
+            self._p1.transpose()
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
+
+    @property
+    def p2(self):
+        return self._p2
+
+    @p2.setter
+    def p2(self, p):
+        self._p2 = np.array(p)
+        if self._p2.shape[0] != 1:
+            self._p2.transpose()
+
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
 
     @staticmethod
     def line(p1, p2):
@@ -57,17 +80,17 @@ class LineSeg2D:
         @return t of projection point"""
 
         # distance between p1 and p2, squared
-        l2 = np.sum((self.p2 - self.p1) ** 2)
+        l2 = np.sum((self._p2 - self._p1) ** 2)
         if np.isclose(l2, 0.0):
-            return self.p1, 0.5
+            return self._p1, 0.5
 
         # The line extending the segment is parameterized as p1 + t (p2 - p1).
         # The projection falls where t = [(p3-p1) . (p2-p1)] / |p2-p1|^2
 
-        t = max(min(np.dot((pt - self.p1), (self.p2 - self.p1)) / l2, 1), 0)
+        t = max(min(np.dot((pt - self._p1), (self._p2 - self._p1)) / l2, 1), 0)
 
-        pt_proj = self.p1 + t * (self.p2 - self.p1)
-        check = self.a * pt_proj[0] + self.b * pt_proj[1] + self.c
+        pt_proj = self._p1 + t * (self._p2 - self._p1)
+        check = self._a * pt_proj[0] + self._b * pt_proj[1] + self._c
         assert np.isclose(check, 0.0)  # check on line
         dotprod = np.dot(pt - pt_proj, self.p2 - self.p1)
         if not (np.isclose(t, 0.0) or np.isclose(t, 1.0)):
@@ -75,127 +98,57 @@ class LineSeg2D:
 
         return pt_proj, t
 
-    # @staticmethod
-    # def draw_line(im, p1, p2, color, thickness=1):
-    #     """ Draw the line in the image using opencv
-    #     @param im - the image
-    #     @param p1 - first point
-    #     @param p2 - second point
-    #     @param color - rgb as an 0..255 tuple
-    #     @param thickness - thickness of line
-    #     """
-    #     try:
-    #         p1_int = [int(x) for x in p1]
-    #         p2_int = [int(x) for x in p2]
-    #         cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
-    #     except TypeError:
-    #         p1_int = [int(x) for x in np.transpose(p1)]
-    #         p2_int = [int(x) for x in np.transpose(p2)]
-    #         cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
-    #         print(f"p1 {p1} p2 {p2}")
-    #     """
-    #     p0 = p1
-    #     p1 = p2
-    #     r0 = p0[0, 0]
-    #     c0 = p0[0, 1]
-    #     r1 = p1[0, 0]
-    #     c1 = p1[0, 1]
-    #     rr, cc = draw.line(int(r0), int(r1), int(c0), int(c1))
-    #     rr = np.clip(rr, 0, im.shape[0]-1)
-    #     cc = np.clip(cc, 0, im.shape[1]-1)
-    #     im[rr, cc, 0:3] = (0.1, 0.9, 0.9)
-    #     """
-
-    # @staticmethod
-    # def draw_cross(im, p, color, thickness=1, length=2):
-    #     """ Draw the line in the image using opencv
-    #     @param im - the image
-    #     @param p - point
-    #     @param color - rgb as an 0..255 tuple
-    #     @param thickness - thickness of line
-    #     @param length - how long to make the cross lines
-    #     """
-    #     LineSeg2D.draw_line(im, p - np.array([0, length]), p + np.array([0, length]), color=color, thickness=thickness)
-    #     LineSeg2D.draw_line(im, p - np.array([length, 0]), p + np.array([length, 0]), color=color, thickness=thickness)
-
-    # @staticmethod
-    # def draw_box(im, p, color, width=6):
-    #     """ Draw the line in the image using opencv
-    #     @param im - the image
-    #     @param p - point
-    #     @param color - rgb as an 0..255 tuple
-    #     @param width - size of box
-    #     """
-    #     for r in range(-width, width):
-    #         LineSeg2D.draw_line(im, p - np.array([-r, width]), p + np.array([r, width]), color=color, thickness=1)
-
-    # @staticmethod
-    # def draw_rect(im, bds, color, width=6):
-    #     """ Draw the line in the image using opencv
-    #     @param im - the image
-    #     @param bds - point
-    #     @param color - rgb as an 0..255 tuple
-    #     @param thickness - thickness of line
-    #     """
-    #     LineSeg2D.draw_line(im, [bds[0][0], bds[1][0]], [bds[0][0], bds[1][1]], color=color, thickness=1)
-    #     LineSeg2D.draw_line(im, [bds[0][1], bds[1][0]], [bds[0][1], bds[1][1]], color=color, thickness=1)
-    #     LineSeg2D.draw_line(im, [bds[0][0], bds[1][0]], [bds[0][1], bds[1][0]], color=color, thickness=1)
-    #     LineSeg2D.draw_line(im, [bds[0][0], bds[1][1]], [bds[0][1], bds[1][1]], color=color, thickness=1)
-
 
 class ControlHull:
     def __init__(self, points):
-        self.dim = len(points[0])
-        self.points = points
-        self.polylines = [(i, i + 1) for i in range(len(points) - 1)]
+        self._points = []
+        try:
+            for p in points:
+                self._points.append(np.array(p))
+        except IndexError:
+            for r in points.shape[0]:
+                self._points.append(np.array(points[r]))
+
+        if self.dim() < 2:
+            raise ValueError(f"ControlHull: Need at least two points, got {self.dim()}")
+
+        self._polylines = [LineSeg2D(self._points[i], self._points[i+1]) for i in range(len(self._points)-1)]
+
+    def dim(self):
+        return len(self._points)
+
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, new_pts):
+        self._points = new_pts
+        self._polylines = [LineSeg2D(self._points[i], self._points[i+1]) for i in range(len(self._points)-1)]
+
+    def add_point(self, pt):
+        self._polylines.append(LineSeg2D(self._points[-1], pt))
+        self._points.append(pt)
+
+    @property
+    def polylines(self):
+        return self._polylines
+
+    @polylines.setter
+    def polylines(self, new_polylines):
+        raise ValueError("Don't set polylines directoy, use points")
 
     def parameteric_project(self, point):
-        dist = np.Inf
+        dist = 1e30
         min_t = 0
         min_seg = None
         min_proj = None
-        for pairs in self.polylines:
-            p1 = self.points[pairs[0]]
-            p2 = self.points[pairs[1]]
-            ls = LineSeg2D(p1, p2)
-            pt_proj, t = ls.projection(point)
+        for i, line_seg in enumerate(self._polylines):
+            pt_proj, t = line_seg.projection(point)
             d = np.sqrt(np.sum((pt_proj - point) ** 2))
             if d < dist:
                 min_proj = pt_proj
-                min_seg = pairs
-                min_t = t
-                dist = d
-        return (min_t, min_proj, min_seg)
-
-
-class ConvexHullGeom(ConvexHull):
-    """Construct and calculate spatial transforms on a convex hull. Relies on scipy.spatial for construction"""
-
-    def __init__(self, points: np.ndarray) -> None:
-        super().__init__(points)
-        self.dim = len(points[0])
-
-    def parameteric_project(self, point):
-        # pt_idx_for_visibility = self.points.shape[0]
-        # qhull_option = "QG" + str(pt_idx_for_visibility)
-        # generators = np.vstack((self.points, point))
-        # # only get the segments visible from the convex hull
-        # nhull = ConvexHull(points=generators, qhull_options=qhull_option)
-        dist = np.Inf
-        min_t = 0
-        min_seg = None
-        min_proj = None
-        for idx in self.simplices:
-            p1 = self.points[idx[0]]
-            p2 = self.points[idx[1]]
-            ls = LineSeg2D(p1, p2)
-            pt_proj, t = ls.projection(point)
-            d = np.sum((pt_proj - point) ** 2)
-            print(f"{point} checking {p1}, {p2}\ngets {pt_proj} d {d}")
-            # print(d)
-            if d < dist:
-                min_proj = pt_proj
-                min_seg = (idx[0], idx[1])
+                min_seg = i
                 min_t = t
                 dist = d
         return (min_t, min_proj, min_seg)
@@ -203,12 +156,27 @@ class ConvexHullGeom(ConvexHull):
 
 if __name__ == "__main__":
     line = LineSeg2D(np.array([0, 0]), np.array([1, 0]))
-    pt, t = line.projection(np.array([0.5, 0]))
-    assert np.isclose(t, 0.5)
-    assert np.isclose(pt[0], 0.5)
-    assert np.isclose(pt[1], 0.0)
+    pt_check, t_check = line.projection(np.array([0.5, 0]))
+    assert np.isclose(t_check, 0.5)
+    assert np.isclose(pt_check[0], 0.5)
+    assert np.isclose(pt_check[1], 0.0)
 
-    pt, t = line.projection(np.array([0.5, 1.0]))
-    assert np.isclose(t, 0.5)
-    assert np.isclose(pt[0], 0.5)
-    assert np.isclose(pt[1], 0.0)
+    pt_check, t_check = line.projection(np.array([0.5, 1.0]))
+    assert np.isclose(t_check, 0.5)
+    assert np.isclose(pt_check[0], 0.5)
+    assert np.isclose(pt_check[1], 0.0)
+
+    control_hull = ControlHull(np.array([[0, 0], [1, 0], [1, 1], [1, 0]]))
+    assert(control_hull.dim() == 4)
+    control_hull.add_point([0.5, 0.5])
+    res1 = control_hull.parameteric_project(point=np.array([0.5, -0.25]))
+    assert(np.isclose(res1[0], 0.5))
+    assert(np.isclose(res1[1][0], 0.5))
+    assert(np.isclose(res1[1][1], 0.0))
+    assert(res1[2] == 0)
+    control_hull.add_point([0.5, 0.5])
+    res2 = control_hull.parameteric_project(point=np.array([0.6, 0.6]))
+    assert(np.isclose(res2[0], 1.0))
+    assert(np.isclose(res2[1][0], 0.5))
+    assert(np.isclose(res2[1][1], 0.5))
+    assert(res2[2] is 3)
