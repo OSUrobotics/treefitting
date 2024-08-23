@@ -8,15 +8,8 @@ import sys
 sys.path.insert(0, os.path.abspath('./Image_based'))
 
 import numpy as np
-from glob import glob
 import cv2
-import json
 from os.path import exists
-from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d_draw import LineSeg2D
-from scipy.cluster.vq import kmeans, whiten, vq
-from BaseStatsImage import BaseStatsImage
-from FileNames import FileNames
 
 
 def create_optical_flow_edge_image(of_image_name, of_edge_image_name):

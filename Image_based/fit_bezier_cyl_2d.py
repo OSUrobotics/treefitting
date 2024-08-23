@@ -7,7 +7,7 @@
 
 import numpy as np
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d_draw import LineSeg2D
+from draw_routines.image_draw_geom_utils import LineSeg2D
 
 
 class FitBezierCyl2D(BezierCyl2D):

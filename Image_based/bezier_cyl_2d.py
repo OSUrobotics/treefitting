@@ -23,7 +23,7 @@ import json
 import cv2
 # If this doesn't load, right click on Image_based folder on the LHS and select "Mark directory as...->sources root"
 #   This just lets PyCharm know that it should look in the Image_based folders for Python files
-from line_seg_2d_draw import LineSeg2D
+from draw_routines.image_draw_geom_utils import LineSeg2D
 
 
 class BezierCyl2D:

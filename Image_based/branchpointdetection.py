@@ -9,7 +9,7 @@ import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d_draw import draw_line, draw_box, draw_cross, LineSeg2D
+from draw_routines.image_draw_geom_utils import draw_line, draw_box, draw_cross, LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 
 class BranchPointDetection:
