@@ -84,10 +84,6 @@ class FitBezierCyl2DEdge:
         #   This is the curve that will be fit to the edge
         self.bezier_crv_fit_to_edge = None
 
-        if not exists(fname_mask_image):
-            self.params = None
-            return
-
         # Copy params used in fit mask and add the new ones
         self.params = {}
         for k in self.mask_crv.params.keys():

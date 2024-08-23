@@ -321,7 +321,7 @@ class HandleFileNames:
         return im_name
 
     def loop_images(self):
-        """ A generator that loops over all of the images and generates an index for each
+        """ a generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
         for i, _ in enumerate(self.sub_dirs):
@@ -329,7 +329,7 @@ class HandleFileNames:
                 yield i, j
 
     def loop_masks(self, mask_type=""):
-        """ A generator that loops over all of the masks and generates an index for each
+        """ a generator that loops over all of the masks and generates an index for each
         The index can be passed to get_mask_name to get the actual mask name
         @param mask_type: Optional parameter; if set, return only masks of the given name (eg trunk)
         @return a tuple that can be used to get the mask name"""

@@ -34,10 +34,6 @@ class FitBezierCyl2DMask:
         # First do the stats - this also reads the image in
         self.stats_dict = BaseStatsImage(fname_mask_image, fname_calculated, fname_debug, b_recalc)
 
-        if not exists(fname_mask_image):
-            self.params = None
-            return
-        
         # Now initialize bezier curve with info from stats - no need to cache this because it's so light-weight
         p0 = self.stats_dict.stats_dict["lower_left"]
         p2 = self.stats_dict.stats_dict["upper_right"]
@@ -186,7 +182,7 @@ class FitBezierCyl2DMask:
         return fit_bezier_crv.get_copy_of_2d_bezier_curve()
 
     def score_mask_fit(self, im_mask):
-        """ A modified intersection over union that discounts pixels along the bezier cylinder mask
+        """ a modified intersection over union that discounts pixels along the bezier cylinder mask
         @param im_mask - the mask image
         """
 

@@ -39,10 +39,6 @@ class ExtractCurves:
                                               fname_debug=fname_debug,
                                               b_recalc=b_recalc)
         
-        if not exists(fname_mask_image):
-            self.params = None
-            return
-
         # List o pairs (t, plus/minus)
         self.left_curve = []
         self.right_curve = []

@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from tree_geometry.b_spline_curve import BSplineCurve
-from .params import fit_params
+from params import fit_params
 
 logger = logging.getLogger("b_spline_fit")
 logger.setLevel(level=logging.DEBUG)

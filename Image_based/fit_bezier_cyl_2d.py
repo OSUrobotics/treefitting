@@ -33,7 +33,7 @@ class FitBezierCyl2D(BezierCyl2D):
         """Setup the least squares approximation - ts is the number of constraints to add, also
            puts in a copule constraints to keep end points where they are
         @param ts - t values to use
-        @returns A, B for Ax = b """
+        @returns a, b for Ax = b """
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints = np.zeros((len(ts) + 3, 3))
         ts_constraints = np.zeros((len(ts) + 3))
@@ -51,7 +51,7 @@ class FitBezierCyl2D(BezierCyl2D):
 
     def extract_least_squares(self, a_constraints, b_rhs):
         """ Do the actual Ax = b and keep horizontal/vertical end points
-        @param a_constraints the A of Ax = b
+        @param a_constraints the a of Ax = b
         @param b_rhs the b of Ax = b
         @returns fit error L0 norm"""
         if a_constraints.shape[0] < 3:

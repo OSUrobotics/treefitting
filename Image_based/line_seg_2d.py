@@ -8,7 +8,7 @@ import cv2
 
 class LineSeg2D:
     def __init__(self, p1, p2):
-        """ Line segment with Ax + By + C form for closest point
+        """ Line segment with Ax + By + c form for closest point
         @param p1: Pt 1
         @param p2: Pt 2"""
 
@@ -22,10 +22,10 @@ class LineSeg2D:
 
     @staticmethod
     def line(p1, p2):
-        """ A line in implicit coordinates
+        """ a line in implicit coordinates
         @param p1 end point one
         @param p2 end point two
-        @return A x + B y + C"""
+        @return a x + b y + c"""
         A = (p1[1] - p2[1])
         B = (p2[0] - p1[0])
         C = (p1[0] * p2[1] - p2[0] * p1[1])
@@ -37,14 +37,14 @@ class LineSeg2D:
         @param L1 - line one in implicit coords
         @param L2 - line two in implicit coords
         @return x, y if intersection point, None otherwise"""
-        D  = L1.A * L2.B - L1.B * L2.A
-        Dx = L1.C * L2.B - L1.B * L2.C
-        Dy = L1.A * L2.C - L1.C * L2.A
+        D  = L1.a * L2.b - L1.b * L2.a
+        Dx = L1.c * L2.b - L1.b * L2.c
+        Dy = L1.a * L2.c - L1.c * L2.a
         if abs(D) > 1e-10:
             x = -Dx / D
             y = -Dy / D
-            check1 = L1.A * x + L1.B * y + L1.C
-            check2 = L2.A * x + L2.B * y + L2.C
+            check1 = L1.a * x + L1.b * y + L1.c
+            check2 = L2.a * x + L2.b * y + L2.c
             if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
                 raise ValueError("LineSeg2D: Making line, pts not on line")
             return x, y
@@ -53,8 +53,8 @@ class LineSeg2D:
 
     def projection(self, pt):
         """Project the point onto the line and return the t value
-        A ((1-t)p1x + t p2x) + B ((1-t)p1y + t p2y) + C = 0
-        t (A(p2x-p1x) + B(p2y-p1y)) = -C - A (p1x + p2x) - B(p1y + p2y)
+        a ((1-t)p1x + t p2x) + b ((1-t)p1y + t p2y) + c = 0
+        t (a(p2x-p1x) + b(p2y-p1y)) = -c - a (p1x + p2x) - b(p1y + p2y)
         @param pt - pt to project
         @return t of projection point"""
 

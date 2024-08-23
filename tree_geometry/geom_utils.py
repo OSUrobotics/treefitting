@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.spatial import ConvexHull
-from copy import deepcopy
 
 
 class LineSeg2D:
@@ -13,37 +12,37 @@ class LineSeg2D:
 
         self.p1 = p1
         self.p2 = p2
-        self.A, self.B, self.C = self.line(p1, p2)
-        check1 = self.A * p1[0] + self.B * p1[1] + self.C
-        check2 = self.A * p2[0] + self.B * p2[1] + self.C
+        self.a, self.b, self.c = self.line(p1, p2)
+        check1 = self.a * p1[0] + self.b * p1[1] + self.c
+        check2 = self.a * p2[0] + self.b * p2[1] + self.c
         if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
             raise ValueError("LineSeg2D: Making line, pts not on line")
 
     @staticmethod
     def line(p1, p2):
-        """A line in implicit coordinates
+        """a line in implicit coordinates
         @param p1 end point one
         @param p2 end point two
-        @return A x + B y + C"""
-        A = p1[1] - p2[1]
-        B = p2[0] - p1[0]
-        C = p1[0] * p2[1] - p2[0] * p1[1]
-        return A, B, C
+        @return a x + b y + c"""
+        a = p1[1] - p2[1]
+        b = p2[0] - p1[0]
+        c = p1[0] * p2[1] - p2[0] * p1[1]
+        return a, b, c
 
     @staticmethod
-    def intersection(L1, L2):
+    def intersection(l1, l2):
         """Line-line intersection
-        @param L1 - line one in implicit coords
-        @param L2 - line two in implicit coords
+        @param l1 - line one in implicit coords
+        @param l2 - line two in implicit coords
         @return x, y if intersection point, None otherwise"""
-        D = L1.A * L2.B - L1.B * L2.A
-        Dx = L1.C * L2.B - L1.B * L2.C
-        Dy = L1.A * L2.C - L1.C * L2.A
-        if abs(D) > 1e-10:
-            x = -Dx / D
-            y = -Dy / D
-            check1 = L1.A * x + L1.B * y + L1.C
-            check2 = L2.A * x + L2.B * y + L2.C
+        d = l1.a * l2.b - l1.b * l2.a
+        dx = l1.c * l2.b - l1.b * l2.c
+        dy = l1.a * l2.c - l1.c * l2.a
+        if abs(d) > 1e-10:
+            x = -dx / d
+            y = -dy / d
+            check1 = l1.a * x + l1.b * y + l1.c
+            check2 = l2.a * x + l2.b * y + l2.c
             if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
                 raise ValueError("LineSeg2D: Making line, pts not on line")
             return x, y
@@ -52,8 +51,8 @@ class LineSeg2D:
 
     def projection(self, pt):
         """Project the point onto the line and return the t value
-        A ((1-t)p1x + t p2x) + B ((1-t)p1y + t p2y) + C = 0
-        t (A(p2x-p1x) + B(p2y-p1y)) = -C - A (p1x + p2x) - B(p1y + p2y)
+        a ((1-t)p1x + t p2x) + b ((1-t)p1y + t p2y) + c = 0
+        t (a(p2x-p1x) + b(p2y-p1y)) = -c - a (p1x + p2x) - b(p1y + p2y)
         @param pt - pt to project
         @return t of projection point"""
 
@@ -68,7 +67,7 @@ class LineSeg2D:
         t = max(min(np.dot((pt - self.p1), (self.p2 - self.p1)) / l2, 1), 0)
 
         pt_proj = self.p1 + t * (self.p2 - self.p1)
-        check = self.A * pt_proj[0] + self.B * pt_proj[1] + self.C
+        check = self.a * pt_proj[0] + self.b * pt_proj[1] + self.c
         assert np.isclose(check, 0.0)  # check on line
         dotprod = np.dot(pt - pt_proj, self.p2 - self.p1)
         if not (np.isclose(t, 0.0) or np.isclose(t, 1.0)):

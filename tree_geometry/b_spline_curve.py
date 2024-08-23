@@ -27,7 +27,7 @@ class BSplineCurve(object):
         cubic=3,
     )
     # uniform knot vector only
-    # General Matrix Representations for B-Splines, Kaihuai Qin
+    # General Matrix Representations for b-Splines, Kaihuai Qin
     # each matrix column represents a series of coeffs of increasing degree for a basis function
     basis_matrix_dict = {
     0: np.array([1]),
@@ -95,7 +95,7 @@ class BSplineCurve(object):
         :param existing: existing spline
         """
         return BSplineCurve(
-            ctrl_pts = deepcopy(existing.ctrl_pts),
+            ctrl_pts = existing.ctrl_pts,  # Deep copy in init function
             dim = existing.dim,
             degree = existing.degree,
             figax = (existing.fig, existing.ax))

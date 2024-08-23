@@ -344,7 +344,7 @@ class FileNames:
         return im_name
 
     def loop_images(self):
-        """ A generator that loops over all of the images and generates an index for each
+        """ a generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
         for i, _ in enumerate(self.sub_dirs):
@@ -352,7 +352,7 @@ class FileNames:
                 yield i, j
 
     def loop_masks(self, mask_type=""):
-        """ A generator that loops over all of the masks and generates an index for each
+        """ a generator that loops over all of the masks and generates an index for each
         The index can be passed to get_mask_name to get the actual mask name
         @param mask_type: Optional parameter; if set, return only masks of the given name (eg trunk)
         @return a tuple that can be used to get the mask name"""
@@ -429,7 +429,7 @@ if __name__ == '__main__':
                     copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
                     print(f"{ff}")
 
-    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    path_bpd_envy = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
     all_files_envy = FileNames(path_bpd_envy, img_type="png")
     all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
     all_files_envy.add_sub_directories()
@@ -444,10 +444,11 @@ if __name__ == '__main__':
     """
 
     # Example 2
-    fname_for_json_file = "../Image_based/data/forcindy_fnames.json"
+    b_do_mask = False
+    fname_for_json_file = "../Image_based/data/forcindy_bspline.json"
     path_bpd = "../Image_based/data/forcindy/"
     all_files = FileNames(path=path_bpd, img_type="png")
-    all_files.mask_names = ["trunk", "sidebranch"]
+    all_files.mask_names = ["vertical", "side"]
     # Filename is, eg, 0.png
     all_files.add_directory()
     all_files.write_filenames(fname_for_json_file)

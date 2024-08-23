@@ -55,9 +55,9 @@ class BaseStatsImage:
         if exists(fname_mask_image):
             mask_image_rgb = cv2.imread(fname_mask_image)
         else:
-            self.mask_image = np.zeros((8, 8), dtype=np.uint8)
-            return
-        
+            mask_image_rgb = np.zeros((640, 480), dtype=np.uint8)
+            mask_image_rgb[200:230, 10:260] = 1
+
         if len(mask_image_rgb.shape) == 3:
             self.mask_image = cv2.cvtColor(mask_image_rgb, cv2.COLOR_BGR2GRAY)
         else:

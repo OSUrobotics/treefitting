@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-# A 2D quadratic Bezier with additional radius information
+# a 2D quadratic Bezier with additional radius information
 #  - also keeps primary orientation (left, right or up, down)
 #  - Assumes this is a curve in the image; all coordinates are in image coordinates
 #
 # Primary code:
-#   A bezier curve is defined by f(t)->[x,y] for t going from 0 to 1
+#   a bezier curve is defined by f(t)->[x,y] for t going from 0 to 1
 #   Currently a fixed radius along the cylinder/tube
 #   Using the tangent and the normal (orthogonal to tangent) we can define rectangles
 #     1) Rectangles that follow the axis of the curve and cover the interior of the curve
