@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.spatial import ConvexHull
 
 
 class LineSeg2D:
@@ -25,8 +24,6 @@ class LineSeg2D:
     @p1.setter
     def p1(self, p):
         self._p1 = np.array(p)
-        if self._p1.shape[0] != 1:
-            self._p1.transpose()
         self._a, self._b, self._c = self.line(self._p1, self._p2)
 
     @property
@@ -36,10 +33,14 @@ class LineSeg2D:
     @p2.setter
     def p2(self, p):
         self._p2 = np.array(p)
-        if self._p2.shape[0] != 1:
-            self._p2.transpose()
 
         self._a, self._b, self._c = self.line(self._p1, self._p2)
+
+    def eval(self, t):
+        """Evaluate the line segment at t
+        @param t: t between 0 (pt1) and 1 (pt2)
+        @return nparray point"""
+        return (1-t) * self._p1 + t * self._p2
 
     @staticmethod
     def line(p1, p2):
@@ -92,7 +93,7 @@ class LineSeg2D:
         pt_proj = self._p1 + t * (self._p2 - self._p1)
         check = self._a * pt_proj[0] + self._b * pt_proj[1] + self._c
         assert np.isclose(check, 0.0)  # check on line
-        dotprod = np.dot(pt - pt_proj, self.p2 - self.p1)
+        dotprod = np.dot(pt - pt_proj, self._p2 - self._p1)
         if not (np.isclose(t, 0.0) or np.isclose(t, 1.0)):
             assert np.isclose(dotprod, 0.0)  # check perpendicular
 
@@ -110,7 +111,7 @@ class ControlHull:
                 self._points.append(np.array(points[r]))
 
         if self.dim() < 2:
-            raise ValueError(f"ControlHull: Need at least two points, got {self.dim()}")
+            raise ValueError("ControlHull: Need at least two points, got {self.dim()}")
 
         self._polylines = [LineSeg2D(self._points[i], self._points[i+1]) for i in range(len(self._points)-1)]
 
@@ -140,8 +141,8 @@ class ControlHull:
 
     def parameteric_project(self, point):
         dist = 1e30
-        min_t = 0
-        min_seg = None
+        min_t = 0.0
+        min_seg = -1
         min_proj = None
         for i, line_seg in enumerate(self._polylines):
             pt_proj, t = line_seg.projection(point)
@@ -151,7 +152,7 @@ class ControlHull:
                 min_seg = i
                 min_t = t
                 dist = d
-        return (min_t, min_proj, min_seg)
+        return min_t, min_proj, min_seg
 
 
 if __name__ == "__main__":
@@ -179,4 +180,4 @@ if __name__ == "__main__":
     assert(np.isclose(res2[0], 1.0))
     assert(np.isclose(res2[1][0], 0.5))
     assert(np.isclose(res2[1][1], 0.5))
-    assert(res2[2] is 3)
+    assert(res2[2] == 3)
