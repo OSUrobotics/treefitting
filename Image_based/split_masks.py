@@ -13,7 +13,7 @@ import cv2
 import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
-from line_seg_2d import LineSeg2D
+from line_seg_2d_draw import LineSeg2D
 from scipy.cluster.vq import kmeans, whiten, vq
 from BaseStatsImage import BaseStatsImage
 from FileNames import FileNames

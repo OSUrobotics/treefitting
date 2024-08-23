@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from line_seg_2d import LineSeg2D
+from line_seg_2d_draw import LineSeg2D
 from FileNames import FileNames
 from bezier_cyl_2d import BezierCyl2D
 from bezier_cyl_3d import BezierCyl3D

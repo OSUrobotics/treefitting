@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 from os.path import exists
 import json
-from line_seg_2d import LineSeg2D
+from line_seg_2d_draw import LineSeg2D
 
 from os.path import abspath as os_abs_path
 from sys import path as syspath

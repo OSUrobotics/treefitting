@@ -25,7 +25,7 @@ import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
-from line_seg_2d import LineSeg2D
+from line_seg_2d_draw import LineSeg2D
 from fit_bezier_cyl_2d_mask import FitBezierCyl2DMask
 from FileNames import FileNames
 

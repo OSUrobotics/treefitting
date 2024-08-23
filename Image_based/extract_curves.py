@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from line_seg_2d import LineSeg2D
+from line_seg_2d_draw import LineSeg2D
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from FileNames import FileNames
 
