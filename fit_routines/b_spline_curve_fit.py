@@ -4,7 +4,6 @@ from typing import Tuple, Union, List, Callable
 from copy import deepcopy
 
 import numpy as np
-from matplotlib import pyplot as plt
 
 from tree_geometry.b_spline_curve import BSplineCurve
 from params import fit_params
@@ -32,6 +31,13 @@ class BSplineCurveFit:
         fit_obj.curve = original
         fit_obj.points_to_fit: list[np.ndarray] = points_to_fit
         fit_obj.params = deepcopy(params)
+
+    @property
+    def dim(fit_obj) -> int:
+        if fit_obj.curve.is_initialized:
+            return fit_obj.curve.dim
+        else:
+            return len(fit_obj.points_to_fit[0])
 
     def __deepcopy__(fit_obj, memo):
         """Copy constructor for BSplineCurveFit"""
@@ -95,10 +101,13 @@ class BSplineCurveFit:
         return fit_obj, a_constraints
 
     @staticmethod
-    def _lsq_fit(fit_obj, points):
+    def _lsq_fit(fit_obj, points, num_ctrl_pts: Union[None, int] = None) -> BSplineCurveFit:
         """Fit the curve to the points with current params. Does not preserve original fit!"""
         # get basic least squares constraints
-        fit_obj, a_constraints = BSplineCurveFit._setup_basic_lsq(fit_obj)
+        fit_obj, a_constraints = BSplineCurveFit._setup_basic_lsq(fit_obj, num_ctrl_pts)
+    
+        logger.debug(
+            f" A = \n{a_constraints}\n B = \n{BSplineCurve.unflatten_dim(points, fit_obj.dim)}")
 
         # least squares fit
         ctrl_pts, residuals, _, __ = np.linalg.lstsq(
@@ -106,11 +115,12 @@ class BSplineCurveFit:
         )
         residuals = np.linalg.norm(points - np.dot(a_constraints, ctrl_pts), axis=1)
 
-
         # update the fit object
         fit_obj.curve.ctrl_pts = deepcopy(ctrl_pts)
         fit_obj.points_to_fit = deepcopy(points)
         fit_obj.params.update_param("residuals", residuals)
+        fit_obj.params.update_param("lsq_points", points)
+        logger.debug(f"lsq fit: {fit_obj.params.__dict__}")
         return fit_obj
 
     @staticmethod
@@ -124,9 +134,8 @@ class BSplineCurveFit:
         # parameterization
         if new_fit.params.get_param("ts") is None:
             new_fit.params, _ = BSplineCurveFit._parameterize_chord(points, params=new_fit.params)
-        
-        return BSplineCurveFit._lsq_fit(new_fit, points)
 
+        return BSplineCurveFit._lsq_fit(new_fit, points)
 
     @staticmethod
     def renorm_fit(fit_obj: BSplineCurveFit, points: list[np.ndarray], start: int = 0, stop: int = 1) -> BSplineCurveFit:
@@ -145,7 +154,8 @@ class BSplineCurveFit:
         new_params, _ = BSplineCurveFit._parameterize_chord(
             points, params=new_fit.params, renorm=True, start=start, stop=stop
         )
-        new_fit.params = new_params
+        new_fit.params.__dict__ = new_params.__dict__
+        logger.debug(f"renorm fit: {new_fit.params.__dict__}")
         return BSplineCurveFit._lsq_fit(new_fit, points)
 
     @staticmethod
@@ -155,7 +165,7 @@ class BSplineCurveFit:
         :param points: x,y or xyz
         :type points: list[np.ndarray]
         """
-        logger.info("attempt one_segment fit")
+        logger.debug("one segment fit")
         return BSplineCurveFit.renorm_fit(fit_obj, points, 0, 1)
 
     @staticmethod
@@ -163,6 +173,7 @@ class BSplineCurveFit:
         fit_obj,
         points: list[np.ndarray],
         outlier_ratio: float = 0.1,
+        inlier_threshold: float = 0.1,
         max_iter: int = 20,
         max_ctrl_ratio = 10,
     ):
@@ -176,243 +187,144 @@ class BSplineCurveFit:
         for i in range(max_iter):
             sampled_points = np.random.sample(points, int(len(points) * outlier_ratio))
             # get fit for subset
-            new_fit = BSplineCurveFit.simple_fit(sampled_points)
+            new_fit = BSplineCurveFit.simple_fit(fit_obj, sampled_points)
             new_fit.points_to_fit = points
 
-            # check all 
+            # check all
             all_points_in_t = BSplineCurveFit._parameterize_chord(points, new_fit.params)
             new_fit, a_constraints = BSplineCurveFit._setup_basic_lsq(all_points_in_t)
             residuals = np.linalg.norm(points - np.dot(a_constraints, new_fit.curve.ctrl_pts), axis=1)
-            results.append((new_fit.curve.ctrl_pts, all_points_in_t, residuals))
+            new_fit.params.update_param("residuals", residuals)
+
+            results.append((new_fit, residuals))
         # get best curve from results
-        min_result = min(results, key=lambda x: np.sum(x[2]))
+        min_result, min_residual = min(results, key=lambda x: np.sum(x[-1]))
+        min_result.params.add_param("outlier_ratio", outlier_ratio)
         return min_result
 
-    def extend_curve(fit_obj, new_data_pts: list[np.ndarray]):
+    @staticmethod
+    def extend_curve(fit_obj: BSplineCurveFit, new_data_pts: list[np.ndarray]):
         """Extend the curve to fit the new data points
         :param new_data_pts: new data points
         :type new_data_pts: list[np.ndarray]
         """
-        logger.debug(f"extending curve of {len(fit_obj.ts)} by {len(new_data_pts)}")
+        new_fit = deepcopy(fit_obj)
+
+        existing_in_t = new_fit.params.get_param("ts")
+        if existing_in_t is None:
+            raise ValueError("No curve to extend!")
+        logger.debug(f"extending curve of {len(existing_in_t)} points by {len(new_data_pts)}")
         new_points_in_t = np.zeros(len(new_data_pts), dtype=float)
-        points_in_t = np.zeros((len(fit_obj.ts) + len(new_data_pts)), dtype=float)
-        old_points = np.reshape(fit_obj.data_pts, (-1, fit_obj.dim))
-        b_constraints = np.zeros((len(points_in_t), fit_obj.dim), dtype=float)
+        
+        # calculate new points in t
+        old_points = np.reshape(new_fit.params.get_param("lsq_points"), (-1, new_fit.dim))
         if len(new_data_pts) == 1:
-            new_points_in_t = (
+            new_points_in_t = np.array((
                 np.linalg.norm(new_data_pts[0] - old_points[-1])
-                * fit_obj.parameter_normalization
-            ) + fit_obj.ts[-1]
-            print(f"last {fit_obj.ts[-1], new_data_pts[0], fit_obj.data_pts}")
+                * new_fit.params.p_norm
+            ) + existing_in_t[-1])
         else:
-            points = new_data_pts
-            new_points_in_t = fit_obj._parameterize_chord(points) + fit_obj.ts[-1]
-        points_in_t = np.hstack((fit_obj.ts, new_points_in_t))
-        b_constraints[: len(fit_obj.ts)] = fit_obj.eval_crv(fit_obj.ts)
-        b_constraints[len(fit_obj.ts) :] = new_data_pts
-        a_constraints = fit_obj.setup_basic_lsq(points_in_t)
-        logger.debug(
-            f" A = \n{a_constraints}\n B = \n{b_constraints} \n calculated using t: \n {points_in_t} \n"
-        )
-        ctrl_pts, residuals, rank, _ = np.linalg.lstsq(
-            a=fit_obj.setup_basic_lsq(points_in_t), b=b_constraints, rcond=None
-        )
-        residuals = np.linalg.norm(
-            b_constraints - np.dot(a_constraints, ctrl_pts), axis=1
-        )
-        diff_of_curves = (
-            1 - abs(fit_obj.ctrl_hull_length - fit_obj.curve_length) / fit_obj.ctrl_hull_length
-        )
-        # if diff_curves is > 0.1 and residuals are low: overfitting
-        logger.debug(
-            f"Extended residuals {residuals}, rank {rank}, curve length diff {diff_of_curves}"
-        )
-        return ctrl_pts, points_in_t, residuals
+            points = BSplineCurve.flatten_dim(new_data_pts)
+            _, new_points_in_t = new_fit._parameterize_chord(points, new_fit.params)
+            new_points_in_t += existing_in_t[-1]
+        points_in_t = np.zeros((len(existing_in_t) + len(new_data_pts)), dtype=float)
+        points_in_t = np.hstack((existing_in_t, new_points_in_t))
+        new_fit.params.update_param("ts", points_in_t)
 
-    def plot_points(fit_obj, fig=None, ax=None):
-        """plot clicked points with ctrl and data points. do not pass fig or ax for using existing canvas
+        # get data points to fit
+        b_constraints = np.zeros((len(points_in_t), new_fit.dim), dtype=float)
+        b_constraints[: len(existing_in_t)] = new_fit.curve.eval_crv(existing_in_t) # key: do not refit existing points!
+        b_constraints[len(existing_in_t) :] = new_data_pts
 
-        :param fig: mpl figure to draw on, defaults to None
-        :param ax: mpl axes to use, defaults to None
-        :return: (ctrl_point_line, spline_line)
-        """
-        logger.debug("plot_points")
-        if fig == None and ax == None and fit_obj.fig == None and fit_obj.ax == None:
-            logger.debug("Atleast pass figure and ax!")
-        elif fig is not None and ax is not None:
-            fit_obj.fig = fig
-            fit_obj.ax = ax
-
-        ctrl_array = np.reshape(fit_obj.curve.ctrl_pts, (-1, fit_obj.curve.dim))
-        clicked_array = np.reshape(fit_obj.points_to_fit, (-1, fit_obj.curve.dim))
-
-        fit_obj.ax.plot(
-            clicked_array[:, 0], clicked_array[:, 1], "bo", label="points to fit"
-        )
-        fit_obj.ax.plot(ctrl_array[:, 0], ctrl_array[:, 1], "ro", label="control points")
-
-        # axes
-        fit_obj.ax.plot(
-            [
-                min(-2, min(clicked_array[:, 0]) - 5),
-                max(10, max(clicked_array[:, 0]) + 5),
-            ],
-            [0, 0],
-            "-k",
-        )  # x axis
-        fit_obj.ax.plot(
-            [0, 0],
-            [
-                min(-10, min(clicked_array[:, 1]) - 5),
-                max(10, max(clicked_array[:, 1]) + 5),
-            ],
-            "-k",
-        )
-        fit_obj.ax.axis("equal")
-        fit_obj.ax.grid()
-        plt.draw()
+        # least squares fit
+        num_ctrl_pts = int(np.ceil(points_in_t[-1] + new_fit.curve.degree))
+        logger.debug(f"new control point count {num_ctrl_pts}")
+        return BSplineCurveFit._lsq_fit(new_fit, b_constraints, num_ctrl_pts)
 
     @staticmethod
-    def plot_curve(fit_obj, fig = None, ax = None):
-        """plot spline curve. do not pass fig or ax for using existing canvas
-
-        :param fig: mpl figure to draw on, defaults to None
-        :param ax: mpl axes to use, defaults to None
-        """
-        logger.debug("plot_curve")
-        if fig == None and ax == None and fit_obj.fig == None and fit_obj.ax == None:
-            logger.error("Atleast pass figure and ax!")
-        elif fig is not None and ax is not None:
-            fit_obj.fig = fig
-            fit_obj.ax = ax
-        tr = np.linspace(0, fit_obj.params.ts[-1], 1000)
-        spline = fit_obj.curve.eval_crv(tr)
-        # logger.debug(f"{spline}")
-        logger.debug(
-            f"{min(spline[:, 0])} to {max(spline[:, 0])} with {len(fit_obj.curve.ctrl_pts)} points"
-        )
-        fit_obj.ax.plot(spline[:, 0], spline[:, 1], label="spline")
-        fit_obj.ax.axis("equal")
-        fit_obj.ax.grid()
-        plt.draw()
-
     def evaluate(
-        fit_obj, result, residual_min=1e-6, residual_max=1e-2, max_control_ratio=10
+        new_fit, last_good_fit = None, residual_min=1e-6, residual_max=1e-2, max_control_ratio=10, max_curve_diff = 0.2
     ) -> tuple[bool, Union[BSplineCurve, Tuple[Callable, List]]]:
         """Evaluate the result of the fit and recommend next steps if not satisfactory
 
-        :param result: tuple of control points, points in t and residuals
-        :param residual_threshold: residual threshold per segment, defaults to 0.1
-        :param max_control_points: _description_, defaults to 30
-        :return: whether to
+        :param fit_obj: tuple of control points, points in t and residuals
+        :param last_good_fit: last good fit for reuse in case of extension
+        :param residual_min: residual threshold per segment, defaults to 1e-6
+        :param residual_max: residual threshold per segment, defaults to 0.01
+        :param max_control_ratio: no of points per control pt, defaults to 10
+        :param max_curve_diff: ratio of max difference between curve and hull length, defaults to 0.2
+        :return: (validity, (next function, [args]))
         """
-        ctrl_pts, points_in_t, residuals = result
+        ctrl_pts, points_in_t, residuals = (
+            new_fit.curve.ctrl_pts,
+            new_fit.params.get_param("ts"),
+            new_fit.params.get_param("residuals"),
+        )
         min_t = int(np.floor(min(points_in_t)))
         max_t = int(np.ceil(max(points_in_t)))
-        logger.debug(f"minmax: {min_t, max_t}")
-
-        # overfitting
-        if len(fit_obj.points_to_fit) / max_control_ratio > len(ctrl_pts):
-            logger.warning(
-                f"Too many control points {len(ctrl_pts)} for data points {len(fit_obj.data_pts)}"
-            )
-            return False, (fit_obj.renorm_fit, [fit_obj.data_pts, min_t, max_t - 1])
+        logger.debug(f"eval minmax: {min_t, max_t}")
 
         # bucket residuals
         t_buckets = np.array(range(min_t, max_t + 1))
-
         segmentwise_residual = []
         for i in range(len(t_buckets) - 1):
             cond = np.asarray(
                 (points_in_t >= t_buckets[i]) & (points_in_t < t_buckets[i + 1])
             )
             segmentwise_residual.append(np.sum(residuals[cond.nonzero()]))
-        logger.debug(f"{segmentwise_residual, t_buckets}")
+        logger.info(f"residuals: {residuals}, seg: {segmentwise_residual} buckets: {t_buckets}")
         segmentwise_residual = np.array(segmentwise_residual)
+        new_fit.params.add_param("seg_residuals", segmentwise_residual)
+
+        # check segmentwise residuals
         max_residual = segmentwise_residual < residual_max
         min_residual = segmentwise_residual > residual_min
         check_residual = max_residual & min_residual
         if check_residual.all() or (max_t == 1 and max_residual.all()):
-            new_spline = deepcopy(fit_obj)
-            new_spline.ctrl_pts = [ctrl_pts[i] for i in range(ctrl_pts.shape[0])]
-            new_spline.ts = points_in_t
-            new_spline.residuals = residuals
-            logger.debug(f"Valid spline with residuals {segmentwise_residual}")
-            return True, new_spline
+            logger.info(f"Valid spline with residuals {segmentwise_residual}\n\n")
+            return True, new_fit
         elif not max_residual.all():
             indices = np.asarray(max_residual == False).nonzero()
-            logger.info(f"Residuals too high in segments {t_buckets[indices]}")
-            # if residuals high towards the end, extend curve
-            if np.mean(t_buckets[indices]) > 0.8 * (max_t - 1):
-                return False, (fit_obj.extend_curve, t_buckets[indices])
-            else:  # add another control point
-                return False, (fit_obj.renorm_fit, [fit_obj.data_pts, min_t, max_t + 1])
-        # elif not min_residual.all(): # overfitting
-        #     return False, (fit_obj.renorm_fit, [fit_obj.data_pts, min_t, max_t - 1])
-
-    def onclick(fit_obj, event):
-        """manages matplotlib interactive plotting
-
-        :param event: _description_
-        """
-
-        # print(type(event))
-        if event.button == 1:  # projection on convex hull LEFT
-            ix, iy = np.round(event.xdata, 3), np.round(event.ydata, 3)
-            if ix == None or iy == None:
-                logger.warning("You didn't actually select a point!")
-                return
-            fit_obj.points_to_fit.append(np.array((ix, iy)))
-            logger.info(f"x {ix} y {iy} added")
-            fit_obj.ax.clear()
-            fit_obj.plot_points()
-            if len(fit_obj.points_to_fit) > fit_obj.degree:
-                if not fit_obj.is_initialized:
-                    new_control_points, points_in_t, residuals = fit_obj.one_segment_fit(
-                        fit_obj.points_to_fit
+            logger.warning(f"Residuals too high in segments {t_buckets[indices]}")
+            # if residuals high towards the end, extend curve if last fit is good
+            if last_good_fit is not None:
+                last_good_points = BSplineCurve.flatten_dim(last_good_fit.params.get_param("lsq_points"))
+                curr_points = BSplineCurve.flatten_dim(new_fit.params.get_param("lsq_points"))
+                new_points = curr_points[len(last_good_points):]
+                # remove common points from last_good_points and curr_points
+                if len(new_points) > 0 and np.mean(t_buckets[indices]) >= 0.8 * (max_t - 1):
+                    return False, (
+                        BSplineCurveFit.extend_curve,
+                        [last_good_fit,
+                        new_points],
                     )
-                else:
-                    new_control_points, points_in_t, residuals = fit_obj.renorm_fit(
-                        fit_obj.points_to_fit, 0, fit_obj.max_t
-                    )
-                good, func = fit_obj.evaluate((new_control_points, points_in_t, residuals))
-                if good:
-                    fit_obj.__dict__.update(func.__dict__)
-                    logger.debug(f"Control points {fit_obj.ctrl_pts}")
-                    fit_obj.data_pts = fit_obj.points_to_fit
+            logger.info(f'Adding new control point to play with')
+            return False, (
+                BSplineCurveFit.renorm_fit,
+                [new_fit, new_fit.points_to_fit, min_t, max_t + 1]
+            )
 
-                else:
-                    logger.info("Residuals too high, extending curve")
-                    new_control_points, points_in_t, residuals = fit_obj.extend_curve(
-                        [fit_obj.points_to_fit[-1]]
-                    )
-
-                    if residuals.size == 0 or (residuals < 2.0).all():
-                        fit_obj.ctrl_pts = [
-                            new_control_points[i]
-                            for i in range(new_control_points.shape[0])
-                        ]
-                        fit_obj.ts = points_in_t
-                        logger.debug(f"Control points {new_control_points}")
-                        fit_obj.add_data_point(fit_obj.points_to_fit[-1])
-                        fit_obj.residuals = residuals
-                        fit_obj.residuals = np.zeros(len(fit_obj.data_pts))
-                        logger.debug(
-                            f"ts: {fit_obj.ts} now eval to \n{fit_obj.eval_crv(fit_obj.ts)}\n"
-                            f"for original \n{fit_obj.unflatten_dim(fit_obj.points_to_fit, fit_obj.dim)}"
-                        )
-                    else:
-                        logger.warning("Residuals too high, not adding points")
-                    fit_obj.ax.clear()
-                fit_obj.plot_points()
-                fit_obj.plot_curve()
-
-            fit_obj.plot_points()
-        logger.debug("plotted")
-        plt.axis("equal")
-        plt.grid()
-        plt.legend()
-        plt.draw()
-
-    def enable_onclick(fit_obj):
-        fit_obj.cid = fit_obj.fig.canvas.mpl_connect("button_press_event", fit_obj.onclick)
+        elif not min_residual.all(): # check overfitting
+            if len(new_fit.points_to_fit) / max_control_ratio > len(ctrl_pts):
+                logger.warning(
+                    f"Overfitting detected by too many control points {len(ctrl_pts)} for data points {len(new_fit.data_pts)}"
+                )
+                return False, (
+                    BSplineCurveFit.renorm_fit,
+                    [new_fit, new_fit.points_to_fit, min_t, max_t - 1],
+                )
+            # else:
+            #     ctrl_hull_length = fit_obj.curve.ctrl_hull_length
+            #     logger.warning(f"ctrl hull length {ctrl_hull_length}")
+            #     diff_of_curves = abs(fit_obj.curve.curve_length - ctrl_hull_length) / ctrl_hull_length
+            
+            #     # if diff_curves is > ratio, then overfitting
+            #     if diff_of_curves > max_curve_diff:
+            #         logger.warning(f"Overfitting detected by curve length {diff_of_curves}")
+            #         return False, (
+            #             BSplineCurveFit.renorm_fit,
+            #             [fit_obj, fit_obj.points_to_fit, min_t, max_t - 1],
+            #         )
+            else:
+                logger.info(f"Valid spline with residuals {segmentwise_residual}\n\n")
+                return True, new_fit

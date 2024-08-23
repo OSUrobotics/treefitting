@@ -27,7 +27,7 @@ class BSplineCurve(object):
         cubic=3,
     )
     # uniform knot vector only
-    # General Matrix Representations for b-Splines, Kaihuai Qin
+    # General Matrix Representations for B-Splines, Kaihuai Qin
     # each matrix column represents a series of coeffs of increasing degree for a basis function
     basis_matrix_dict = {
     0: np.array([1]),
@@ -52,7 +52,6 @@ class BSplineCurve(object):
                        [-3, 9, -9, 3]]),
     }
 
-
     # ROADMAP
     # curve tangent, normal binormal for frenet frames
     # apply a filter -> move to middle
@@ -61,26 +60,16 @@ class BSplineCurve(object):
     def __init__(
         self,
         degree: str = "quadratic",
-        dim: int = 2,
         ctrl_pts: list[np.ndarray] = [],
         figax=None,
     ) -> None:
         """BSpline initialization
 
         :param degree: degree of spline, defaults to "quadratic"
-        :param dim: dimension of spline, defaults to 2
         :param ctrl_pts: control points, defaults to []
-        :param figax: fig, ax tuple for interactive plotting, defaults to None
         """
         self.ctrl_pts: list[np.ndarray] = deepcopy(ctrl_pts)
-        if ctrl_pts is not None and len(ctrl_pts) > 0:
-            if len(ctrl_pts[0]) != dim:
-                raise ValueError(
-                    "Mismatch in control point dimension and initialized dim!"
-                )
-        self.dim = dim
         self.degree: int = self.degree_dict[degree]
-        self.order = self.degree + 1
         self.basis_matrix: np.ndarray = BSplineCurve.basis_matrix_dict[self.degree]
         self.deriv_matrix: np.ndarray = BSplineCurve.derivative_dict[self.degree]
 
@@ -95,15 +84,53 @@ class BSplineCurve(object):
         :param existing: existing spline
         """
         return BSplineCurve(
-            ctrl_pts = existing.ctrl_pts,  # Deep copy in init function
-            dim = existing.dim,
-            degree = existing.degree,
-            figax = (existing.fig, existing.ax))
+            ctrl_pts=deepcopy(existing.ctrl_pts),
+            degree=existing.degree,
+            figax=(existing.fig, existing.ax),
+        )
+
+    @staticmethod
+    def default_spline(deg_str: str, dim: int):
+        """Create a default spline of given degree and dimension
+
+        :param dim: dimension of spline
+        """
+        min_num_ctrl_pts = BSplineCurve.degree_dict[deg_str] + 1
+        ctrl_pts = []
+        # create small vertical segment
+        for i in range(min_num_ctrl_pts):
+            point = np.ones(dim)
+            # increment last dimension
+            point[-1] = i + 1
+            ctrl_pts.append(point)
+        return BSplineCurve(degree=deg_str, ctrl_pts=ctrl_pts)
 
     @staticmethod
     def unflatten_dim(points, dim):
         """list of points converted to array of shape (points, dim)"""
         return np.reshape(np.array(points), (-1, dim))
+
+    @staticmethod
+    def flatten_dim(points):
+        """array of shape (points, dim) converted to list of points"""
+        if isinstance(points, list):
+            return points
+        return points.flatten().tolist()
+
+    @property
+    def is_initialized(self):
+        """Check if spline is initialized"""
+        return len(self.ctrl_pts) > 0
+
+    @property
+    def dim(self):
+        if self.is_initialized:
+            return len(self.ctrl_pts[0])
+        raise ValueError("Spline not initialized")
+
+    @property
+    def order(self):
+        return self.degree + 1
 
     @property
     def max_t(self):
@@ -130,19 +157,14 @@ class BSplineCurve(object):
 
         length, _ = quad(f, a, b)
         return length
-    
-    @property
-    def is_initialized(self):
-        """Check if spline is initialized"""
-        return len(self.ctrl_pts) > 0
-    
+
     def pt_axis(self, t: Union[float, np.ndarray]) -> np.ndarray:
         """Evaluate the curve at parameter t
         :param t: parameter
         :return: point on spline of dimension self.dim
         """
         return self.eval_crv(t)
-    
+
     def tangent_axis(self, t: float) -> np.ndarray:
         """Get the tangent vector to the curve at parameter t
         :param t: parameter

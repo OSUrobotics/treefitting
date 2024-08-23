@@ -7,7 +7,7 @@ import numpy as np
 
 from .b_spline_curve import BSplineCurve
 
-class BSplineCyl(BSplineCurve):
+class BSplineCyl2D(BSplineCurve):
     def __init__(self):
         super().__init__()
 
@@ -21,30 +21,49 @@ class BSplineCyl(BSplineCurve):
         self.r1: float = 0.0
         self.r2: float = 0.0
         return
-    
 
-    def fit_radius(self):
-        """Fit a radius to the spline"""
-        return
-    
-    def get_fit_error(self):
-        return
-    
-    def inside_cylinder(self) -> bool:
-        """Scoring function to test whether the curve falls inside the cylinder"""
-        return
-    
     def radius(self, t):
         """Return radius at a point t along the spline"""
         return
 
-    def tangent_axis(self, t):
-        """ Return the tangent vec 
-        @param t in 0, 1
-        @return 3d vec
+    def norm_axis(self, t: float, dir: int):
         """
-        vec_axis = [2 * t * (self.pt0[i] - 2.0 * self.pt1[i] + self.pt2[i]) - 2 * self.pt0[i] + 2 * self.pt1[i] for i in range(0, 3)]
-        return np.array(vec_axis)
+        Get the normal vector to the curve at parameter t 
+        :param t: parameter
+        :param dir: direction of normal, 0 for left, 1 for right
+        :return: normal vector
+        """
+        vec_tang = self.tangent_axis(t)
+        vec_length = np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
+        if dir == 0:
+            return np.array([-vec_tang[1] / vec_length, vec_tang[0] / vec_length])
+        elif dir == 1:
+            return np.array([vec_tang[1] / vec_length, -vec_tang[0] / vec_length])
+        else:
+            raise ValueError("Invalid direction for normal")
+    
+    def edge_pts(self, t):
+        """ 
+        Return the left and right edge of the tube as points
+        :param t: parameter
+        :return: 2d pts, left and right edge
+        """
+        pt = self.pt_axis(t)
+        vec = self.tangent_axis(t)
+        vec_step = self.radius(t) * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
+        left_pt = [pt[0] - vec_step[1], pt[1] + vec_step[0]]
+        right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
+        return left_pt, right_pt
+
+    def edge_offset_pt(self, t, perc_in_out, direction):
+        """ Go in/out of the edge point a given percentage
+        @param t - t value along the curve (in range 0, 1)
+        @param perc_in_out - if 1, get point on edge. If 0.5, get halfway to centerline. If 2.0 get 2 width
+        @param direction - 'Left' is the left direction, 'Right' is the right direction
+        @return numpy array x,y """
+        pt_edge = self.pt_axis(t)
+        vec_norm = self.norm_axis(t, direction)
+        return pt_edge + vec_norm * (perc_in_out * self.radius(t))
 
     def binormal_axis(self, t):
         """ Return the bi-normal vec, cross product of first and second derivative
