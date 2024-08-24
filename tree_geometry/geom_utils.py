@@ -1,8 +1,9 @@
 import numpy as np
+from copy import deepcopy
 
 
-class LineSeg2D:
-    """Adapted from OSURobotics/treefitting"""
+class LineSeg:
+    """Line segment virtual class"""
 
     def __init__(self, p1, p2):
         """Line segment with Ax + By + C form for closest point
@@ -11,11 +12,6 @@ class LineSeg2D:
 
         self._p1 = np.array(p1)
         self._p2 = np.array(p2)
-        self._a, self._b, self._c = self.line(self._p1, self._p2)
-        check1 = self._a * p1[0] + self._b * p1[1] + self._c
-        check2 = self._a * p2[0] + self._b * p2[1] + self._c
-        if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
-            raise ValueError("LineSeg2D: Making line, pts not on line")
 
     @property
     def p1(self):
@@ -24,7 +20,6 @@ class LineSeg2D:
     @p1.setter
     def p1(self, p):
         self._p1 = np.array(p)
-        self._a, self._b, self._c = self.line(self._p1, self._p2)
 
     @property
     def p2(self):
@@ -34,13 +29,78 @@ class LineSeg2D:
     def p2(self, p):
         self._p2 = np.array(p)
 
-        self._a, self._b, self._c = self.line(self._p1, self._p2)
+    def line_length(self):
+        """Length of curve segment
+        @return length"""
+        return np.linalg.norm(self._p1 - self._p2)
 
     def eval(self, t):
         """Evaluate the line segment at t
         @param t: t between 0 (pt1) and 1 (pt2)
         @return nparray point"""
-        return (1-t) * self._p1 + t * self._p2
+        return (1 - t) * self._p1 + t * self._p2
+
+    def projection(self, pt):
+        """Project the point onto the line and return the t value
+        a ((1-t)p1x + t p2x) + b ((1-t)p1y + t p2y) + c = 0
+        t (a(p2x-p1x) + b(p2y-p1y)) = -c - a (p1x + p2x) - b(p1y + p2y)
+        @param pt - pt to project
+        @return t of projection point"""
+
+        # distance between p1 and p2, squared
+        l2 = np.sum((self._p2 - self._p1) ** 2)
+        if np.isclose(l2, 0.0):
+            return self._p1, 0.5
+
+        # The line extending the segment is parameterized as p1 + t (p2 - p1).
+        # The projection falls where t = [(p3-p1) . (p2-p1)] / |p2-p1|^2
+
+        t = max(min(np.dot((pt - self._p1), (self._p2 - self._p1)) / l2, 1), 0)
+
+        pt_proj = self._p1 + t * (self._p2 - self._p1)
+        dotprod = np.dot(pt - pt_proj, self._p2 - self._p1)
+        if not (np.isclose(t, 0.0) or np.isclose(t, 1.0)):
+            assert np.isclose(dotprod, 0.0)  # check perpendicular
+
+        return pt_proj, t
+
+
+class LineSeg1D(LineSeg):
+    """Very boring one dimensional line segment"""
+
+    def __init__(self, p1, p2):
+        """Line segment with Ax + By + C form for closest point
+        @param p1: Pt 1, as list or numpy array
+        @param p2: Pt 2, as list or numpy array"""
+
+        super().__init__(p1, p2)
+
+
+class LineSeg2D(LineSeg):
+    """Adding ax + by + c to line seg"""
+
+    def __init__(self, p1, p2):
+        """Line segment with Ax + By + C form for closest point
+        @param p1: Pt 1, as list or numpy array
+        @param p2: Pt 2, as list or numpy array"""
+
+        super().__init__(p1, p2)
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
+        check1 = self._a * p1[0] + self._b * p1[1] + self._c
+        check2 = self._a * p2[0] + self._b * p2[1] + self._c
+        if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
+            raise ValueError("LineSeg2D: Making line, pts not on line")
+
+    @LineSeg.p1.setter
+    def p1(self, p):
+        super(LineSeg, self).p1 = p
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
+
+    @LineSeg.p2.setter
+    def p2(self, p):
+        super(LineSeg, self).p2 = p
+
+        self._a, self._b, self._c = self.line(self._p1, self._p2)
 
     @staticmethod
     def line(p1, p2):
@@ -73,78 +133,94 @@ class LineSeg2D:
         else:
             return None
 
-    def projection(self, pt):
-        """Project the point onto the line and return the t value
-        a ((1-t)p1x + t p2x) + b ((1-t)p1y + t p2y) + c = 0
-        t (a(p2x-p1x) + b(p2y-p1y)) = -c - a (p1x + p2x) - b(p1y + p2y)
-        @param pt - pt to project
-        @return t of projection point"""
 
-        # distance between p1 and p2, squared
-        l2 = np.sum((self._p2 - self._p1) ** 2)
-        if np.isclose(l2, 0.0):
-            return self._p1, 0.5
+class LineSeg3D(LineSeg):
+    """3D seg; at some point need to add back in line line intersection"""
 
-        # The line extending the segment is parameterized as p1 + t (p2 - p1).
-        # The projection falls where t = [(p3-p1) . (p2-p1)] / |p2-p1|^2
+    def __init__(self, p1, p2):
+        """Line segment with Ax + By + C form for closest point
+        @param p1: Pt 1, as list or numpy array
+        @param p2: Pt 2, as list or numpy array"""
 
-        t = max(min(np.dot((pt - self._p1), (self._p2 - self._p1)) / l2, 1), 0)
-
-        pt_proj = self._p1 + t * (self._p2 - self._p1)
-        check = self._a * pt_proj[0] + self._b * pt_proj[1] + self._c
-        assert np.isclose(check, 0.0)  # check on line
-        dotprod = np.dot(pt - pt_proj, self._p2 - self._p1)
-        if not (np.isclose(t, 0.0) or np.isclose(t, 1.0)):
-            assert np.isclose(dotprod, 0.0)  # check perpendicular
-
-        return pt_proj, t
+        super().__init__(p1, p2)
 
 
 class ControlHull:
-    def __init__(self, points):
-        self._points = []
-        try:
-            for p in points:
-                self._points.append(np.array(p))
-        except IndexError:
-            for r in points.shape[0]:
-                self._points.append(np.array(points[r]))
+    def __init__(self, initial_points):
+        """ A control hull has to have at least two points
+        @param initial_points: list of points, each point is a list of 2,3, etc dims
+           OR if point is an nxdim array, make a list of n points"""
 
-        if self.dim() < 2:
-            raise ValueError("ControlHull: Need at least two points, got {self.dim()}")
+        # Keep these three forms of the points
+        # - a list of numpy arrays of dimension dim
+        # - the points as an n points x dim numpy array
+        # - LineSeg2D for each edge
 
-        self._polylines = [LineSeg2D(self._points[i], self._points[i+1]) for i in range(len(self._points)-1)]
+        self._points = None
+        self._points_as_ndarray = None
+        self._polylines = None
+
+        self.set_points(initial_points)
 
     def dim(self):
+        return len(self._points[0])
+
+    def n_points(self):
         return len(self._points)
 
-    @property
     def points(self):
+        """ Points is a list of numpy arrays of dimension dim"""
         return self._points
 
-    @points.setter
-    def points(self, new_pts):
-        self._points = new_pts
-        self._polylines = [LineSeg2D(self._points[i], self._points[i+1]) for i in range(len(self._points)-1)]
-
-    def add_point(self, pt):
-        self._polylines.append(LineSeg2D(self._points[-1], pt))
-        self._points.append(pt)
-
-    @property
     def polylines(self):
+        """ If there are n points, then there are n-1 LineSeg2D's """
         return self._polylines
 
-    @polylines.setter
-    def polylines(self, new_polylines):
-        raise ValueError("Don't set polylines directoy, use points")
+    def points_as_ndarray(self):
+        """ Numerically the same as points, but stored as a numpy array of
+          shape n_points() X dim() """
+        return self._points_as_ndarray
 
-    def parameteric_project(self, point):
+    def set_points(self, new_pts):
+        """ Set the control null from a list of numpy arrays (or list of lists)
+        @param points: list of points, each point is a list of 2,3, etc dims
+           OR if point is an nxdim array, make a list of n points"""
+
+        self._points = []
+        try:
+            self._points_as_ndarray = np.zeros((len(new_pts), len(new_pts[0])))
+            for i, p in enumerate(new_pts):
+                self._points.append(np.array(p))
+                self._points_as_ndarray[i, :] = self._points[-1]
+        except ValueError:
+            for p in new_pts.shape[0]:
+                self._points.append(p)
+            self._points_as_ndarray = deepcopy(new_pts)
+
+        np.array(self._points)
+        if self.n_points() < 2:
+            raise ValueError("ControlHull: Need at least two points, got {self.dim()}")
+
+        self._polylines = [LineSeg(self._points[i], self._points[i + 1]) for i in range(len(self._points) - 1)]
+
+    def add_point(self, pt):
+        # Use __ to set the actual variable without calling setter
+        self._points.append(pt)
+        self._polylines.append(LineSeg(self._points[-2], self._points[-1]))
+        self._points_as_ndarray = np.array(self._points)
+
+    def hull_length(self):
+        """ Length of hull
+        @return sum of lengths of line segments"""
+        seg_lengths = [l.line_length() for l in self._polylines]
+        return np.sum(np.array(seg_lengths))
+
+    def project_on_hull(self, point):
         dist = 1e30
         min_t = 0.0
         min_seg = -1
         min_proj = None
-        for i, line_seg in enumerate(self._polylines):
+        for i, line_seg in enumerate(self.polylines()):
             pt_proj, t = line_seg.projection(point)
             d = np.sqrt(np.sum((pt_proj - point) ** 2))
             if d < dist:
@@ -156,28 +232,35 @@ class ControlHull:
 
 
 if __name__ == "__main__":
+    # Check line seg
     line = LineSeg2D(np.array([0, 0]), np.array([1, 0]))
     pt_check, t_check = line.projection(np.array([0.5, 0]))
     assert np.isclose(t_check, 0.5)
     assert np.isclose(pt_check[0], 0.5)
     assert np.isclose(pt_check[1], 0.0)
+    assert(line.line_length() == 1.0)
 
     pt_check, t_check = line.projection(np.array([0.5, 1.0]))
     assert np.isclose(t_check, 0.5)
     assert np.isclose(pt_check[0], 0.5)
     assert np.isclose(pt_check[1], 0.0)
 
+    # check control hull
     control_hull = ControlHull(np.array([[0, 0], [1, 0], [1, 1], [1, 0]]))
-    assert(control_hull.dim() == 4)
+    assert (control_hull.n_points() == 4)
+    assert (control_hull.dim() == 2)
+    assert (control_hull.hull_length() == 3.0)
+
+    # Add point
     control_hull.add_point([0.5, 0.5])
-    res1 = control_hull.parameteric_project(point=np.array([0.5, -0.25]))
-    assert(np.isclose(res1[0], 0.5))
-    assert(np.isclose(res1[1][0], 0.5))
-    assert(np.isclose(res1[1][1], 0.0))
-    assert(res1[2] == 0)
+    res1 = control_hull.project_on_hull(point=np.array([0.5, -0.25]))
+    assert (np.isclose(res1[0], 0.5))
+    assert (np.isclose(res1[1][0], 0.5))
+    assert (np.isclose(res1[1][1], 0.0))
+    assert (res1[2] == 0)
     control_hull.add_point([0.5, 0.5])
-    res2 = control_hull.parameteric_project(point=np.array([0.6, 0.6]))
-    assert(np.isclose(res2[0], 1.0))
-    assert(np.isclose(res2[1][0], 0.5))
-    assert(np.isclose(res2[1][1], 0.5))
-    assert(res2[2] == 3)
+    res2 = control_hull.project_on_hull(point=np.array([0.6, 0.6]))
+    assert (np.isclose(res2[0], 1.0))
+    assert (np.isclose(res2[1][0], 0.5))
+    assert (np.isclose(res2[1][1], 0.5))
+    assert (res2[2] == 3)
