@@ -10,7 +10,7 @@ sys.path.insert(
 
 import matplotlib.pyplot as plt
 import numpy as np
-from fit_routines.params import fit_params
+from fit_routines.bspline_fit_params import BSplineFitParams
 from tree_geometry.b_spline_curve import BSplineCurve
 from fit_routines.b_spline_curve_fit import BSplineCurveFit
 
