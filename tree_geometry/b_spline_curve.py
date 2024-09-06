@@ -14,7 +14,7 @@ from numpy.polynomial.polynomial import polyval
 from scipy.optimize import fmin
 from scipy.integrate import quad
 
-from geom_utils import ControlHull
+from point_lists import ControlHull
 
 
 class BSplineCurve(ControlHull):
@@ -52,7 +52,7 @@ class BSplineCurve(ControlHull):
                              [0, 0, 0, 0]]),
     }
 
-    def __init__(self, ctrl_pts: list[np.ndarray], degree: str = "quadratic") -> None:
+    def __init__(self, ctrl_pts: Union[list[np.ndarray], np.ndarray], degree: str = "quadratic") -> None:
         """BSpline initialization
         :param ctrl_pts: control points, list of numpy array points of desired dimension
         :param degree: degree of spline, defaults to "quadratic"
@@ -71,6 +71,13 @@ class BSplineCurve(ControlHull):
 
     def degree(self):
         return self._degree
+
+    def degree_name(self):
+        """ Convert degree back to name"""
+        for i, k in enumerate(BSplineCurve._degree_dict.keys()):
+            if i == self._degree - 1:
+                return k
+        return "Uknown degree"
 
     def order(self):
         return self._degree + 1
@@ -93,7 +100,7 @@ class BSplineCurve(ControlHull):
         #   One row for each t value given
         return polyval(t, basis_to_use).T
 
-    def _clamp_t(self, t_in):
+    def clamp_t(self, t_in):
         """ Clamp the t value between 0 and max_t
         @param t_in: float or np.ndarray
         @return t_in between 0 and max_t"""
@@ -113,7 +120,7 @@ class BSplineCurve(ControlHull):
 
         banded_basis_matrix = np.zeros((len(t), self.n_points()), dtype=float)
         # Make sure t's are in valid range - clamp to [0, max_t)
-        t_clip = self._clamp_t(t)
+        t_clip = self.clamp_t(t)
 
         # Which index to start at
         idxs = np.floor(t_clip).astype(int)
@@ -132,7 +139,7 @@ class BSplineCurve(ControlHull):
         @param t - float or list of floats; only values between 0 and max_t are valid pts on curve
         @return point on spline of dimension self.dim
         """
-        t_clamp = self._clamp_t(t)
+        t_clamp = self.clamp_t(t)
         idx = np.floor(t_clamp).astype(int)
         eval_basis_matrix = BSplineCurve._eval_basis(basis_to_use=self._basis_matrix, t=t_clamp - idx)
         if isinstance(t_clamp, float):
@@ -148,7 +155,7 @@ class BSplineCurve(ControlHull):
         @param t - parameter
         @return derivative
         """
-        t_clamp = self._clamp_t(t)
+        t_clamp = self.clamp_t(t)
         idx = np.floor(t_clamp).astype(int)
         eval_basis_matrix = BSplineCurve._eval_basis(basis_to_use=self._deriv_matrix, t=t_clamp - idx)
         if isinstance(t_clamp, float):
@@ -188,7 +195,7 @@ class BSplineCurve(ControlHull):
 
         return t + min_seg
 
-    def project_to_curve(self, pt):
+    def project_to_curve(self, pt :Union[list, np.ndarray]) -> (float, np.ndarray):
         """Project a point on the current spline
         @param pt: point to project
         @return t values and point
@@ -238,6 +245,8 @@ if __name__ == "__main__":
             assert crv_check.curve_length() <= crv_check.hull_length()
 
             res_project_check = crv_check.project_to_curve(pt_mid)
+
+            assert crv_check.degree_name() == deg_check
 
             print(f" pt mid {pt_mid} res t {res_project_check[0]}, res p {res_project_check[1]} {np.linalg.norm(res_project_check[1] - pt_mid)}")
             print(f"   Deriv {deriv_vecs[0]}")

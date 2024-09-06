@@ -5,10 +5,12 @@ Author: Luke Strohbehn
 """
 import numpy as np
 
-from .b_spline_curve import BSplineCurve
+from b_spline_curve import BSplineCurve
+
 
 class BSplineCyl2D(BSplineCurve):
-    def __init__(self):
+    def __init__(self, points, degree):
+        ""
         super().__init__()
 
         # Drawing/mesh creation parameters
