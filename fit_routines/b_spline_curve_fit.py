@@ -1,219 +1,301 @@
+#!/usr/bin/env python3
 from __future__ import annotations
-import logging
-from typing import Tuple, Union, List, Callable
-from copy import deepcopy
-
-import numpy as np
 
 from tree_geometry.b_spline_curve import BSplineCurve
-from params import fit_params
+from bspline_fit_params import BSplineFitParams
+from tree_geometry.point_lists import PointListWithTs, PointList
+from eval_routines.bspline_fit_eval import BSplineFitEval
 
-logger = logging.getLogger("b_spline_fit")
-logger.setLevel(level=logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-logger.addHandler(ch)
-np.set_printoptions(precision=3, suppress=True)
 
 class BSplineCurveFit:
-    def __init__(
-        fit_obj,
-        original: BSplineCurve = None,
-        params: fit_params = fit_params(),
-        points_to_fit: list[np.ndarray] = [],
-    ) -> None:
+    def __init__(self,
+                 pts_to_fit: PointList,
+                 params: BSplineFitParams = None,
+                 crv_start: BSplineCurve = None) -> None:
         """Initialize the curve fitting object
-
-        :param original: original curve, defaults to None
-        :param fit_params: parameters for fitting data, defaults to fit_params()
-        :param points_to_fit: points to fit the curve to, defaults to []
+        @param pts_to_fit - points to fit to
+        @param params - BSplineFit parameters (if overriding default)
+        @param crv_start - use this curve for the first iteration
         """
-        fit_obj.curve = original
-        fit_obj.points_to_fit: list[np.ndarray] = points_to_fit
-        fit_obj.params = deepcopy(params)
-
-    @property
-    def dim(fit_obj) -> int:
-        if fit_obj.curve.is_initialized:
-            return fit_obj.curve.dim
+        self.pts_to_fit_to = PointListWithTs(pts_to_fit.points())
+        if params is None:
+            self.params = BSplineFitParams()
         else:
-            return len(fit_obj.points_to_fit[0])
+            self.params = deepcopy(params)
 
-    def __deepcopy__(fit_obj, memo):
-        """Copy constructor for BSplineCurveFit"""
-        new_curve = deepcopy(fit_obj.curve)
-        new_params = deepcopy(fit_obj.params)
-        new_points = deepcopy(fit_obj.points_to_fit)
-        return BSplineCurveFit(
-            original=new_curve, params=new_params, points_to_fit=new_points
-        )
+        if crv_start is not None:
+            self.crv_start = BSplineCurve(crv_start.points())
+        else:
+            self.crv_start = BSplineCurve(pts_to_fit.points())
 
-    @staticmethod
-    def _parameterize_chord(
-        points: Union[list[np.ndarray], np.ndarray],
-        params: fit_params,
-        renorm: bool = False,
-        start: int = 0,
-        stop: int = 1,
-    ) -> Tuple[fit_params, np.ndarray]:
-        """Get chord length parameterization of euclidean points
+        self.crv_fitted = BSplineCurve(self.crv_start.points())
 
-        :param points: points to parameterize
-        :param params: fitting parameters
-        :param renorm: whether to renormalize the parameterization, defaults to False
-        :param start: t value to start, defaults to 0
-        :param stop: t value to stop, defaults to 1
-        :return: tuple(params, array of parameterized points)
-        """
-        distances = [
-            np.linalg.norm(points[i] - points[i - 1]) for i in range(1, len(points))
-        ]
-        distances.insert(0, 0.0)
-        parameterized = np.cumsum(distances)
-        if renorm is True or not params.is_param("p_norm"):
-            p_norm = (stop - start) / (parameterized[-1])
-            params.update_param("p_norm", p_norm)
-        parameterized = start + params.get_param("p_norm") * parameterized
-        params.update_param("ts", parameterized)
-        return params, parameterized
+    def __deepcopy__(self, memo):
+        """Deep copy constructor for BSplineCurveFit"""
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, deepcopy(v, memo))
+        return result
 
     @staticmethod
-    def _setup_basic_lsq(
-        fit_obj: BSplineCurveFit, num_ctrl_pts: Union[None, int] = None
-    ) -> Tuple[BSplineCurveFit, np.ndarray]:
+    def _setup_basic_lsq(crv: BSplineCurve, ts: np.ndarray, params: BSplineFitParams) -> np.ndarray:
         """Set up least squares problem for fitting a bspline curve to the parameterized points for
         arbitrary or minimum number of control points
-
-        :param fit_obj: curve fitting object
-        :return: tuple of new fit object and points in t
+        @param crv - the curve we're fitting to the points (for degree and number of control points)
+        @param ts - t values for the least-squares basis
+        @param params - add derivative constraints at beginning and end and/or keep control points
+        :return: A matrix of Ax = B
         """
-        degree = fit_obj.curve.degree
-        ts = fit_obj.params.get_param("ts")
-        if ts is None:
-            raise ValueError("No parameterization found")
-        last_t = int(np.ceil(ts[-1]))
-        if num_ctrl_pts is None:  # get minimum number of control points
-            num_ctrl_pts = last_t + degree
-        elif last_t + degree > num_ctrl_pts:
-            raise ValueError("Number of control points too few for the parametrization")
-        a_constraints = fit_obj.curve.get_banded_matrix(ts, num_ctrl_pts)
-        fit_obj.params.update_param("num_ctrl_pts", num_ctrl_pts)
-        return fit_obj, a_constraints
+        ts_clamp = crv.clamp_t(ts)
+        basis_matrix_for_pts = crv.get_banded_matrix(basis_to_use=crv.basis_matrix, t=ts_clamp)
+        if params["end derivs"]:
+            a_constraints = np.zeros((len(ts) + 2, crv.n_points()))
+            a_constraints[0, 0:crv.order()] = crv.eval_basis(basis_to_use=crv.deriv_matrix, t=0.0)
+            a_constraints[-1, -crv.order():] = crv.eval_basis(basis_to_use=crv.deriv_matrix, t=1.0)
+            a_constraints[1:-1, :] = basis_matrix_for_pts
+        else:
+            a_constraints = basis_matrix_for_pts
+
+        if params["weight ctrl pts"] > 0.0:
+            a_constraints = np.stack(a_constraints,
+                                     params["weight ctrl pts"] * np.identity(crv.n_points(), crv.n_points()))
+
+        return a_constraints
 
     @staticmethod
-    def _lsq_fit(fit_obj, points, num_ctrl_pts: Union[None, int] = None) -> BSplineCurveFit:
-        """Fit the curve to the points with current params. Does not preserve original fit!"""
+    def _lsq_fit(crv: BSplineCurve,
+                 params: BSplineFitParams,
+                 pts_and_ts: PointListWithTs,
+                 vecs: Union[None, np.ndarray]) -> (BSplineCurve, np.ndarray):
+        """Fit the curve to the points with current params.
+        @param crv - current curve
+        @param pts_and_ts - points with t values
+        @param vecs - start/end derivatives to set to. If none then use current curve derivs
+        @return new curve and residuals of fit"""
+
         # get basic least squares constraints
-        fit_obj, a_constraints = BSplineCurveFit._setup_basic_lsq(fit_obj, num_ctrl_pts)
-    
-        logger.debug(
-            f" A = \n{a_constraints}\n B = \n{BSplineCurve.unflatten_dim(points, fit_obj.dim)}")
+        a_constraints = BSplineCurveFit._setup_basic_lsq(crv=crv, ts=pts_and_ts.ts, params=params)
+
+        # Fill in the right hand side
+        b_constraints = np.zeros((a_constraints.shape[0], crv.dim()))
+        b_constraints[0:pts_and_ts.n_points(), :] = pts_and_ts.points_as_ndarray()
+        if params["end derivs"]:
+            if vecs is None:
+                b_constraints[0, :] = crv.eval_deriv(0.0)
+                b_constraints[pts_and_ts.n_points(), :] = crv.eval_deriv(crv.max_t())
+            else:
+                b_constraints[0, :] = vecs[0, :]
+                b_constraints[pts_and_ts.n_points(), :] = vecs[1, :]
+        if params["weight ctrl pts"] > 0.0:
+            b_constraints[b_constraints.shape[0] - crv.n_points(), :] = crv.points_as_ndarray()
 
         # least squares fit
-        ctrl_pts, residuals, _, __ = np.linalg.lstsq(
-            a=a_constraints, b=points, rcond=None
-        )
-        residuals = np.linalg.norm(points - np.dot(a_constraints, ctrl_pts), axis=1)
+        ctrl_pts, residuals, _, __ = np.linalg.lstsq(a=a_constraints, b=b_constraints, rcond=None)
 
-        # update the fit object
-        fit_obj.curve.ctrl_pts = deepcopy(ctrl_pts)
-        fit_obj.points_to_fit = deepcopy(points)
-        fit_obj.params.update_param("residuals", residuals)
-        fit_obj.params.update_param("lsq_points", points)
-        logger.debug(f"lsq fit: {fit_obj.params.__dict__}")
-        return fit_obj
+        # Make a new curve out of the resulting control points
+        crv_fitted = BSplineCurve(ctrl_pts=ctrl_pts, degree=crv.degree_name())
+
+        return crv_fitted, residuals
 
     @staticmethod
-    def simple_fit(fit_obj: BSplineCurveFit, points: list[np.ndarray]) -> BSplineCurveFit:
-        """Fit the curve to the points with current or default parameterization
-
-        :param points: x,y or xyz
-        :type points: list[np.ndarray]
+    def initial_fit(crv_start: BSplineCurve, pts: PointList) -> (BSplineCurve, PointListWithTs):
+        """Fit the curve to the points with Ax = b, using the chord length parameterization
+        @param crv_start - curve with desired number of control points and degree
+        @param pts: x,y or x, y, z
+        @return a new curve fitted to the points, the points with the ts used for the fit
         """
-        new_fit = deepcopy(fit_obj)
-        # parameterization
-        if new_fit.params.get_param("ts") is None:
-            new_fit.params, _ = BSplineCurveFit._parameterize_chord(points, params=new_fit.params)
+        # Default params are fine (no end derivatives, no keeping original points)
+        params = BSplineFitParams()
+        pts_and_ts = PointListWithTs(pts.points())
+        pts_and_ts.normalize_ts(start_t=0.0, end_t=crv_start.max_t())
 
-        return BSplineCurveFit._lsq_fit(new_fit, points)
+        crv_fit, _ = BSplineCurveFit._lsq_fit(crv=crv_start, params=params, pts_and_ts=pts_and_ts, vecs=None)
+        return crv_fit, pts_and_ts
 
     @staticmethod
-    def renorm_fit(fit_obj: BSplineCurveFit, points: list[np.ndarray], start: int = 0, stop: int = 1) -> BSplineCurveFit:
-        """Fit the curve to the points with renormalized parameterization
-        
-        :param fit_obj: curve fitting object
-        :type fit_obj: BSplineCurveFit
-        :param points: x,y or xyz
-        :type points: list[np.ndarray]
-        :param start: start parameterization at t value, defaults to 0
-        :type start: int, optional
-        :param stop: stop parameterization at t value, defaults to 1
-        :type stop: int, optional
+    def project_ts_fit(crv_initial_fit: BSplineCurve,
+                       pts_and_ts: PointListWithTs,
+                       params: BSplineFitParams) -> (BSplineCurve, PointListWithTs):
+        """Fit the curve to the points; assumes crv is a good fit, and projects the points onto the curve
+        @param crv_initial_fit - curve initially fit to points
+        @param pts_and_ts: points with previous fit t values
+        @param params - controls fit
+        @return a new curve fitted to the points, the points with the ts used for the fit
         """
-        new_fit = deepcopy(fit_obj)
-        new_params, _ = BSplineCurveFit._parameterize_chord(
-            points, params=new_fit.params, renorm=True, start=start, stop=stop
-        )
-        new_fit.params.__dict__ = new_params.__dict__
-        logger.debug(f"renorm fit: {new_fit.params.__dict__}")
-        return BSplineCurveFit._lsq_fit(new_fit, points)
+
+        ts = np.zeros(pts_and_ts.ts.shape)
+        ts[-1] = crv_initial_fit.max_t()
+        ts[1:-1] = pts_and_ts.ts[1:-1]
+        for _ in range(0, 3):
+            b_clipped = False
+            for i, p in enumerate(pts_and_ts.points()[1:-1]):
+                t, _, _ = crv_initial_fit.project_to_curve(p)
+                clip_t_left = ts[i]
+                clip_t_right = ts[i + 2]
+                clip_delta_t = clip_t_right - clip_t_left
+                clip_t_left += 0.1 * clip_delta_t
+                clip_t_right -= 0.1 * clip_delta_t
+                if t < clip_t_left:
+                    t = clip_t_left
+                    b_clipped = True
+                if t > clip_t_right:
+                    t = clip_t_right
+                    b_clipped = True
+                ts[i] = t
+            if b_clipped == False:
+                break
+
+        if params["end derivs"] > 0.0:
+            vecs = np.zeros((2, crv_initial_fit.dim()))
+            pts = pts_and_ts.points_as_ndarray()
+            ts = pts_and_ts.ts
+            vecs[0] = ((pts[1, :] - pts[0, :]) / (ts[1] - ts[0]))
+            vecs[1] = ((pts[-1, :] - pts[-2, :]) / (ts[-1] - ts[-2]))
+        else:
+            vecs = None
+
+        pts_proj_ts = PointListWithTs(pts=pts_and_ts.points(), ts=ts)
+        crv_fit, _ = BSplineCurveFit._lsq_fit(crv=crv_initial_fit, pts_and_ts=pts_proj_ts, vecs=vecs, params=params)
+        return crv_fit, pts_proj_ts
 
     @staticmethod
-    def one_segment_fit(fit_obj, points: list[np.ndarray]) -> BSplineCurveFit:
-        """Fit a simple one_segment curve, ie t = [0, 1) to the points
+    def fit_project_fit(crv_start: BSplineCurve,
+                        pts: PointList,
+                        params: BSplineFitParams = None) -> (BSplineCurve, PointListWithTs, BSplineFitParams):
+        """ Fit the curve to the points twice, first using chord-length parameterization, then project ts
+        @param crv_start - start curve with desired number of control points and degree,
+        @param pts - initial points
+        @param params - parameters controlling fit (use derivs y/n, use existing pts y/n)
+        @return the fitted curve, the points with projected ts, and an evaluation of the fit"""
 
-        :param points: x,y or xyz
-        :type points: list[np.ndarray]
-        """
-        logger.debug("one segment fit")
-        return BSplineCurveFit.renorm_fit(fit_obj, points, 0, 1)
+        if params is None:
+            params = BSplineFitParams()
+        crv_fit, pts_with_ts = BSplineCurveFit.initial_fit(crv_start, pts)
+        crv_refit, pts_with_ts_refit = BSplineCurveFit.project_ts_fit(crv_fit, pts_with_ts, params)
+        params["inlier threshold"] = 0.1 * crv_refit.curve_length() / crv_refit.n_points()
+        crv_eval = BSplineFitEval(params)
+        crv_eval.calc_values(crv_refit, pts_with_ts_refit)
+
+        # One more re-project t values to curve
+        #   Note: Keep first and last t values to prevent shrinking
+
+        return crv_refit, pts_with_ts_refit, crv_eval
 
     @staticmethod
-    def iteratively_fit(
-        fit_obj,
-        points: list[np.ndarray],
-        outlier_ratio: float = 0.1,
-        inlier_threshold: float = 0.1,
-        max_iter: int = 20,
-        max_ctrl_ratio = 10,
-    ):
-        """Iteratively fit the curve to the points using RANSAC type approach
+    def outlier_removal(pts: PointList, crv_degree: str = 'cubic', range_n_pts: float = 0.5) -> PointListWithTs:
+        """Look for any points that are outliers/mess up the fit
+         @param pts - initial points
+         @param crv_degree - desired degree (linear, quadratic, cubic)
+         @param range_n_pts - range of control points to try, as a percentage of the number of points
+         @return points with outliers removed"""
+        ...  # to write
+        n_min_pts = int(range_n_pts * pts.n_points())
+        p = pts.points()[0]
+        pts = [p for _ in range(0, n_min_pts)]
+        crv = BSplineCurve(degree=crv_degree, ctrl_pts=pts)
+        return PointListWithTs(pts=pts.points())
 
-        :param points: x,y or xyz
-        :type points: list[np.ndarray]
+    @staticmethod
+    def fit_adjust_control_pts(crv_initial: BSplineCurve,
+                               pts: PointList, params: BSplineFitParams
+                               ) -> (BSplineCurve, PointListWithTs, BSplineFitEval):
+        """ Use the fewest number of control points that produces a decent fit
+        @param crv_initial - curve with desired degree
+        @param pts: Points to fit to
+        @param params - controls fit; inlier threshold determines when a point is an inlier, perc allowable outliers,
+                     average fit
+        @return a new curve fitted to the points, points with t values for the fit, evaluation of the fit
         """
-        results = []
+        if params is None:
+            params = BSplineFitParams()
+
+        # Just keep adding points until we meet the threshold
+        pt = pts.points()[0]
+        pts_cntrol_hull = PointList([pt for _ in range(0, crv_initial.order())])
+        while pts_cntrol_hull.n_points() <= pts.n_points():
+            crv_initial = BSplineCurve(ctrl_pts=pts_cntrol_hull.points(), degree=crv_initial.degree_name())
+            crv, pts_with_ts, eval_crv = BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
+            if eval_crv.is_acceptable():
+                return crv, pts_with_ts, eval_crv
+            pts_cntrol_hull.add_point(pt)
+
+        crv_initial = BSplineCurve(ctrl_pts=pts_cntrol_hull.points(), degree=crv_initial.degree_name())
+        return BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
+
+    @staticmethod
+    def fit_ransac(crv_initial: BSplineCurve, pts: PointList, params: BSplineFitParams) -> (
+        BSplineCurve, PointListWithTs, BSplineFitEval):
+
+        # First fit the curve to all of the points as a base-line
+        crv_start, pts_with_ts_start, eval_crv_start = BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
+        #
+        n_to_keep = int(eval_crv_start.perc_inliers)
+
+        results = [(crv_start, pts_with_ts_start, eval_crv_start)]
         # sample points
-        for i in range(max_iter):
-            sampled_points = np.random.sample(points, int(len(points) * outlier_ratio))
-            # get fit for subset
-            new_fit = BSplineCurveFit.simple_fit(fit_obj, sampled_points)
-            new_fit.points_to_fit = points
+        crv_best = crv_start
+        pts_best = pts_with_ts_start
+        eval_best  = eval_crv_start
+        for i in range(params["ransac iterations"]):
+            indices = np.random
+            sampled_points = np.random.sample(pts.points(), n_to_keep)
+            pts_to_use = PointList(sampled_points)
+            crv_try, pts_with_ts_try, eval_crv_try = BSplineCurveFit.fit_project_fit(crv_initial, pts_to_use, params)
+            if eval_crv_try.is_better(eval_best):
+                crv_best = crv_try
+                pts_best = pts_to_use
+                eval_best = eval_crv_try
 
-            # check all
-            all_points_in_t = BSplineCurveFit._parameterize_chord(points, new_fit.params)
-            new_fit, a_constraints = BSplineCurveFit._setup_basic_lsq(all_points_in_t)
-            residuals = np.linalg.norm(points - np.dot(a_constraints, new_fit.curve.ctrl_pts), axis=1)
-            new_fit.params.update_param("residuals", residuals)
-
-            results.append((new_fit, residuals))
+            results.append((crv_try, pts_with_ts_try, eval_crv_try))
         # get best curve from results
-        min_result, min_residual = min(results, key=lambda x: np.sum(x[-1]))
-        min_result.params.add_param("outlier_ratio", outlier_ratio)
-        return min_result
+        return crv_best, pts_best, eval_best
 
     @staticmethod
-    def extend_curve(fit_obj: BSplineCurveFit, new_data_pts: list[np.ndarray]):
-        """Extend the curve to fit the new data points
-        :param new_data_pts: new data points
-        :type new_data_pts: list[np.ndarray]
+    def extend_curve(crv_initial: BSplineCurve, pts_initial: PointListWithTs,
+                     pts_new: PointList, params: BSplineFitParams) -> (BSplineCurve, PointListWithTs, BSplineFitEval):
+        """Extend the curve to fit the new data points.
+        @param crv_initial: curve originally fit to pts_initial
+        @param pts_initial: original points the curve was fit to
+        @param pts_new: new points to add
+        @param params: parameters controlling fit (use derivs y/n, use existing pts y/n)
+        @return curve fit to new points by extending points
+        """
+        # Note: doing the fit with the *same* number of contol points will be handled outside of this. The assumption
+        #   here is that we're adding one (or more) curve segments to handle the new points (i.e., by calling
+        #   fit_adjust_control_pts with the extended list of points
+        # Also assuming that the params indicating an acceptible fit (inlier fit, etc) are set for the
+        #    new points already
+
+        crv_extend = BSplineCurve(ctrl_pts=crv_initial.points(), degree=crv_initial.degree_name())
+        pts_new_with_ts = PointListWithTs(pts_new.points())
+        pts_all_with_ts = PointListWithTs(pts_initial.points().extend(pts_new.points()))
+        pts_all_with_ts.ts()[0:pts_initial.n_points()] = pts_initial.ts()
+
+        n_to_add = pts_new.n_points()
+        results = []
+        for _ in range(0, n_to_add):
+            # Add a new control point and set the new ts to be along that last point
+            crv_extend.add_point(pts_new.points()[-1])
+            pts_new_with_ts.normalize_ts(crv_initial.max_t(), crv_extend.max_t())
+            # Set the new points to have the extended ts
+            pts_all_with_ts.ts()[pts_initial.n_points():] = pts_new_with_ts.ts()
+
+            # Now the actual fit
+            crv_fit, pts_fit, crv_eval_fit = BSplineCurveFit.project_ts_fit(crv_extend, pts_all_with_ts, params)
+            results.append((crv_fit, pts_fit, crv_eval_fit))
+            if crv_eval_fit.is_acceptable():
+                return crv_fit, pts_fit, crv_eval_fit
+
+        return results[-1]
         """
         new_fit = deepcopy(fit_obj)
 
         existing_in_t = new_fit.params.get_param("ts")
         if existing_in_t is None:
             raise ValueError("No curve to extend!")
-        logger.debug(f"extending curve of {len(existing_in_t)} points by {len(new_data_pts)}")
+        # logger.debug(f"extending curve of {len(existing_in_t)} points by {len(new_data_pts)}")
         new_points_in_t = np.zeros(len(new_data_pts), dtype=float)
         
         # calculate new points in t
@@ -238,93 +320,31 @@ class BSplineCurveFit:
 
         # least squares fit
         num_ctrl_pts = int(np.ceil(points_in_t[-1] + new_fit.curve.degree))
-        logger.debug(f"new control point count {num_ctrl_pts}")
+        # logger.debug(f"new control point count {num_ctrl_pts}")
         return BSplineCurveFit._lsq_fit(new_fit, b_constraints, num_ctrl_pts)
-
-    @staticmethod
-    def evaluate(
-        new_fit, last_good_fit = None, residual_min=1e-6, residual_max=1e-2, max_control_ratio=10, max_curve_diff = 0.2
-    ) -> tuple[bool, Union[BSplineCurve, Tuple[Callable, List]]]:
-        """Evaluate the result of the fit and recommend next steps if not satisfactory
-
-        :param fit_obj: tuple of control points, points in t and residuals
-        :param last_good_fit: last good fit for reuse in case of extension
-        :param residual_min: residual threshold per segment, defaults to 1e-6
-        :param residual_max: residual threshold per segment, defaults to 0.01
-        :param max_control_ratio: no of points per control pt, defaults to 10
-        :param max_curve_diff: ratio of max difference between curve and hull length, defaults to 0.2
-        :return: (validity, (next function, [args]))
         """
-        ctrl_pts, points_in_t, residuals = (
-            new_fit.curve.ctrl_pts,
-            new_fit.params.get_param("ts"),
-            new_fit.params.get_param("residuals"),
-        )
-        min_t = int(np.floor(min(points_in_t)))
-        max_t = int(np.ceil(max(points_in_t)))
-        logger.debug(f"eval minmax: {min_t, max_t}")
 
-        # bucket residuals
-        t_buckets = np.array(range(min_t, max_t + 1))
-        segmentwise_residual = []
-        for i in range(len(t_buckets) - 1):
-            cond = np.asarray(
-                (points_in_t >= t_buckets[i]) & (points_in_t < t_buckets[i + 1])
-            )
-            segmentwise_residual.append(np.sum(residuals[cond.nonzero()]))
-        logger.info(f"residuals: {residuals}, seg: {segmentwise_residual} buckets: {t_buckets}")
-        segmentwise_residual = np.array(segmentwise_residual)
-        new_fit.params.add_param("seg_residuals", segmentwise_residual)
 
-        # check segmentwise residuals
-        max_residual = segmentwise_residual < residual_max
-        min_residual = segmentwise_residual > residual_min
-        check_residual = max_residual & min_residual
-        if check_residual.all() or (max_t == 1 and max_residual.all()):
-            logger.info(f"Valid spline with residuals {segmentwise_residual}\n\n")
-            return True, new_fit
-        elif not max_residual.all():
-            indices = np.asarray(max_residual == False).nonzero()
-            logger.warning(f"Residuals too high in segments {t_buckets[indices]}")
-            # if residuals high towards the end, extend curve if last fit is good
-            if last_good_fit is not None:
-                last_good_points = BSplineCurve.flatten_dim(last_good_fit.params.get_param("lsq_points"))
-                curr_points = BSplineCurve.flatten_dim(new_fit.params.get_param("lsq_points"))
-                new_points = curr_points[len(last_good_points):]
-                # remove common points from last_good_points and curr_points
-                if len(new_points) > 0 and np.mean(t_buckets[indices]) >= 0.8 * (max_t - 1):
-                    return False, (
-                        BSplineCurveFit.extend_curve,
-                        [last_good_fit,
-                        new_points],
-                    )
-            logger.info(f'Adding new control point to play with')
-            return False, (
-                BSplineCurveFit.renorm_fit,
-                [new_fit, new_fit.points_to_fit, min_t, max_t + 1]
-            )
+if __name__ == "__main__":
+    import logging
+    from typing import Tuple, Union, List, Callable
+    from copy import deepcopy
 
-        elif not min_residual.all(): # check overfitting
-            if len(new_fit.points_to_fit) / max_control_ratio > len(ctrl_pts):
-                logger.warning(
-                    f"Overfitting detected by too many control points {len(ctrl_pts)} for data points {len(new_fit.data_pts)}"
-                )
-                return False, (
-                    BSplineCurveFit.renorm_fit,
-                    [new_fit, new_fit.points_to_fit, min_t, max_t - 1],
-                )
-            # else:
-            #     ctrl_hull_length = fit_obj.curve.ctrl_hull_length
-            #     logger.warning(f"ctrl hull length {ctrl_hull_length}")
-            #     diff_of_curves = abs(fit_obj.curve.curve_length - ctrl_hull_length) / ctrl_hull_length
-            
-            #     # if diff_curves is > ratio, then overfitting
-            #     if diff_of_curves > max_curve_diff:
-            #         logger.warning(f"Overfitting detected by curve length {diff_of_curves}")
-            #         return False, (
-            #             BSplineCurveFit.renorm_fit,
-            #             [fit_obj, fit_obj.points_to_fit, min_t, max_t - 1],
-            #         )
-            else:
-                logger.info(f"Valid spline with residuals {segmentwise_residual}\n\n")
-                return True, new_fit
+    import numpy as np
+
+    fit_pts = PointList([[0, 0], [1, 1], [2, -1], [3, 0]])
+
+    params_basic = BSplineFitParams()
+    params_ends = BSplineFitParams()
+    params_ends["end derivs"] = True
+    params_keep_pts = BSplineFitParams()
+    params_keep_pts["weight ctrl pts"] = 0.1
+    params_both = BSplineFitParams()
+    params_both["end derivs"] = True
+    params_both["weight ctrl pts"] = 0.1
+    for param in [params_basic, params_ends, params_keep_pts, params_both]:
+        for n in range(3, 5):
+            crv_start = BSplineCurve(np.zeros((n, 2)), degree='quadratic')
+            res_initial = BSplineCurveFit.initial_fit(crv_start, fit_pts)
+            res_full = BSplineCurveFit.fit_project_fit(crv_start, fit_pts, param)
+            res_adjust = BSplineCurveFit.fit_adjust_control_pts(crv_start, fit_pts, param)

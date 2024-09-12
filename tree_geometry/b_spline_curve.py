@@ -72,6 +72,14 @@ class BSplineCurve(ControlHull):
     def degree(self):
         return self._degree
 
+    @property
+    def basis_matrix(self):
+        return self._basis_matrix
+
+    @property
+    def deriv_matrix(self):
+        return self._deriv_matrix
+
     def degree_name(self):
         """ Convert degree back to name"""
         for i, k in enumerate(BSplineCurve._degree_dict.keys()):
@@ -87,7 +95,7 @@ class BSplineCurve(ControlHull):
         return self.n_points() - self._degree
 
     @staticmethod
-    def _eval_basis(basis_to_use, t: Union[float, np.ndarray]) -> np.ndarray:
+    def eval_basis(basis_to_use, t: Union[float, np.ndarray]) -> np.ndarray:
         """evaluate basis functions at t
         @param basis_to_use: basis functions to evaluate (regular or deriv
         @param t: t values, must be between 0 and 1
@@ -128,7 +136,7 @@ class BSplineCurve(ControlHull):
         t_prime = t_clip - idxs
 
         # The basis functions evaluated at each t value
-        evaluated_basis = self._eval_basis(basis_to_use, t_prime)
+        evaluated_basis = self.eval_basis(basis_to_use, t_prime)
         # construct diagonal banded matrix -
         for i in range(len(t)):
             banded_basis_matrix[i, idxs[i]: (idxs[i] + self.order())] = evaluated_basis[i, :]
@@ -141,7 +149,7 @@ class BSplineCurve(ControlHull):
         """
         t_clamp = self.clamp_t(t)
         idx = np.floor(t_clamp).astype(int)
-        eval_basis_matrix = BSplineCurve._eval_basis(basis_to_use=self._basis_matrix, t=t_clamp - idx)
+        eval_basis_matrix = BSplineCurve.eval_basis(basis_to_use=self._basis_matrix, t=t_clamp - idx)
         if isinstance(t_clamp, float):
             return eval_basis_matrix @ self.points_as_ndarray()[idx:idx+self.order()]
 
@@ -157,7 +165,7 @@ class BSplineCurve(ControlHull):
         """
         t_clamp = self.clamp_t(t)
         idx = np.floor(t_clamp).astype(int)
-        eval_basis_matrix = BSplineCurve._eval_basis(basis_to_use=self._deriv_matrix, t=t_clamp - idx)
+        eval_basis_matrix = BSplineCurve.eval_basis(basis_to_use=self._deriv_matrix, t=t_clamp - idx)
         if isinstance(t_clamp, float):
             return eval_basis_matrix @ self.points_as_ndarray()[idx:idx+self.order()]
 
@@ -174,7 +182,7 @@ class BSplineCurve(ControlHull):
         res = quad(f, a=0.0, b=self.max_t())
         return res[0]
 
-    def _get_distance_from_curve(self, t: np.ndarray, pt: np.ndarray) -> floating[Any]:
+    def get_distance_from_curve(self, t: np.ndarray, pt: np.ndarray) -> floating[Any]:
         """Get distance from curve at param t for point, convenience function for using with scipy optimization
         @param t: t value
         @param pt: point to get distance from curve at
@@ -195,29 +203,35 @@ class BSplineCurve(ControlHull):
 
         return t + min_seg
 
-    def project_to_curve(self, pt :Union[list, np.ndarray]) -> (float, np.ndarray):
+    def project_to_curve(self, pt :Union[list, np.ndarray], t :float = None) -> (float, np.ndarray):
         """Project a point on the current spline
         @param pt: point to project
-        @return t values and point
+        @param t: if t is given, use as the starting point for fmin
+        @return t value at min, point, and distance
         """
         # Best guess from control hull
         # t = self.project_ctrl_hull(pt)
 
-        # Sampling of points along curve
-        ts = np.linspace(0, self.max_t(), self.n_points() * 4)
-        pts = self.eval_crv(ts)
-        # Distance calculation
-        for d in range(0, self.dim()):
-            pts[:, d] = np.pow(pts[:, d] - pt[d], 2)
-        dists = np.sum(pts, axis=1)
-        indx = np.argmin(dists)
-        t_start = ts[indx]
+        if t is None:
+            # Sampling of points along curve
+            ts = np.linspace(0, self.max_t(), self.n_points() * 4)
+            pts = self.eval_crv(ts)
+            # Distance calculation
+            for d in range(0, self.dim()):
+                pts[:, d] = np.pow(pts[:, d] - pt[d], 2)
+            dists = np.sum(pts, axis=1)
+            indx = np.argmin(dists)
+            t_start = ts[indx]
+        else:
+            t_start = t
 
         # Standard fmin search for distance from curve
-        t_result = fmin(self._get_distance_from_curve, np.array(t_start), args=(pt,), disp=False)  # limit to 10 TODO
+        t_min = fmin(self.get_distance_from_curve, np.array(t_start), args=(pt,), disp=False)  # limit to 10 TODO
+        if t_min[0] < 0.0 or t_min[0] > self.max_t():
+            t_min[0] = t_start  # Bail to the original t if fit went haywire
 
-        pt_proj = self.eval_crv(t_result[0])
-        return t_result[0], pt_proj
+        pt_proj = self.eval_crv(t_min[0])
+        return t_min[0], pt_proj, np.linalg.norm(pt_proj - pt)
 
 
 if __name__ == "__main__":

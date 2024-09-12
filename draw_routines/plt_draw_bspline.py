@@ -9,7 +9,7 @@ from b_spline_curve import BSplineCurve
 def plot_basis(plt, crv):
     """Plots the basis function in [0, 1)]"""
     tr = np.linspace(0, 0.99999, 100)
-    bases = crv._eval_basis(crv._basis_matrix, t=tr)
+    bases = crv.eval_basis(crv._basis_matrix, t=tr)
     for i in range(0, bases.shape[0]):
         plt.plot(tr, bases[i, :].transpose())
     plt.set_xlabel("t values")
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         plot_control_hull(axes[1, i], crv)
         plot_crv(axes[1, i], crv)
 
-    plt.show()
-    print("done")
     # plot_control_hull(axes, BSplineCurve())
     # cid = fig.canvas.mpl_connect("button_press_event", onclick)
+    plt.show()
+    print("done")

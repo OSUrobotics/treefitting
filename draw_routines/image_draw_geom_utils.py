@@ -2,7 +2,7 @@
 
 # Read in masked images and estimate points where a side branch joins a leader (trunk)
 
-from geom_utils import LineSeg2D, ControlHull
+from point_lists import LineSeg2D, ControlHull
 import numpy as np
 import cv2
 

@@ -6,14 +6,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 import matplotlib.pyplot as plt
 import unittest
 import numpy as np
-from fit_routines.params import fit_params
+from fit_routines.bspline_fit_params import BSplineFitParams
 from tree_geometry.b_spline_curve import BSplineCurve
 from fit_routines.b_spline_curve_fit import BSplineCurveFit
 from tests.fitting.b_spline_cf_plot import BSplineCfPlot
 
 class TestBSplineCurveFit(unittest.TestCase):
     def setUp(self):
-        self.params = fit_params()
+        self.params = BSplineFitParams()
         self.curve = BSplineCurve(
                 degree="cubic",
             )
@@ -50,7 +50,7 @@ class TestBSplineCurveFit(unittest.TestCase):
                 degree="cubic",
             )
         points_to_fit = [np.array([0, 0]), np.array([1, 0]), np.array([2, 0]), np.array([3, 0])]
-        fit_obj = BSplineCurveFit(original=curve, params=fit_params(), points_to_fit=points_to_fit)
+        fit_obj = BSplineCurveFit(original=curve, params=BSplineFitParams(), points_to_fit=points_to_fit)
         ts = np.array([0., 1., 2., 3.])
         fit_obj.params.update_param("ts", ts)
         new_fit_obj, a_constraints = BSplineCurveFit._setup_basic_lsq(fit_obj)
@@ -62,7 +62,7 @@ class TestBSplineCurveFit(unittest.TestCase):
                 degree="cubic",
             )
         points_to_fit = [np.array([3.0, 2.5]), np.array([5.58,  -2.992]), np.array([7.166, -2.347]),  np.array([10.572,  1.052])]
-        fit_obj = BSplineCurveFit(original=curve, params=fit_params(), points_to_fit=points_to_fit)
+        fit_obj = BSplineCurveFit(original=curve, params=BSplineFitParams(), points_to_fit=points_to_fit)
 
         new_fit_obj = BSplineCurveFit.one_segment_fit(fit_obj, points_to_fit)
         expected_ctrl_pts = np.array([[ 25.379,  62.572],
@@ -84,7 +84,7 @@ class TestBSplineCurveFit(unittest.TestCase):
                 degree="cubic",
             )
         points_to_fit = [np.array([3.0, 2.5]), np.array([5.58,  -2.992]), np.array([7.166, -2.347]),  np.array([10.572,  1.052])]
-        fit_obj = BSplineCurveFit(original=curve, params=fit_params(), points_to_fit=points_to_fit)
+        fit_obj = BSplineCurveFit(original=curve, params=BSplineFitParams(), points_to_fit=points_to_fit)
         fit_obj.params.update_param("p_norm", 1.0) # break normalisation
         
         original_ts = [0., 0.482, 0.618, 1.]
@@ -106,7 +106,7 @@ class TestBSplineCurveFit(unittest.TestCase):
                 degree="cubic",
             )
         points_to_fit = [np.array([3.0, 2.5]), np.array([5.58,  -2.992]), np.array([7.166, -2.347]),  np.array([10.572,  1.052])]
-        fit_obj = BSplineCurveFit(original=curve, params=fit_params(), points_to_fit=points_to_fit)
+        fit_obj = BSplineCurveFit(original=curve, params=BSplineFitParams(), points_to_fit=points_to_fit)
         new_fit_obj = BSplineCurveFit.one_segment_fit(fit_obj, points_to_fit)
         
         original_ts = [0., 0.482, 0.618, 1.]
@@ -126,7 +126,7 @@ class TestBSplineCurveFit(unittest.TestCase):
 def plot_test():
     fig, ax = plt.subplots()
     fig.set_size_inches(16, 9)
-    params = fit_params()
+    params = BSplineFitParams()
     params.add_param("degree", 3)
     params.add_param("dim", 2)
     bs = BSplineCfPlot(BSplineCurve(degree="cubic"), params, [], (fig, ax))
