@@ -14,7 +14,7 @@ from numpy.polynomial.polynomial import polyval
 from scipy.optimize import fmin
 from scipy.integrate import quad
 
-from point_lists import ControlHull
+from tree_geometry.point_lists import ControlHull
 
 
 class BSplineCurve(ControlHull):
@@ -218,7 +218,7 @@ class BSplineCurve(ControlHull):
             pts = self.eval_crv(ts)
             # Distance calculation
             for d in range(0, self.dim()):
-                pts[:, d] = np.pow(pts[:, d] - pt[d], 2)
+                pts[:, d] = np.power(pts[:, d] - pt[d], 2)
             dists = np.sum(pts, axis=1)
             indx = np.argmin(dists)
             t_start = ts[indx]

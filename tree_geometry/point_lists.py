@@ -2,7 +2,7 @@
 
 import numpy as np
 from copy import deepcopy
-from line_segs import LineSeg
+from tree_geometry.line_segs import LineSeg
 from typing import Union
 
 class PointList:
@@ -197,6 +197,9 @@ class PointListWithTs(PointList):
         memo[id(self)] = result
         # Will end up calling set_points, which does a deep copy
         return PointListWithTs(self._points, self._ts)
+    
+    def __repr__(self) -> str:
+        return f"pts: {self._points_as_ndarray}\nts: {self._ts}"
 
     @property
     def ts(self):

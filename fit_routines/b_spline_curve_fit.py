@@ -59,8 +59,8 @@ class BSplineCurveFit:
             a_constraints = basis_matrix_for_pts
 
         if params["weight ctrl pts"] > 0.0:
-            a_constraints = np.stack(a_constraints,
-                                     params["weight ctrl pts"] * np.identity(crv.n_points(), crv.n_points()))
+            a_constraints = np.vstack([a_constraints,
+                                     params["weight ctrl pts"] * np.identity(crv.n_points())])
 
         return a_constraints
 
@@ -89,7 +89,7 @@ class BSplineCurveFit:
                 b_constraints[0, :] = vecs[0, :]
                 b_constraints[pts_and_ts.n_points(), :] = vecs[1, :]
         if params["weight ctrl pts"] > 0.0:
-            b_constraints[b_constraints.shape[0] - crv.n_points(), :] = crv.points_as_ndarray()
+            b_constraints[b_constraints.shape[0] - crv.n_points():, :] = crv.points_as_ndarray()
 
         # least squares fit
         ctrl_pts, residuals, _, __ = np.linalg.lstsq(a=a_constraints, b=b_constraints, rcond=None)
@@ -331,6 +331,8 @@ if __name__ == "__main__":
     from copy import deepcopy
 
     import numpy as np
+    from draw_routines.plt_draw_bspline import plot_crv, plot_curve_debug
+    import matplotlib.pyplot as plt
 
     fit_pts = PointList([[0, 0], [1, 1], [2, -1], [3, 0]])
 
@@ -342,9 +344,22 @@ if __name__ == "__main__":
     params_both = BSplineFitParams()
     params_both["end derivs"] = True
     params_both["weight ctrl pts"] = 0.1
-    for param in [params_basic, params_ends, params_keep_pts, params_both]:
-        for n in range(3, 5):
+    fig, ax = plt.subplots(1, 3)
+    fig.set_size_inches(36, 9)
+
+    for i, param in enumerate([params_basic, params_ends, params_keep_pts, params_both]):
+        for n in range(4, 5):
             crv_start = BSplineCurve(np.zeros((n, 2)), degree='quadratic')
             res_initial = BSplineCurveFit.initial_fit(crv_start, fit_pts)
             res_full = BSplineCurveFit.fit_project_fit(crv_start, fit_pts, param)
             res_adjust = BSplineCurveFit.fit_adjust_control_pts(crv_start, fit_pts, param)
+            for a in ax:
+                a.plot(fit_pts.points_as_ndarray()[:, 0], fit_pts.points_as_ndarray()[:, 1], "go", label="points")
+            plot_crv(ax[0], res_initial[0])
+            plot_crv(ax[1], res_full[0])
+            plot_crv(ax[2], res_adjust[0])
+            plt.suptitle(f"Param {i + 1}: {n} control points \n Initial, Full, Adjusted")
+            plt.pause(2.0)
+            for a in ax:
+                a.clear()
+    plt.close()
