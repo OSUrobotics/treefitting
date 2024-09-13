@@ -143,7 +143,7 @@ class BSplineCurveFit:
                 if t > clip_t_right:
                     t = clip_t_right
                     b_clipped = True
-                ts[i] = t
+                ts[i+1] = t
             if b_clipped == False:
                 break
 
