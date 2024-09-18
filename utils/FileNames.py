@@ -50,9 +50,12 @@
 
 from glob import glob
 import json
-from os.path import exists, isdir
+from os.path import exists, isdir, join
 from os import mkdir, walk
+from re import split as re_split
 
+convert = lambda text: int(text) if text.isdigit() else text.lower()
+alphanumeric_key = lambda key: [convert(c) for c in re_split('([0-9]+)', key)]
 
 class FileNames:
     def __init__(self, path, img_type="png"):
@@ -117,7 +120,7 @@ class FileNames:
             if im_name_split not in ret_names:
                 ret_names.append(im_name_split)
 
-        ret_names.sort()
+        ret_names.sort(key=alphanumeric_key)
         return ret_names
 
     def _add_mask_image_ids(self):
@@ -151,7 +154,7 @@ class FileNames:
                         self.mask_ids[-1][-1][-1].append(mask_id_name)
 
                     # Sort the list
-                    self.mask_ids[-1][-1][-1].sort()
+                    self.mask_ids[-1][-1][-1].sort(key=alphanumeric_key)
 
     def add_directory(self, name_filter=""):
         """Assumes all of the images are in a top-level directory (path) - no subdirectories
@@ -180,7 +183,7 @@ class FileNames:
         self.sub_dirs = []
         self.image_names = []
         self.mask_ids = []
-        fnames.sort()
+        fnames.sort(key=alphanumeric_key)
         for n in fnames:
             if not isdir(n):
                 continue
@@ -388,8 +391,8 @@ class FileNames:
         @param fname file to read from
         @return a Handle File Names instance"""
         if not exists(fname):
-            if exists(path + "/" + fname):
-                fname = path + "/" + fname
+            if exists(join(path, fname)):
+                fname = join(path, fname)
                 
         with open(fname, "r") as f:
             my_data = json.load(f)
@@ -408,7 +411,7 @@ if __name__ == '__main__':
     from shutil import copyfile
     b_get_box_files = False
     if b_get_box_files:
-        dest_path = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
+        dest_path = "/home/roosh/training_data/envy/fns/"
         if not exists(dest_path):
             mkdir(dest_path)
 
@@ -420,13 +423,13 @@ if __name__ == '__main__':
                 continue
             sub_dir_name = "_".join(path_pieces[0:-1])
             count = 0
-            files.sort()
+            files.sort(key=alphanumeric_key)
             n_skip = 10   #max(1, len(files) // 10)
             for nf, ff in enumerate(files):
-                if ff[-4:] == ".png" and nf % n_skip == 0:
+                if (ff[-4:] == ".jpg" or ff[-4:] == ".png") and nf % n_skip == 0:
                     if not exists(dest_path + "/" + sub_dir_name):
                         mkdir(dest_path + "/" + sub_dir_name)
-                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
+                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff.replace("_", "-"))
                     print(f"{ff}")
 
     path_bpd_envy = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
