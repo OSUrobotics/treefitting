@@ -84,12 +84,13 @@ class BSplineCurveFit:
         if params["end derivs"]:
             if vecs is None:
                 b_constraints[0, :] = crv.eval_deriv(0.0)
-                b_constraints[pts_and_ts.n_points(), :] = crv.eval_deriv(crv.max_t())
+                b_constraints[pts_and_ts.n_points() + 1, :] = crv.eval_deriv(crv.max_t())
             else:
                 b_constraints[0, :] = vecs[0, :]
-                b_constraints[pts_and_ts.n_points(), :] = vecs[1, :]
+                b_constraints[pts_and_ts.n_points() + 1, :] = vecs[1, :]
+            b_constraints[1:pts_and_ts.n_points() + 1, :] = pts_and_ts.points_as_ndarray()
         if params["weight ctrl pts"] > 0.0:
-            b_constraints[b_constraints.shape[0] - crv.n_points():, :] = crv.points_as_ndarray()
+            b_constraints[b_constraints.shape[0] - crv.n_points():, :] = crv.points_as_ndarray() * params["weight ctrl pts"]
 
         # least squares fit
         ctrl_pts, residuals, _, __ = np.linalg.lstsq(a=a_constraints, b=b_constraints, rcond=None)
@@ -117,6 +118,7 @@ class BSplineCurveFit:
     @staticmethod
     def project_ts_fit(crv_initial_fit: BSplineCurve,
                        pts_and_ts: PointListWithTs,
+                       vecs: Union[None, np.ndarray],
                        params: BSplineFitParams) -> (BSplineCurve, PointListWithTs):
         """Fit the curve to the points; assumes crv is a good fit, and projects the points onto the curve
         @param crv_initial_fit - curve initially fit to points
@@ -131,7 +133,7 @@ class BSplineCurveFit:
         for _ in range(0, 3):
             b_clipped = False
             for i, p in enumerate(pts_and_ts.points()[1:-1]):
-                t, _, _ = crv_initial_fit.project_to_curve(p)
+                t, _, _ = crv_initial_fit.project_to_curve(p, t=ts[i])
                 clip_t_left = ts[i]
                 clip_t_right = ts[i + 2]
                 clip_delta_t = clip_t_right - clip_t_left
@@ -146,15 +148,6 @@ class BSplineCurveFit:
                 ts[i+1] = t
             if b_clipped == False:
                 break
-
-        if params["end derivs"] > 0.0:
-            vecs = np.zeros((2, crv_initial_fit.dim()))
-            pts = pts_and_ts.points_as_ndarray()
-            ts = pts_and_ts.ts
-            vecs[0] = ((pts[1, :] - pts[0, :]) / (ts[1] - ts[0]))
-            vecs[1] = ((pts[-1, :] - pts[-2, :]) / (ts[-1] - ts[-2]))
-        else:
-            vecs = None
 
         pts_proj_ts = PointListWithTs(pts=pts_and_ts.points(), ts=ts)
         crv_fit, _ = BSplineCurveFit._lsq_fit(crv=crv_initial_fit, pts_and_ts=pts_proj_ts, vecs=vecs, params=params)
@@ -173,7 +166,42 @@ class BSplineCurveFit:
         if params is None:
             params = BSplineFitParams()
         crv_fit, pts_with_ts = BSplineCurveFit.initial_fit(crv_start, pts)
-        crv_refit, pts_with_ts_refit = BSplineCurveFit.project_ts_fit(crv_fit, pts_with_ts, params)
+
+        if params["end derivs"] > 0.0:
+            t_delta_stop = 0.25
+            vecs = np.zeros((2, crv_fit.dim()))
+            pts = pts_with_ts.points_as_ndarray()
+            ts = pts_with_ts.ts
+            iv = 1
+            vecs[0] = crv_fit.eval_deriv(0.0)
+            b_done = False
+            while b_done == False:
+                vecs[0] += ((pts[iv + 1, :] - pts[iv, :]) / (ts[iv + 1] - ts[iv]))
+                iv = iv + 1
+                if iv >= pts_with_ts.n_points():
+                    b_done = True
+                if ts[iv + 1] > t_delta_stop:
+                    b_done = True
+            vecs[0] /= iv
+
+            iv = 1
+            vecs[1] = crv_fit.eval_deriv(crv_fit.max_t())
+            b_done = False
+            t_stop = crv_fit.max_t() - t_delta_stop
+            indx = pts_with_ts.n_points() - 1
+            while b_done == False:
+                vecs[1] += ((pts[indx, :] - pts[indx - 1, :]) / (ts[indx] - ts[indx - 1]))
+                iv = iv + 1
+                indx = indx - 1
+                if iv >= pts_with_ts.n_points():
+                    b_done = True
+                if ts[indx - 1] < t_stop:
+                    b_done = True
+            vecs[1] /= iv
+        else:
+            vecs = None
+
+        crv_refit, pts_with_ts_refit = BSplineCurveFit.project_ts_fit(crv_fit, pts_with_ts, vecs, params)
         params["inlier threshold"] = 0.1 * crv_refit.curve_length() / crv_refit.n_points()
         crv_eval = BSplineFitEval(params)
         crv_eval.calc_values(crv_refit, pts_with_ts_refit)
@@ -331,10 +359,10 @@ if __name__ == "__main__":
     from copy import deepcopy
 
     import numpy as np
-    from draw_routines.plt_draw_bspline import plot_crv, plot_curve_debug
+    from draw_routines.plt_draw_bspline import plot_crv, plot_control_hull
     import matplotlib.pyplot as plt
 
-    fit_pts = PointList([[0, 0], [1, 1], [2, -1], [3, 0]])
+    fit_pts = PointList([[t, np.cos(t)] for t in np.linspace(0, 3 * np.pi, 20)])
 
     params_basic = BSplineFitParams()
     params_ends = BSplineFitParams()
@@ -344,22 +372,42 @@ if __name__ == "__main__":
     params_both = BSplineFitParams()
     params_both["end derivs"] = True
     params_both["weight ctrl pts"] = 0.1
-    fig, ax = plt.subplots(1, 3)
+    fig, ax = plt.subplots(4, 6)
     fig.set_size_inches(36, 9)
 
+    names = ["basic", "ends", "pts", "both"]
     for i, param in enumerate([params_basic, params_ends, params_keep_pts, params_both]):
-        for n in range(4, 5):
+        col = 0
+        for n in range(4, 6):
             crv_start = BSplineCurve(np.zeros((n, 2)), degree='quadratic')
             res_initial = BSplineCurveFit.initial_fit(crv_start, fit_pts)
+            crv_initial = res_initial[0]
+            print(f"res_initial: {crv_initial.eval_deriv(0.0)} {crv_initial.eval_deriv(crv_initial.max_t())}")
             res_full = BSplineCurveFit.fit_project_fit(crv_start, fit_pts, param)
             res_adjust = BSplineCurveFit.fit_adjust_control_pts(crv_start, fit_pts, param)
-            for a in ax:
-                a.plot(fit_pts.points_as_ndarray()[:, 0], fit_pts.points_as_ndarray()[:, 1], "go", label="points")
-            plot_crv(ax[0], res_initial[0])
-            plot_crv(ax[1], res_full[0])
-            plot_crv(ax[2], res_adjust[0])
+            ax[i, col].plot(fit_pts.points_as_ndarray()[:, 0], fit_pts.points_as_ndarray()[:, 1], "go", label="points")
+            plot_crv(ax[i, col], res_initial[0])
+            plot_control_hull(ax[i, col], res_initial[0])
+            ax[i, col].set_title('initial ' + names[i] + str(n))
+            ax[i, col].axis('equal')
+            col = col + 1
+            plot_crv(ax[i, col], res_full[0])
+            plot_control_hull(ax[i, col], res_full[0])
+            ax[i, col].set_title('full ' + names[i] + str(n))
+            ax[i, col].axis('equal')
+            for ip, t in enumerate(res_full[1].ts):
+                if not ip % 3 == 0:
+                    continue
+                pt_crv = res_full[0].eval_crv(t)
+                pt_fit = res_full[1].points()[ip]
+                ax[i, col].plot([pt_crv[0], pt_fit[0]], [pt_crv[1], pt_fit[1]])
+            col = col + 1
+            plot_crv(ax[i, col], res_adjust[0])
+            plot_control_hull(ax[i, col], res_adjust[0])
+            ax[i, col].plot(fit_pts.points_as_ndarray()[:, 0], fit_pts.points_as_ndarray()[:, 1], "go", label="points")
+            ax[i, col].set_title('adjust ' + names[i] + str(n))
+            ax[i, col].axis('equal')
+            col = col + 1
             plt.suptitle(f"Param {i + 1}: {n} control points \n Initial, Full, Adjusted")
-            plt.pause(2.0)
-            for a in ax:
-                a.clear()
+    plt.show()
     plt.close()

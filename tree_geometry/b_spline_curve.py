@@ -40,12 +40,12 @@ class BSplineCurve(ControlHull):
                              [-1,  3, -3, 1]]), # t^3
     }
     _derivative_dict = {
-        0: np.array([0]),                  # Shift the basis up by 1 and divide
-        1: np.array([[-1, 1],              # by power of t
-                     [ 0, 0]]),
-        2: 1 / 2 * np.array([[-2,   2, 0],
-                             [1/2, -2/2, 1/2],
-                             [0, 0, 0]]),
+        0: np.array([0]),                  # Shift the basis up by 1 and divide by power of t
+        1: np.array([[-1, 1],              # -1
+                     [ 0, 0]]),            #  1
+        2: 1 / 2 * np.array([[-2,   2, 0],    # 2 t - 2
+                             [ 2,  -4, 2],    # -4 t + 2
+                             [0,    0, 0]]),  # 2 t
         3: 1 / 6 * np.array([[-3, 0, 3, 0],
                              [3/2, -6/2, 3/2, 0],
                              [-1/3, 3/3, -3/3, 1/3],
@@ -247,7 +247,15 @@ if __name__ == "__main__":
             pts_check = crv_check.eval_crv(np.array([0.0, 0.25, 0.5, 0.75, 0.999999999]))
 
             crv_check.eval_crv(np.linspace(0.0, crv_check.max_t(), 20))
-            deriv_vecs = crv_check.eval_deriv(np.array([0.0, 0.25, 0.5, 0.75, 0.999999999]))
+            eps = 0.0001
+            t_deriv_check = np.array([0.0, 0.25, 0.5, 0.75, 1.0 - 2 * eps])
+            deriv_vecs = crv_check.eval_deriv(t_deriv_check)
+            for t in t_deriv_check:
+                deriv_vec = crv_check.eval_deriv(t)
+                pt_at_t_plus_eps = crv_check.eval_crv(t + eps)
+                pt_at_t = crv_check.eval_crv(t)
+                deriv_check_vec = (pt_at_t_plus_eps - pt_at_t) / eps
+                assert np.allclose(deriv_vec, deriv_check_vec)
             pt_mid = crv_check.eval_crv(0.4)
             pt_mid_next = crv_check.eval_crv(0.41)
             vec_check = (pt_mid_next - pt_mid) / 0.01

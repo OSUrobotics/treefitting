@@ -46,7 +46,7 @@ class BSplineFitEval(dict):
                 self.perc_inliers += 1.0
 
         self.perc_inliers /= pts_with_ts.n_points()
-        self.avg_fit_all = np.mean(self.per_pt_ts)
+        self.avg_fit_all = np.mean(self.per_pt_distances)
         if self.perc_inliers < 1.0:
             self.avg_fit /= np.sum(self.per_pt_outlier)
         else:
@@ -60,7 +60,7 @@ class BSplineFitEval(dict):
     def is_acceptable(self) -> bool:
         """ Is the current fit good enough - average below a threshold, percentage of outliers below a threshold
         @return True/False"""
-        if self.avg_fit > self.params["average fit"]:
+        if self.avg_fit_all > self.params["average fit"]:
             return False
         if 1.0 - self.perc_inliers > self.params["outlier ratio"]:
             return False

@@ -5,7 +5,6 @@ from matplotlib import pyplot as plt
 
 from tree_geometry.b_spline_curve import BSplineCurve
 
-
 def plot_basis(plt, crv: BSplineCurve):
     """Plots the basis function in [0, 1)]"""
     tr = np.linspace(0, 0.99999, 100)
@@ -110,6 +109,18 @@ if __name__ == "__main__":
         plot_crv(axes[1, i], crv)
 
     plt.show()
+
+    _, axes = plt.subplots(2, 3)
+    for i, deg in enumerate(['linear', 'quadratic', 'cubic']):
+        axs = axes[0, i]
+        crv = BSplineCurve([[0, 0], [1, 1], [2, 1], [3, 0]], degree=deg)
+        plot_basis(axs, crv)
+        axs.set_title(deg)
+        plot_control_hull(axes[1, i], crv)
+        plot_crv(axes[1, i], crv)
+
+    plt.show()
+
     fig, ax = plt.subplots()
     InteractiveCurve(BSplineCurve([[0, 0], [1, 1], [2, 1], [3, 0]], degree='cubic'), (fig, ax))
     print("done")
