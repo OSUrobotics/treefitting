@@ -407,11 +407,77 @@ class FileNames:
         return handle_files
 
 
+def example_pull_with_skip(n_skip=10, image_tag="jpg"):
+    from shutil import copyfile
+
+    # Where to put the newly organized data
+    dest_path_base = "/Users/grimmc/VSCode/BlueberryData/"
+
+    # Where the data directory is
+    src_path_base = "/Users/grimmc/Downloads/"
+
+    data_set_name = "bush_9_west_2"
+
+    dest_path = dest_path_base + data_set_name + "/"
+    src_path = src_path_base + data_set_name + "/"
+
+    if not exists(dest_path_base):
+        mkdir(dest_path_base)
+
+    if not exists(dest_path):
+        mkdir(dest_path)
+
+    search_path = f"{src_path}/color/*." + image_tag
+    fnames = glob(search_path)
+    if fnames is None:
+        raise ValueError(f"No files in directory {search_path}")
+        return
+
+    file_numbers = []
+    for i_f, nf in enumerate(fnames):
+        im_name = nf.split("/")[-1]
+        im_no_extention = im_name.split(".")[0]
+        im_number = im_no_extention.split("_")[-1]
+        file_numbers.append(int(im_number))
+
+    file_numbers.sort()
+
+    for i_f in file_numbers[::n_skip]:
+        # The number on the file
+        col_im_name_number = str(i_f) + "."
+        
+        # RGB image copy
+        col_im_name = src_path + "color/color_raw_" + col_im_name_number + image_tag
+        dest_name = dest_path + "rgb_" + col_im_name_number + "." + image_tag
+        copyfile(src=col_im_name, dst=dest_name)
+
+        # Depth copy (image)
+        depth_im_name = src_path + "depth/depth_raw_" + col_im_name_number + image_tag
+        dest_depth_im_name = dest_path + "rgb_depth_" + col_im_name_number + image_tag
+        copyfile(src=depth_im_name, dst=dest_depth_im_name)
+
+        # Depth copy (csv)
+        depth_name = src_path + "depth/depth_raw_" + col_im_name_number + "csv"
+        dest_depth_name = dest_path + "rgb_depth_" + col_im_name_number + "csv"
+        copyfile(src=depth_name, dst=dest_depth_name)
+
+    all_files = FileNames(path=dest_path, img_type=image_tag)
+    all_files.mask_names = ["cane"]
+    all_files.add_directory()
+    all_files.write_filenames(dest_path + "/" + data_set_name + "_fnames.json")
+
+    return all_files
+
+
 if __name__ == '__main__':
+    """ Example blueberry"""
+    all_files = example_pull_with_skip()
+
+    """ Example envy
     from shutil import copyfile
     b_get_box_files = False
     if b_get_box_files:
-        dest_path = "/home/roosh/training_data/envy/fns/"
+        dest_path = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
         if not exists(dest_path):
             mkdir(dest_path)
 
@@ -423,13 +489,13 @@ if __name__ == '__main__':
                 continue
             sub_dir_name = "_".join(path_pieces[0:-1])
             count = 0
-            files.sort(key=alphanumeric_key)
+            files.sort()
             n_skip = 10   #max(1, len(files) // 10)
             for nf, ff in enumerate(files):
-                if (ff[-4:] == ".jpg" or ff[-4:] == ".png") and nf % n_skip == 0:
+                if ff[-4:] == ".png" and nf % n_skip == 0:
                     if not exists(dest_path + "/" + sub_dir_name):
                         mkdir(dest_path + "/" + sub_dir_name)
-                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff.replace("_", "-"))
+                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
                     print(f"{ff}")
 
     path_bpd_envy = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
@@ -437,6 +503,8 @@ if __name__ == '__main__':
     all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
     all_files_envy.add_sub_directories()
     all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
+    """
+
     # Example bb
     """
     path_bpd = "./data/blueberries/"
@@ -447,6 +515,7 @@ if __name__ == '__main__':
     """
 
     # Example 2
+    """
     b_do_mask = False
     fname_for_json_file = "../Image_based/data/forcindy_bspline.json"
     path_bpd = "../Image_based/data/forcindy/"
@@ -462,6 +531,7 @@ if __name__ == '__main__':
 
     for ind_msk in all_files.loop_masks("trunk"):
         print(f"{all_files.get_mask_name(index=ind_msk, )}")
+    """
 
     # Example 1
     """
@@ -474,4 +544,4 @@ if __name__ == '__main__':
     all_files_trunk.check_names()
     """
 
-    check_read = FileNames.read_filenames(fname_for_json_file)
+    #check_read = FileNames.read_filenames(fname_for_json_file)
