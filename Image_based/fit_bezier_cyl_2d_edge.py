@@ -206,7 +206,7 @@ class FitBezierCyl2DEdge:
 
             check1 = FitBezierCyl2DEdge._line_abc[0] * x1 + FitBezierCyl2DEdge._line_abc[1] * y1 + FitBezierCyl2DEdge._line_abc[2]
             check2 = FitBezierCyl2DEdge._line_abc[0] * x2 + FitBezierCyl2DEdge._line_abc[1] * y2 + FitBezierCyl2DEdge._line_abc[2]
-            if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
+            if not np.isclose(check1, 0.0, atol=0.01) or not np.isclose(check2, 0.0, atol=0.01):
                 raise ValueError("FitBezierCyl2DEdge: Making line, pts not on line")
 
             # We only care about horizontal lines anyways, so ignore vertical ones

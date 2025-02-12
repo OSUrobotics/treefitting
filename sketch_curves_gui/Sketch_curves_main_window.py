@@ -296,7 +296,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.draw_backbone_button.clicked.connect(self.new_curve)
         clear_drawings_button = QPushButton('Clear drawings')
         clear_drawings_button.clicked.connect(self.clear_drawings)
-        self.mask_name = QTextEdit("sketch")
+        self.mask_name = QLabel("None")
 
         drawing_states_layout.addWidget(self.draw_backbone_button)
         drawing_states_layout.addWidget(clear_drawings_button)
@@ -323,7 +323,7 @@ class SketchCurvesMainWindow(QMainWindow):
         indx_image = self.image_number.value()
         indx_mask = self.mask_number.value()
         id_mask = self.mask_id_number.value()
-        print(f"Begin rest file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
+        print(f"Begin reset file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
         b_changed = False
         sldr_maxs_orig = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
@@ -367,11 +367,16 @@ class SketchCurvesMainWindow(QMainWindow):
 
         img_name = self.handle_filenames.get_image_name(index=indx)
         img_name_split = img_name.split("/")
+        if indx_mask >= 0 and indx_mask < len(self.handle_filenames.mask_names):
+            mask_name = self.handle_filenames.mask_names[indx_mask]
+        else:
+            mask_name = "none"
+        self.mask_name.setText(mask_name)
         if len(img_name_split) > 2:
             self.image_name.setAccessibleName(img_name_split[-2])
-            self.image_name.setText(img_name_split[-1])
+            self.image_name.setText(img_name_split[-1] + " mask: " + mask_name)
         else:
-            self.image_name.setText(img_name)
+            self.image_name.setText(img_name + " mask: " + mask_name)
         sldr_maxs = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
@@ -452,7 +457,7 @@ class SketchCurvesMainWindow(QMainWindow):
             return
         
         self.sketch_curve.write_json("save_crv.json")
-        ret_index = self.handle_filenames.add_mask_name(self.mask_name.toPlainText())
+        ret_index = self.ge
         mask_id = f"{self.mask_id_number.slider.maximum()}"
         self.last_index = self.handle_filenames.add_mask_id(ret_index, mask_id)
 
