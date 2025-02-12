@@ -5,11 +5,15 @@ import sys
 sys.path.insert(0, os.path.abspath('./'))
 sys.path.insert(0, os.path.abspath('./Image_based'))
 sys.path.insert(0, os.path.abspath('./Utilities'))
+sys.path.insert(0, os.path.abspath('./utils'))
 sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
 sys.path.insert(0, os.path.abspath('./fit_routines'))
+sys.path.insert(0, os.path.abspath('./tree_geometry'))
 sys.path.insert(0, os.path.abspath('../'))
 sys.path.insert(0, os.path.abspath('../Image_based'))
 sys.path.insert(0, os.path.abspath('../Utilities'))
+sys.path.insert(0, os.path.abspath('../utils'))
+sys.path.insert(0, os.path.abspath('../tree_geometry'))
 sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
 sys.path.insert(0, os.path.abspath('../fit_routines'))
 from os.path import exists
@@ -82,7 +86,7 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.setColumnMinimumWidth(1, 200)
         # self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
         # self.file_name = QLineEdit("envy_fnames.json")
-        self.path_name = QLineEdit("/Users/cindygrimm/VSCode/BlueBerryData/bush_9_west_2/")
+        self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
         self.file_name = QLineEdit("bush_9_west_2_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
@@ -457,9 +461,8 @@ class SketchCurvesMainWindow(QMainWindow):
             return
         
         self.sketch_curve.write_json("save_crv.json")
-        ret_index = self.ge
         mask_id = f"{self.mask_id_number.slider.maximum()}"
-        self.last_index = self.handle_filenames.add_mask_id(ret_index, mask_id)
+        self.last_index = self.handle_filenames.add_mask_id(self.last_index, mask_id)
 
         # Actually convert the curve
         width_rgb_image = self.crv.image_rgb.shape[1]

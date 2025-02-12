@@ -53,6 +53,8 @@ import json
 from os.path import exists, isdir, join
 from os import mkdir, walk
 from re import split as re_split
+from shutil import copyfile
+
 
 convert = lambda text: int(text) if text.isdigit() else text.lower()
 alphanumeric_key = lambda key: [convert(c) for c in re_split('([0-9]+)', key)]
@@ -80,6 +82,7 @@ class FileNames:
         self.image_names = []  # For each subdirectory (list) a list of image names; so list of lists
         self.mask_ids = []     # Mask ids for each image and mask name combo, (0, 1, etc) (list of lists of lists of lists)
 
+        self.image_name = "rgb"
         self.edge_name = "edge"          # Tag for edge image made from rgb image
         self.edge_flow_name = "edgeOF"   # Tag for edge image made from optical flow
         self.flow_name = "flow"          # Tag for optical flow images
@@ -104,6 +107,8 @@ class FileNames:
         fnames = glob(search_path)
         if fnames is None:
             raise ValueError(f"No files in directory {search_path}")
+
+        self.image_name = name_filter
 
         ret_names = []
         for n in fnames:
@@ -254,8 +259,11 @@ class FileNames:
         else:
             im_name = self.path
 
-        im_name = im_name + self.sub_dirs[index[0]] + "/"
+        if self.sub_dirs[index[0]] != "":
+            im_name = im_name + self.sub_dirs[index[0]] + "/"
         im_name = im_name + self.image_names[index[0]][index[1]]
+        if self.image_name != "":
+            im_name = im_name + self.name_seperator + self.image_name
         if b_add_tag:
             im_name = im_name + self.image_tag
 
@@ -408,7 +416,6 @@ class FileNames:
 
 
 def example_pull_with_skip(n_skip=10, image_tag="jpg"):
-    from shutil import copyfile
 
     # Where to put the newly organized data
     dest_path_base = "/Users/grimmc/VSCode/BlueberryData/"
@@ -444,33 +451,42 @@ def example_pull_with_skip(n_skip=10, image_tag="jpg"):
 
     for i_f in file_numbers[::n_skip]:
         # The number on the file
-        col_im_name_number = str(i_f) + "."
+        col_im_name_number = str(i_f)
+        if len(col_im_name_number) == 1:
+            col_im_name_number = "00" + col_im_name_number
+        elif len(col_im_name_number) == 2:
+            col_im_name_number = "0" + col_im_name_number
+        elif len(col_im_name_number) == 3:
+            col_im_name_number = col_im_name_number
+        else:
+            raise ValueError("Argh, you really have more than 999 files????")
+
         
         # RGB image copy
-        col_im_name = src_path + "color/color_raw_" + col_im_name_number + image_tag
-        dest_name = dest_path + "rgb_" + col_im_name_number + "." + image_tag
+        col_im_name = src_path + "color/color_raw_" + str(i_f) + "." + image_tag
+        dest_name = dest_path + col_im_name_number + "_rgb." + image_tag
         copyfile(src=col_im_name, dst=dest_name)
 
         # Depth copy (image)
-        depth_im_name = src_path + "depth/depth_raw_" + col_im_name_number + image_tag
-        dest_depth_im_name = dest_path + "rgb_depth_" + col_im_name_number + image_tag
+        depth_im_name = src_path + "depth/depth_raw_" + str(i_f) + "." + image_tag
+        dest_depth_im_name = dest_path + col_im_name_number + "_depth." + image_tag
         copyfile(src=depth_im_name, dst=dest_depth_im_name)
 
         # Depth copy (csv)
-        depth_name = src_path + "depth/depth_raw_" + col_im_name_number + "csv"
-        dest_depth_name = dest_path + "rgb_depth_" + col_im_name_number + "csv"
+        depth_name = src_path + "depth/depth_raw_" + str(i_f) + "." + "csv"
+        dest_depth_name = dest_path + col_im_name_number + "_depth.csv"
         copyfile(src=depth_name, dst=dest_depth_name)
 
     all_files = FileNames(path=dest_path, img_type=image_tag)
     all_files.mask_names = ["cane"]
-    all_files.add_directory()
+    all_files.add_directory(name_filter="rgb")
     all_files.write_filenames(dest_path + "/" + data_set_name + "_fnames.json")
 
     return all_files
 
 
 if __name__ == '__main__':
-    """ Example blueberry"""
+
     all_files = example_pull_with_skip()
 
     """ Example envy
