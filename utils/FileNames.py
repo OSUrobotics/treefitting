@@ -316,6 +316,21 @@ class FileNames:
 
         return im_name
 
+    def get_depth_data_name(self, index, b_add_tag=True):
+        """ Get the depth csv file name corresponding to the index given by (subdirectory index, image index, -)
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_add_tag - add the csv tag, y/n
+        @return full data file name with path"""
+
+        f_name = self.path
+        if len(self.sub_dirs[index[0]]) > 0:
+            f_name = f_name + self.sub_dirs[index[0]] + "/"
+        f_name = f_name + self.image_names[index[0]][index[1]] + self.name_seperator + "depth"
+        if b_add_tag:
+            f_name = f_name + ".csv"
+
+        return f_name
+
     def _get_mask_name(self, index, b_add_tag):
         """ Get JUST the mask name corresponding to the index (no directory)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)

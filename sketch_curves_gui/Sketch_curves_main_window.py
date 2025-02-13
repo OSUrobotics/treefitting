@@ -511,12 +511,13 @@ class SketchCurvesMainWindow(QMainWindow):
                                                                b_do_recalc=b_recalc)
         self.crv = self.extract_crv.bezier_edge
 
-        depth_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
-        if exists(depth_fname):
+        depth_image_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
+        depth_data_fname = self.handle_filenames.get_depth_data_name(index=self.last_index, b_add_tag=True)
+        if exists(depth_image_fname) or exists(depth_data_fname):
             depth_fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_calculate_path=True, b_add_tag=False)
             depth_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
             params = {"camera_width_angle": self.horizontal_angle.value()}
-            self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv.bezier_crv_fit_to_edge,
+            self.fit_crv_3d = FitBezierCyl3dDepth(depth_image_fname, depth_data_fname, self.crv.bezier_crv_fit_to_edge,
                                                   params=params,
                                                   fname_calculated=depth_fname_calculate,
                                                   fname_debug=depth_fname_debug, b_recalc=b_recalc)

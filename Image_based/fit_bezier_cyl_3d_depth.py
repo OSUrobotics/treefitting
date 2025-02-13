@@ -18,9 +18,10 @@ from camera_projections import frustrum_matrix, from_image_to_box
 
 
 class FitBezierCyl3dDepth:
-    def __init__(self, fname_depth_image, crv_2d, params=None, fname_calculated=None, fname_debug=None, b_recalc=False):
-        """ Read in the mask image, use the stats to start the quad fit, then fit the quad
-        @param fname_depth_image: Depth image name
+    def __init__(self, fname_depth_image, fname_depth_data, crv_2d, params=None, fname_calculated=None, fname_debug=None, b_recalc=False):
+        """ Read in the depth image or data (data preferred), grab the depth data under the 2d curve, then promote to 3d
+        @param fname_depth_image: Depth image name (used if no depth data csv file)
+        @param fname_depth_data: Depth data as a .csv file (assumes depth image and csv file same size/aspect ratio)
         @param crv_2d: 2d bezier curve
         @param params: Parameters for filtering the depth image - how finely to sample along the edge and how much to believe edge
            perc_width_depth - percent of width to use, should be 0.1 to 0.85
@@ -36,17 +37,30 @@ class FitBezierCyl3dDepth:
         self.depth_values = []
 
         # Get depth image
-        mask_image_depth = cv2.imread(fname_depth_image)
-        if len(mask_image_depth.shape) == 3:
-            # data * alpha + beta, beta = 0   convert to unsigned int
-            # most maxed out 65535
-            #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-            self.depth_image = convert_jet_to_grey(mask_image_depth) / 255.0
-            self.depth_image = self.depth_image / 0.03
-            #self.depth_image = mask_image_depth
-            #self.depth_image = cv2.cvtColor(mask_image_depth, cv2.COLOR_BGR2GRAY)
-        else:
-            self.depth_image = mask_image_depth
+        b_has_image = exists(fname_depth_image)
+        b_has_data = exists(fname_depth_data)
+        if b_has_image:
+            self.depth_image = cv2.imread(fname_depth_image)
+        if b_has_data:
+            self.depth_data = np.loadtxt(fname_depth_data, dtype="float", delimiter=",")
+
+        if b_has_image and b_has_data:
+            assert self.depth_image.shape[0] == self.depth_data.shape[0]
+            assert self.depth_image.shape[1] == self.depth_data.shape[1]
+        elif b_has_data:
+            self.depth_image = np.zeros((self.depth_data.shape[0], self.depth_data.shape[1]), dtype=np.uint8)
+            d_min = np.min(np.min(self.depth_data))
+            d_max = np.max(np.max(self.depth_data))
+            self.depth_image = np.uint8(255 * (self.depth_data - d_min) / (d_max - d_min))
+        elif b_has_image:        
+            if len(self.depth_image.shape) == 3:
+                # data * alpha + beta, beta = 0   convert to unsigned int
+                # most maxed out 65535
+                #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+                self.depth_data = convert_jet_to_grey(self.depth_image) / 255.0
+                self.depth_data = self.depth_data / 0.03
+                #self.depth_image = mask_image_depth
+                #self.depth_image = cv2.cvtColor(mask_image_depth, cv2.COLOR_BGR2GRAY)
 
         # Create the file names for the calculated data that we'll store (initial curve, curve fit to mask, parameters)
         if fname_calculated:
@@ -69,7 +83,7 @@ class FitBezierCyl3dDepth:
         # Get the raw edge data
         if b_recalc or not fname_calculated or not exists(self.fname_depth_stats):
             # Recalculate and write
-            self.depth_stats = FitBezierCyl3dDepth.full_depth_stats(self.depth_image,
+            self.depth_stats = FitBezierCyl3dDepth.full_depth_stats(self.depth_data,
                                                                     self.crv_2d,
                                                                     self.params)
 
@@ -104,9 +118,9 @@ class FitBezierCyl3dDepth:
             print("To do")
 
     @staticmethod
-    def full_depth_stats(image_depth, crv_2d, params):
+    def full_depth_stats(depth_data, crv_2d, params):
         """ Get the best pixel offset (if any) for each point/pixel along the edge
-        @param image_depth - the depth image
+        @param depth_data - the depth data as a numpy array
         @param crv_2d - the 2d curve
         @param params - parameters for conversion
         @return t, stats for depth, spaced n apart"""
@@ -122,7 +136,7 @@ class FitBezierCyl3dDepth:
         width = n_pixs
 
         ret_stats = {"n_segs": len(ts) - 1,
-                     "image_size": (image_depth.shape[1], image_depth.shape[0]),
+                     "image_size": (depth_data.shape[1], depth_data.shape[0]),
                      "ts":[],
                      "z_at_center":[],
                      "radius_3d":[],
@@ -144,7 +158,7 @@ class FitBezierCyl3dDepth:
         for i_rect, r in enumerate(rects):
             # Cutout the image for the boundary rectangle
             #   Note this will be a height x width numpy array
-            im_warp, tform3_back = crv_2d.image_cutout(image_depth, r, step_size=width, height=height)
+            im_warp, tform3_back = crv_2d.image_cutout(depth_data, r, step_size=width, height=height)
             im_cutouts.append(im_warp)
             trans_back.append(trans_back)
 
@@ -166,7 +180,7 @@ class FitBezierCyl3dDepth:
             pix_max = int(n_total_pixs * .95)
             depth_at_center = depth_sort[pix_max]
             rad_2d = crv_2d.radius(ts_seg[width // 2])
-            ang_subtend_degrees = params["camera_width_angle"] * (2 * rad_2d) / image_depth.shape[1]
+            ang_subtend_degrees = params["camera_width_angle"] * (2 * rad_2d) / depth_data.shape[1]
             ang_subtend_radians = np.pi * ang_subtend_degrees / 180.0
             radius_3d = 0.5 * depth_at_center * np.tan(ang_subtend_radians)
             z_at_center = depth_at_center - radius_3d
