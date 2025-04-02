@@ -2,6 +2,15 @@
 import numpy as np
 
 
+# A line segment in 2D or 3D
+# Supports operations for using in a control hull, projection
+#  - length of line sgement
+#  - f(t) -> [x,y,z] for t in 0,1
+#  - project onto line segment
+#  - 2D line intersection
+#
+# Note: dimension of points changes available functionality, which is why there are 1, 2, and 3 dimensional line classes
+
 class LineSeg:
     """Line segment virtual class"""
 
