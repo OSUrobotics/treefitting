@@ -39,6 +39,11 @@ class ControlHull(PointList):
         # Will end up calling set_points, which does a deep copy
         return ControlHull(self._points)
 
+    def reverse_direction(self):
+        """ Reverse the order of the control points"""
+        super().reverse_direction()
+        self._set_polylines()
+
     def polylines(self):
         """ If there are n points, then there are n-1 LineSeg2D's """
         return self._polylines
@@ -86,6 +91,28 @@ class ControlHull(PointList):
                 dist = d
         return min_t, min_proj, min_seg
 
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "ControlHull", "cntrl_hull_pts": super().write_json()}
+
+        return my_dict
+
+    @staticmethod
+    def read_json(json_dict, control_hull_instance=None):
+        """ Read back in from json file
+        @param json_dict - dictionary read in from file
+        @param control_hull_instance - an existing of points list to put the data in"""
+        if json_dict["Name"] != "ControlHull":
+            raise ValueError(f"This is not a control hull dictionary {json_dict}")
+
+        if not control_hull_instance:
+            control_hull_instance = ControlHull(initial_points=json_dict["cntrl_hull_pts"]["pts"])
+        else:
+            control_hull_instance.set_points(json_dict["cntrl_hull_pts"]["pts"])
+        # Check
+        control_hull_instance.internal_check()
+        return control_hull_instance
+
     def internal_check(self):
         """ Check that all the data lines up"""
 
@@ -127,3 +154,22 @@ if __name__ == "__main__":
     assert (np.isclose(res2[1][1], 0.5))
     assert (res2[2] == 3)
     assert control_hull.internal_check()
+
+    control_hull.reverse_direction()
+    assert np.all(np.isclose(control_hull.point(0), [0.5, 0.5]))
+    assert np.all(np.isclose(control_hull.point(-1), [0.0, 0.0]))
+    assert control_hull.internal_check()
+
+    import json
+    fname = "../Image_based/data/test_ctrl_hull.txt"
+    with open(fname, "w") as f:
+        json.dump(control_hull.write_json(), f, indent=2)
+
+    with open(fname, 'r') as f:
+        my_data = json.load(f)
+
+        check_read = ControlHull.read_json(my_data)
+
+        assert check_read.n_points() == control_hull.n_points()
+        for ind in range(0, check_read.n_points()):
+            assert np.all(np.isclose(check_read.point(ind), control_hull.point(ind)))

@@ -162,6 +162,10 @@ class BSplineCurve(ControlHull):
             banded_basis_matrix[i, idxs[i]: (idxs[i] + self.order())] = evaluated_basis[i, :]
         return banded_basis_matrix
 
+    def reverse_direction(self):
+        """ Reverse the direction of the curve - make the first control point the last, and vice-versa"""
+        super().reverse_direction()
+
     def eval_crv(self, t: Union[float, np.ndarray]) -> np.ndarray:
         """Evaluate the curve at parameter t
         @param t - float or list of floats; only values between 0 and max_t are valid pts on curve
@@ -321,9 +325,39 @@ class BSplineCurve(ControlHull):
         pt_proj = self.eval_crv(t_best)
         return t_best, pt_proj, np.linalg.norm(pt_proj - pt)
 
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "BSplineCurve", "degree": self.degree(), "crv_pts": super().write_json()}
+
+        return my_dict
+
+    @staticmethod
+    def read_json(json_dict, bspline_crv_instance=None):
+        """ Read back in from json file
+        @param json_dict - dictionary read in from file
+        @param control_hull_instance - an existing of points list to put the data in"""
+        if json_dict["Name"] != "BSplineCurve":
+            raise ValueError(f"This is not a bspline curve dictionary {json_dict}")
+
+        if not bspline_crv_instance:
+            degree_name_list = ["None", "linear", "quadratic", "cubic"]
+            degree_name = degree_name_list[json_dict["degree"]]
+            bspline_crv_instance = BSplineCurve(ctrl_pts=json_dict["crv_pts"]["cntrl_hull_pts"]["pts"], degree=degree_name)
+        else:
+            bspline_crv_instance.set_points(json_dict["crv_pts"]["cntrl_hull_pts"]["pts"])
+            assert bspline_crv_instance.degree() == json_dict["degree"]
+        # Check
+        bspline_crv_instance.internal_check()
+        return bspline_crv_instance
+
+    def internal_check(self):
+        """ Check that all the data lines up"""
+        return super().internal_check()
+
 
 if __name__ == "__main__":
     # np.set_printoptions(precision=3, suppress=True)
+    import json
 
     cv = [[1, 3], [1, 2, -1], [1, 2, 2.5, -1]]
     checks = [[cv[0][0], cv[0][1], cv[0][1] - cv[0][0], cv[0][1] - cv[0][0]],
@@ -419,5 +453,25 @@ if __name__ == "__main__":
 
             assert crv_check.degree_name() == deg_check
 
-        print("\n")
+            fname = "../Image_based/data/test_bspline_crv.txt"
+            crv_check_duplicate = BSplineCurve(crv_check.points(), degree=deg_check)
+            with open(fname, "w") as f:
+                json.dump(crv_check.write_json(), f, indent=2)
 
+            with open(fname, 'r') as f:
+                my_data = json.load(f)
+
+                check_read = BSplineCurve.read_json(my_data)
+                check_read_b = BSplineCurve.read_json(my_data, crv_check_duplicate)
+
+                assert check_read.n_points() == crv_check.n_points()
+                assert check_read.degree() == crv_check.degree()
+                for ind in range(0, check_read.n_points()):
+                    assert np.all(np.isclose(check_read.point(ind), crv_check.point(ind)))
+
+                assert check_read_b.n_points() == crv_check.n_points()
+                assert check_read_b.degree() == crv_check.degree()
+                for ind in range(0, check_read_b.n_points()):
+                    assert np.all(np.isclose(check_read_b.point(ind), check_read_b.point(ind)))
+
+        print("\n")

@@ -2,7 +2,6 @@
 
 import numpy as np
 from copy import deepcopy
-from tree_geometry.line_segs import LineSeg
 from typing import Union
 
 
@@ -35,6 +34,11 @@ class PointList:
         # Will end up calling set_points, which does a deep copy
         return PointList(self._points)
 
+    def reverse_direction(self):
+        """Reverse the order of the points"""
+        self._points.reverse()
+        self._points_as_ndarray = np.flip(self._points_as_ndarray, axis=0)
+
     def dim(self):
         """ Dimension of the points"""
         return self._points_as_ndarray.shape[1]
@@ -46,6 +50,11 @@ class PointList:
     def points(self):
         """ Points is a list of numpy arrays of dimension dim"""
         return self._points
+
+    def point(self, indx):
+        """ Point as a numpy array
+        @param indx - index, in the range 0 to n_points()-1 - can be -1"""
+        return self._points[indx]
 
     def points_as_ndarray(self):
         """ Numerically the same as points, but stored as a numpy array of
@@ -88,6 +97,31 @@ class PointList:
         self._points_as_ndarray = np.append(self._points_as_ndarray, np.zeros((1, self.dim())), axis=0)
         self._points_as_ndarray[-1, :] = pt_as_array
 
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "PointList", "n_points": self.n_points(), "pts": []}
+        for ind in range(0, self.n_points()):
+            my_dict["pts"].append([float(x) for x in self.point(ind)])
+
+        return my_dict
+
+    @staticmethod
+    def read_json(json_dict, points_list_instance=None):
+        """ Read back in from json file
+        @param json_dict - dictionary read in from file
+        @param points_list_instance - an existing of points list to put the data in"""
+        if json_dict["Name"] != "PointList":
+            raise ValueError(f"This is not a points list dictionary {json_dict}")
+
+        if not points_list_instance:
+            points_list_instance = PointList(json_dict["pts"])
+        else:
+            points_list_instance.set_points(json_dict["pts"])
+        # Check
+        assert points_list_instance.n_points() == json_dict["n_points"]
+        points_list_instance.internal_check()
+        return points_list_instance
+
     def internal_check(self):
         """ Just check that all the data is ok"""
         assert self._points_as_ndarray.shape[0] == len(self._points)
@@ -123,6 +157,16 @@ class PointListWithTs(PointList):
     
     def __repr__(self) -> str:
         return f"pts: {self._points_as_ndarray}\nts: {self._ts}"
+
+    def reverse_direction(self):
+        """Reverse the order of the points
+        ts: Start and end at the same values, but use the spacing in the reverse order"""
+        super().reverse_direction()
+
+        deltas = self._ts[1:] - self._ts[0:-1]
+        # First t doesn't change
+        for ind in range(0, deltas.shape[0]):
+            self._ts[ind + 1] = self._ts[ind] + deltas[ind]
 
     @property
     def ts(self):
@@ -183,6 +227,31 @@ class PointListWithTs(PointList):
         self._ts = start_t + (end_t - start_t) / (self._ts[-1] - self._ts[0]) * self._ts
         return self._ts
 
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "PointListWithTs", "n_points": self.n_points(), "ts": [], "pts": super().write_json()}
+        for ind in range(0, self.n_points()):
+            my_dict["ts"].append(self.ts[ind])
+
+        return my_dict
+
+    @staticmethod
+    def read_json(json_dict, points_list_instance=None):
+        """ Read back in from json file
+        @param json_dict - dictionary read in from file
+        @param points_list_instance - an existing of points list to put the data in"""
+        if json_dict["Name"] != "PointListWithTs":
+            raise ValueError(f"This is not a points list with ts dictionary {json_dict}")
+
+        if not points_list_instance:
+            points_list_instance = PointListWithTs(ts=json_dict["ts"], pts=json_dict["pts"]["pts"])
+        else:
+            points_list_instance.set_points(json_dict["pts"]["pts"])
+            points_list_instance.ts = json_dict["ts"]
+        # Check
+        points_list_instance.internal_check()
+        return points_list_instance
+
     def internal_check(self):
         """ Just check that the ts are monotonically increasing"""
 
@@ -237,3 +306,36 @@ if __name__ == "__main__":
     pts_with_ts_2 = PointListWithTs(np.array([[0, 0], [1, 0], [1, 1], [1, 0]]), [-2.0, 0.25, 0.5, 0.75])
     assert np.isclose(pts_with_ts_2.ts[0], -2.0)
     assert np.isclose(pts_with_ts_2.ts[-1], 0.75)
+    assert pts_with_ts_2.internal_check()
+
+    pts_with_ts_2.reverse_direction()
+    assert np.isclose(pts_with_ts_2.ts[0], -2.0)
+    assert np.isclose(pts_with_ts_2.ts[-1], 0.75)
+    assert np.isclose(pts_with_ts_2.ts[1] - pts_with_ts_2.ts[0], 2.25)
+    assert np.all(np.isclose(pts_with_ts_2.point(0), [1.0, 0.0]))
+    assert np.all(np.isclose(pts_with_ts_2.point(-1), [0.0, 0.0]))
+    assert pts_with_ts_2.internal_check()
+
+    import json
+    fname = "../Image_based/data/test_pts_list.txt"
+    with open(fname, "w") as f:
+        my_data = [pt_v1.write_json(), pts_with_ts.write_json()]
+        json.dump(my_data, f, indent=2)
+
+    with open(fname, 'r') as f:
+        my_data = json.load(f)
+
+        check_read_1 = PointList.read_json(my_data[0])
+
+        check_read_1b = PointList(pt_v2.points())
+        PointList.read_json(my_data[0], check_read_1b)
+        check_read_2 = PointListWithTs.read_json(my_data[1])
+
+        assert check_read_1.n_points() == pt_v1.n_points()
+        for ind in range(0, check_read_1.n_points()):
+            assert np.all(np.isclose(check_read_1.point(ind), pt_v1.point(ind)))
+
+        assert check_read_2.n_points() == pts_with_ts.n_points()
+        for ind in range(0, check_read_2.n_points()):
+            assert np.all(np.isclose(check_read_2.point(ind), pts_with_ts.point(ind)))
+            assert np.isclose(check_read_2.ts[ind], pts_with_ts.ts[ind])
