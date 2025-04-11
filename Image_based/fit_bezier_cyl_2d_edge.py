@@ -25,7 +25,7 @@ import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
-from line_seg_2d import LineSeg2D
+from draw_routines.image_draw_geom_utils import LineSeg2D
 from fit_bezier_cyl_2d_mask import FitBezierCyl2DMask
 from FileNames import FileNames
 
@@ -83,10 +83,6 @@ class FitBezierCyl2DEdge:
 
         #   This is the curve that will be fit to the edge
         self.bezier_crv_fit_to_edge = None
-
-        if not exists(fname_mask_image):
-            self.params = None
-            return
 
         # Copy params used in fit mask and add the new ones
         self.params = {}
@@ -210,7 +206,7 @@ class FitBezierCyl2DEdge:
 
             check1 = FitBezierCyl2DEdge._line_abc[0] * x1 + FitBezierCyl2DEdge._line_abc[1] * y1 + FitBezierCyl2DEdge._line_abc[2]
             check2 = FitBezierCyl2DEdge._line_abc[0] * x2 + FitBezierCyl2DEdge._line_abc[1] * y2 + FitBezierCyl2DEdge._line_abc[2]
-            if not np.isclose(check1, 0.0) or not np.isclose(check2, 0.0):
+            if not np.isclose(check1, 0.0, atol=0.01) or not np.isclose(check2, 0.0, atol=0.01):
                 raise ValueError("FitBezierCyl2DEdge: Making line, pts not on line")
 
             # We only care about horizontal lines anyways, so ignore vertical ones

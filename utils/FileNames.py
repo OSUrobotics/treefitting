@@ -50,9 +50,14 @@
 
 from glob import glob
 import json
-from os.path import exists, isdir
+from os.path import exists, isdir, join
 from os import mkdir, walk
+from re import split as re_split
+from shutil import copyfile
 
+
+convert = lambda text: int(text) if text.isdigit() else text.lower()
+alphanumeric_key = lambda key: [convert(c) for c in re_split('([0-9]+)', key)]
 
 class FileNames:
     def __init__(self, path, img_type="png"):
@@ -77,6 +82,7 @@ class FileNames:
         self.image_names = []  # For each subdirectory (list) a list of image names; so list of lists
         self.mask_ids = []     # Mask ids for each image and mask name combo, (0, 1, etc) (list of lists of lists of lists)
 
+        self.image_name = "rgb"
         self.edge_name = "edge"          # Tag for edge image made from rgb image
         self.edge_flow_name = "edgeOF"   # Tag for edge image made from optical flow
         self.flow_name = "flow"          # Tag for optical flow images
@@ -102,6 +108,8 @@ class FileNames:
         if fnames is None:
             raise ValueError(f"No files in directory {search_path}")
 
+        self.image_name = name_filter
+
         ret_names = []
         for n in fnames:
             # Get rid of the path
@@ -117,7 +125,7 @@ class FileNames:
             if im_name_split not in ret_names:
                 ret_names.append(im_name_split)
 
-        ret_names.sort()
+        ret_names.sort(key=alphanumeric_key)
         return ret_names
 
     def _add_mask_image_ids(self):
@@ -151,7 +159,7 @@ class FileNames:
                         self.mask_ids[-1][-1][-1].append(mask_id_name)
 
                     # Sort the list
-                    self.mask_ids[-1][-1][-1].sort()
+                    self.mask_ids[-1][-1][-1].sort(key=alphanumeric_key)
 
     def add_directory(self, name_filter=""):
         """Assumes all of the images are in a top-level directory (path) - no subdirectories
@@ -180,7 +188,7 @@ class FileNames:
         self.sub_dirs = []
         self.image_names = []
         self.mask_ids = []
-        fnames.sort()
+        fnames.sort(key=alphanumeric_key)
         for n in fnames:
             if not isdir(n):
                 continue
@@ -251,8 +259,11 @@ class FileNames:
         else:
             im_name = self.path
 
-        im_name = im_name + self.sub_dirs[index[0]] + "/"
+        if self.sub_dirs[index[0]] != "":
+            im_name = im_name + self.sub_dirs[index[0]] + "/"
         im_name = im_name + self.image_names[index[0]][index[1]]
+        if self.image_name != "":
+            im_name = im_name + self.name_seperator + self.image_name
         if b_add_tag:
             im_name = im_name + self.image_tag
 
@@ -305,6 +316,21 @@ class FileNames:
 
         return im_name
 
+    def get_depth_data_name(self, index, b_add_tag=True):
+        """ Get the depth csv file name corresponding to the index given by (subdirectory index, image index, -)
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_add_tag - add the csv tag, y/n
+        @return full data file name with path"""
+
+        f_name = self.path
+        if len(self.sub_dirs[index[0]]) > 0:
+            f_name = f_name + self.sub_dirs[index[0]] + "/"
+        f_name = f_name + self.image_names[index[0]][index[1]] + self.name_seperator + "depth"
+        if b_add_tag:
+            f_name = f_name + ".csv"
+
+        return f_name
+
     def _get_mask_name(self, index, b_add_tag):
         """ Get JUST the mask name corresponding to the index (no directory)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
@@ -344,7 +370,7 @@ class FileNames:
         return im_name
 
     def loop_images(self):
-        """ A generator that loops over all of the images and generates an index for each
+        """ a generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
         for i, _ in enumerate(self.sub_dirs):
@@ -352,7 +378,7 @@ class FileNames:
                 yield i, j
 
     def loop_masks(self, mask_type=""):
-        """ A generator that loops over all of the masks and generates an index for each
+        """ a generator that loops over all of the masks and generates an index for each
         The index can be passed to get_mask_name to get the actual mask name
         @param mask_type: Optional parameter; if set, return only masks of the given name (eg trunk)
         @return a tuple that can be used to get the mask name"""
@@ -388,8 +414,8 @@ class FileNames:
         @param fname file to read from
         @return a Handle File Names instance"""
         if not exists(fname):
-            if exists(path + "/" + fname):
-                fname = path + "/" + fname
+            if exists(join(path, fname)):
+                fname = join(path, fname)
                 
         with open(fname, "r") as f:
             my_data = json.load(f)
@@ -404,7 +430,81 @@ class FileNames:
         return handle_files
 
 
+def example_pull_with_skip(n_skip=10, image_tag="jpg"):
+
+    # Where to put the newly organized data
+    dest_path_base = "/Users/grimmc/VSCode/BlueberryData/"
+
+    # Where the data directory is
+    src_path_base = "/Users/grimmc/Downloads/"
+
+    data_set_name = "bush_9_west_2"
+
+    dest_path = dest_path_base + data_set_name + "/"
+    src_path = src_path_base + data_set_name + "/"
+
+    if not exists(dest_path_base):
+        mkdir(dest_path_base)
+
+    if not exists(dest_path):
+        mkdir(dest_path)
+
+    search_path = f"{src_path}/color/*." + image_tag
+    fnames = glob(search_path)
+    if fnames is None:
+        raise ValueError(f"No files in directory {search_path}")
+        return
+
+    file_numbers = []
+    for i_f, nf in enumerate(fnames):
+        im_name = nf.split("/")[-1]
+        im_no_extention = im_name.split(".")[0]
+        im_number = im_no_extention.split("_")[-1]
+        file_numbers.append(int(im_number))
+
+    file_numbers.sort()
+
+    for i_f in file_numbers[::n_skip]:
+        # The number on the file
+        col_im_name_number = str(i_f)
+        if len(col_im_name_number) == 1:
+            col_im_name_number = "00" + col_im_name_number
+        elif len(col_im_name_number) == 2:
+            col_im_name_number = "0" + col_im_name_number
+        elif len(col_im_name_number) == 3:
+            col_im_name_number = col_im_name_number
+        else:
+            raise ValueError("Argh, you really have more than 999 files????")
+
+        
+        # RGB image copy
+        col_im_name = src_path + "color/color_raw_" + str(i_f) + "." + image_tag
+        dest_name = dest_path + col_im_name_number + "_rgb." + image_tag
+        copyfile(src=col_im_name, dst=dest_name)
+
+        # Depth copy (image)
+        depth_im_name = src_path + "depth/depth_raw_" + str(i_f) + "." + image_tag
+        dest_depth_im_name = dest_path + col_im_name_number + "_depth." + image_tag
+        copyfile(src=depth_im_name, dst=dest_depth_im_name)
+
+        # Depth copy (csv)
+        depth_name = src_path + "depth/depth_raw_" + str(i_f) + "." + "csv"
+        dest_depth_name = dest_path + col_im_name_number + "_depth.csv"
+        copyfile(src=depth_name, dst=dest_depth_name)
+
+    all_files = FileNames(path=dest_path, img_type=image_tag)
+    all_files.mask_names = ["cane"]
+    all_files.add_directory(name_filter="rgb")
+    all_files.write_filenames(dest_path + "/" + data_set_name + "_fnames.json")
+
+    return all_files
+
+
 if __name__ == '__main__':
+
+    all_files = example_pull_with_skip()
+
+    """ Example envy
     from shutil import copyfile
     b_get_box_files = False
     if b_get_box_files:
@@ -429,11 +529,13 @@ if __name__ == '__main__':
                     copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
                     print(f"{ff}")
 
-    path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
+    path_bpd_envy = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
     all_files_envy = FileNames(path_bpd_envy, img_type="png")
     all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
     all_files_envy.add_sub_directories()
     all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
+    """
+
     # Example bb
     """
     path_bpd = "./data/blueberries/"
@@ -444,10 +546,12 @@ if __name__ == '__main__':
     """
 
     # Example 2
-    fname_for_json_file = "../Image_based/data/forcindy_fnames.json"
+    """
+    b_do_mask = False
+    fname_for_json_file = "../Image_based/data/forcindy_bspline.json"
     path_bpd = "../Image_based/data/forcindy/"
     all_files = FileNames(path=path_bpd, img_type="png")
-    all_files.mask_names = ["trunk", "sidebranch"]
+    all_files.mask_names = ["vertical", "side"]
     # Filename is, eg, 0.png
     all_files.add_directory()
     all_files.write_filenames(fname_for_json_file)
@@ -458,6 +562,7 @@ if __name__ == '__main__':
 
     for ind_msk in all_files.loop_masks("trunk"):
         print(f"{all_files.get_mask_name(index=ind_msk, )}")
+    """
 
     # Example 1
     """
@@ -470,4 +575,4 @@ if __name__ == '__main__':
     all_files_trunk.check_names()
     """
 
-    check_read = FileNames.read_filenames(fname_for_json_file)
+    #check_read = FileNames.read_filenames(fname_for_json_file)

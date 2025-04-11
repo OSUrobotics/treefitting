@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from line_seg_2d import LineSeg2D
+from draw_routines.image_draw_geom_utils import LineSeg2D
 from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from FileNames import FileNames
 
@@ -39,10 +39,6 @@ class ExtractCurves:
                                               fname_debug=fname_debug,
                                               b_recalc=b_recalc)
         
-        if not exists(fname_mask_image):
-            self.params = None
-            return
-
         # List o pairs (t, plus/minus)
         self.left_curve = []
         self.right_curve = []

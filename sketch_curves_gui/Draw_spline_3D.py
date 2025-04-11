@@ -179,29 +179,34 @@ class DrawSpline3D(QOpenGLWidget):
                     GL.glNormal3d(n[0], n[1], n[2])
                 GL.glEnd()
 
-    def bind_texture(self, rgb_image, mask_image, edge_image, flow_image, depth_image):
-        print(f"Binding texture {rgb_image.shape} {edge_image.shape}")
+    def bind_texture(self, images):
+        rgb_image = images["rgb"]
         self.aspect_ratio = rgb_image.shape[0] / rgb_image.shape[1]
         self.im_size = (rgb_image.shape[1], rgb_image.shape[0])
-
-        #im_check = np.ones((im_size, im_size, 3), dtype=np.uint8)
-        #im_check[:,:] *= 64
-        #im_check[:,:,0] *= 128
-        #im_check[:,:,0] *= 192
 
         im_size = 512
         if rgb_image.shape[0] > 1024:
             im_size = 1024
         im_sq = cv2.resize(rgb_image, (im_size, im_size))
 
-        im_sq_mask = cv2.cvtColor(cv2.resize(mask_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
-        im_sq_edge = cv2.cvtColor(cv2.resize(edge_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
-        if flow_image is not None:
-            im_sq_flow = cv2.resize(flow_image, (im_size, im_size))
+        if "mask" in images:
+            im_sq_mask = cv2.cvtColor(cv2.resize(images["mask"], (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+        else:
+            im_sq_mask = im_sq
+        if "edge" in images:
+            if len(images["edge"].shape) == 3:
+                images["edge"] = cv2.cvtColor(images["edge"], cv2.COLOR_BGR2GRAY)
+            im_sq_edge = cv2.cvtColor(cv2.resize(images["edge"], (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+        else:
+            im_sq_edge = im_sq
+
+        if "flow" in images:
+            im_sq_flow = cv2.resize(images["flow"], (im_size, im_size))
         else:
             im_sq_flow = None
-        if depth_image is not None:
-            im_sq_depth = cv2.resize(depth_image, (im_size, im_size))
+
+        if "depth" in images:
+            im_sq_depth = cv2.resize(images["depth"], (im_size, im_size))
         else:
             im_sq_depth = None
 

@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 from os.path import exists
 import json
-from line_seg_2d import LineSeg2D
+from draw_routines.image_draw_geom_utils import LineSeg2D
 
 from os.path import abspath as os_abs_path
 from sys import path as syspath
@@ -55,9 +55,9 @@ class BaseStatsImage:
         if exists(fname_mask_image):
             mask_image_rgb = cv2.imread(fname_mask_image)
         else:
-            self.mask_image = np.zeros((8, 8), dtype=np.uint8)
-            return
-        
+            mask_image_rgb = np.zeros((640, 480), dtype=np.uint8)
+            mask_image_rgb[200:230, 10:260] = 1
+
         if len(mask_image_rgb.shape) == 3:
             self.mask_image = cv2.cvtColor(mask_image_rgb, cv2.COLOR_BGR2GRAY)
         else:

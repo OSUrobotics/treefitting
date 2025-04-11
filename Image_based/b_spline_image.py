@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-# a 2D quadratic Bezier with additional radius information
-#  - also keeps primary orientation (left, right or up, down)
+# A 2D B-spline curve (tree_geometry/b_spline_cyl) in an image
+#  - also keeps primary orientation (left-right or up-down)
 #  - Assumes this is a curve in the image; all coordinates are in image coordinates
 #
 # Primary code:
-#   a bezier curve is defined by f(t)->[x,y] for t going from 0 to 1
-#   Currently a fixed radius along the cylinder/tube
+#   A bspline curve is defined by f(t)->[x,y] for t going from 0 to 1
+#   Radius changes quadtratically along the branch
 #   Using the tangent and the normal (orthogonal to tangent) we can define rectangles
 #     1) Rectangles that follow the axis of the curve and cover the interior of the curve
 #        - parameter is how much of the middle to cover
@@ -15,124 +15,61 @@
 #
 # Also includes a lot of methods for drawing the rectangles in the image (filled or not) and also
 #   "cutting out" pieces of an image given a rectangle
-
-# TODO: Make radius be different at end points
+#
+# Note: This code is largely copied from bezier_cyl_2d.py
 
 import numpy as np
-import json
+from typing import Union
 import cv2
 # If this doesn't load, right click on Image_based folder on the LHS and select "Mark directory as...->sources root"
 #   This just lets PyCharm know that it should look in the Image_based folders for Python files
-from draw_routines.image_draw_geom_utils import LineSeg2D
+from tree_geometry.b_spline_cyl import BSplineCyl
+#from draw_routines.image_draw_geom_utils import LineSeg2D
 
 
-class BezierCyl2D:
+class BSplineCylImage(BSplineCyl):
+    def __init__(self, ctrl_pts: Union[list[np.ndarray], np.ndarray, list[list]], degree: str = "quadratic", radii: Union[float, list[float]] = 1.0) -> None:
+        """BSpline with radii initialization
+        :param ctrl_pts: control points, list of numpy array points of desired dimension
+        :param degree: degree of spline, defaults to "quadratic"
+        :param radii: radii, either a single radii value for the whole curve or a list of up to 3 radii values
+        """
+        super().__init__(ctrl_pts=ctrl_pts, degree=degree, radii=radii)
 
-    def __init__(self, start_pt=None, end_pt=None, radius=1, mid_pt=None):
-        """ Create a bezier from 2 points or an optional mid point
-        @param start_pt - start point
-        @param end_pt - end point
-        @param radius - width in the image
-        @param mid_pt - optional mid point (otherwise set to halfway between start_pt and end_pt)"""
+    def reverse_direction(self):
+        """ Reverse direction of curve"""
+        super().reverse_direction()
 
-        if start_pt is None or end_pt is None:
-            self.p0 = np.array([0, 0])
-            self.p2 = np.array([1, 0])
-            self.orientation = "Horizontal"
-            self.p0, self.p2, self.orientation = self._orientation(np.array([0, 0]), np.array([1, 0]))
-        else:
-            self.p0, self.p2, self.orientation = self._orientation(np.array(start_pt), np.array(end_pt))
-        if mid_pt is None:
-            self.p1 = 0.5 * (self.p0 + self.p2)
-        else:
-            self.p1 = np.array(mid_pt)
-        self.start_radius = radius
-        self.end_radius = radius
+    def orientation(self):
+        """Return the orientation
+        @returns -1,0 if right-left, 1,0 if left-right, 0,1 if down-up, 0,-1 if up_down, +-1,+-1 if mostly diagonal"""
+        start_pt = self.eval_crv(0.0)
+        end_pt = self.eval_crv(self.max_t())
+        dir = end_pt - start_pt
+        ang = np.arctan2(dir[1], dir[0])
+        ret_orientation_x = 1
+        if dir[0] < 0.0:
+            ret_orientation_x = -1
+        ret_orientation_y = 1
+        if dir[1] < 0.0:
+            ret_orientation_y = -1
+        if np.fabs(np.fabs(ang) - np.pi / 4.0) < np.pi / 8.0 or np.fabs(np.fabs(ang) - 3.0 * np.pi / 4.0) < np.pi / 8.0:
+            # Diagonal
+            return (ret_orientation_x, ret_orientation_y)
+        if np.fabs(ang) < np.pi / 8.0 or np.fabs(np.fabs(ang) - np.pi) < np.pi / 8.0:
+            # Horizontal
+            return (ret_orientation_x, 0)
+        return (0, ret_orientation_y)
 
-    def radius(self, t):
-        """ Radius is a linear interpolation of two end radii
-        @param t - t between 0 and 1"""
-        return (1 - t) * self.start_radius + t * self.end_radius
-
-    def curve_length(self, t_step=0.1):
-        """ Approximate length of curve
-        @param t_step - t values to sample at
-        @return approximate length of curve"""
-        pts = self.pt_axis(np.linspace(0, 1, int(1.0 / t_step)))
-        pts_diff_sq = (pts[1:, :] - pts[0:-1, :]) ** 2
-        norm_sq = np.sum(pts_diff_sq, axis=1)
-        return np.sum(np.sqrt(norm_sq))
-
-    @staticmethod
-    def _orientation(start_pt, end_pt):
-        """Set the orientation and ensure left-right or down-up
-        swaps the end points if need be
-        @param start_pt current start point from BaseStatsImage
-        @param end_pt current end point from BaseStatsImage
-        @returns three points, orientation as a text string"""
-        if abs(start_pt[1] - end_pt[1]) > abs(start_pt[0] - end_pt[0]):
-            ret_orientation = "vertical"
-            if start_pt[1] > end_pt[1]:
-                p0 = start_pt
-                p2 = end_pt
-            else:
-                p0 = start_pt
-                p2 = end_pt
-        else:
-            ret_orientation = "horizontal"
-            if start_pt[0] > end_pt[0]:
-                p0 = start_pt
-                p2 = end_pt
-            else:
-                p0 = start_pt
-                p2 = end_pt
-        return p0, p2, ret_orientation
-
-    def pt_axis(self, t):
-        """ Return a point along the bezier
-        @param t in 0, 1
-        @return 2d point"""
-        pts = np.array([self.p0[i] * (1-t) ** 2 + 2 * (1-t) * t * self.p1[i] + t ** 2 * self.p2[i] for i in range(0, 2)])
-        return pts.transpose()
-        # return self.p0 * (1-t) ** 2 + 2 * (1-t) * t * self.p1 + t ** 2 * self.p2
-
-    def tangent_axis(self, t):
-        """ Return the tangent vec
-        @param t in 0, 1
-        @return 2d vec"""
-        return 2 * t * (self.p0 - 2.0 * self.p1 + self.p2) - 2 * self.p0 + 2 * self.p1
-
-    def norm_axis(self, t, dir):
-        """ Normal vector (unit length
-        @param t - t value along the curve (in range 0, 1)
-        @param direction - 'Left' is the left direction, 'Right' is the right direction
-        @return numpy array x,y """
-        vec_tang = self.tangent_axis(t)
-        vec_length = np.sqrt(vec_tang[0] * vec_tang[0] + vec_tang[1] * vec_tang[1])
-        if dir.lower() == "left":
-            return np.array([-vec_tang[1] / vec_length, vec_tang[0] / vec_length])
-        return np.array([vec_tang[1] / vec_length, -vec_tang[0] / vec_length])
-
-    def edge_pts(self, t):
-        """ Return the left and right edge of the tube as points
-        @param t in 0, 1
-        @return 2d pts, left and right edge"""
-        pt = self.pt_axis(t)
-        vec = self.tangent_axis(t)
-        vec_step = self.radius(t) * vec / np.sqrt(vec[0] * vec[0] + vec[1] * vec[1])
-        left_pt = [pt[0] - vec_step[1], pt[1] + vec_step[0]]
-        right_pt = [pt[0] + vec_step[1], pt[1] - vec_step[0]]
-        return left_pt, right_pt
-
-    def edge_offset_pt(self, t, perc_in_out, direction):
-        """ Go in/out of the edge point a given percentage
-        @param t - t value along the curve (in range 0, 1)
-        @param perc_in_out - if 1, get point on edge. If 0.5, get halfway to centerline. If 2.0 get 2 width
-        @param direction - 'Left' is the left direction, 'Right' is the right direction
-        @return numpy array x,y """
-        pt_edge = self.pt_axis(t)
-        vec_norm = self.norm_axis(t, direction)
-        return pt_edge + vec_norm * (perc_in_out * self.radius(t))
+    def orient_left_right_down_up(self):
+        """ make curve have increasing x and/or increasing y"""
+        orient = self.orientation()
+        if orient[0] < 0 and orient[1] == 0:
+            self.reverse_direction()
+        elif orient[1] < 0 and orient[0] == 0:
+            self.reverse_direction()
+        elif orient[0] < 0 and orient[1] < 0:
+            self.reverse_direction()
 
     @staticmethod
     def rect_in_image(im, r, pad=2):
@@ -149,43 +86,50 @@ class BezierCyl2D:
             return False
         return True
 
-    def _rect_corners(self, t1, t2, perc_width=0.3):
+    def _rect_corners_edges(self, t1, t2, perc_width=0.3):
         """ Get two rectangles covering the expected left/right edges of the cylinder/tube
+        left rectangles start with the t = t1 inner point, then move clockwise
+        right rectangles start with the t= t2 inner point, then move clockwise
         @param t1 starting t value
         @param t2 ending t value
         @param perc_width How much of the radius to move in/out of the edge
-        @returns two rectangles"""
-        vec_ts = self.tangent_axis(0.5 * (t1 + t2))
-        edge_left1, edge_right1 = self.edge_pts(t1)
-        edge_left2, edge_right2 = self.edge_pts(t2)
+        @returns two rectangles as 4x2 numpy arrays"""
+        edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), 1.0 - perc_width)
+        edge_left_outer = self.edge_pts(np.linspace(t1, t2, 2), 1.0 + perc_width)
+        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
+        edge_right_outer = self.edge_pts(np.linspace(t1, t2, 2), -1.0 - perc_width)
 
-        vec_step = perc_width * self.radius(t1) * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
-        rect_left = np.array([[edge_left1[0] + vec_step[1], edge_left1[1] - vec_step[0]],
-                              [edge_left2[0] + vec_step[1], edge_left2[1] - vec_step[0]],
-                              [edge_left2[0] - vec_step[1], edge_left2[1] + vec_step[0]],
-                              [edge_left1[0] - vec_step[1], edge_left1[1] + vec_step[0]]], dtype="float32")
-        rect_right = np.array([[edge_right2[0] - vec_step[1], edge_right2[1] + vec_step[0]],
-                               [edge_right1[0] - vec_step[1], edge_right1[1] + vec_step[0]],
-                               [edge_right1[0] + vec_step[1], edge_right1[1] - vec_step[0]],
-                               [edge_right2[0] + vec_step[1], edge_right2[1] - vec_step[0]],
-                               ], dtype="float32")
+        rect_left = np.zeros((4, 2), dtype="float32")
+        rect_right = np.zeros((4, 2), dtype="float32")
+
+        rect_left[0, :] = edge_left_inner[0]
+        rect_left[1, :] = edge_left_outer[0]
+        rect_left[2, :] = edge_left_outer[1]
+        rect_left[3, :] = edge_left_inner[1]
+
+        rect_right[0, :] = edge_right_inner[1]
+        rect_right[1, :] = edge_right_outer[1]
+        rect_right[2, :] = edge_right_outer[0]
+        rect_right[3, :] = edge_right_inner[0]
+
         return rect_left, rect_right
 
     def _rect_corners_interior(self, t1, t2, perc_width=0.3):
         """ Get a rectangle covering the expected interior of the cylinder
+           Rectangle starts at t = t1, left side, and goes clockwise
         @param t1 starting t value
         @param t2 ending t value
         @param perc_width How much of the radius to move in/out of the edge
-        @returns two rectangles"""
-        vec_ts = self.tangent_axis(0.5 * (t1 + t2))
-        pt1 = self.pt_axis(t1)
-        pt2 = self.pt_axis(t2)
+        @returns rectangle as 4x2 numpy array"""
+        edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), perc_width)
+        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
 
-        vec_step = perc_width * self.radius(t1) * vec_ts / np.sqrt(vec_ts[0] * vec_ts[0] + vec_ts[1] * vec_ts[1])
-        rect = np.array([[pt1[0] + vec_step[1], pt1[1] - vec_step[0]],
-                         [pt2[0] + vec_step[1], pt2[1] - vec_step[0]],
-                         [pt2[0] - vec_step[1], pt2[1] + vec_step[0]],
-                         [pt1[0] - vec_step[1], pt1[1] + vec_step[0]]], dtype="float32")
+        rect = np.zeros((4, 2), dtype="float32")
+        rect[0, :] = edge_left_inner[0]
+        rect[1, :] = edge_left_inner[1]
+        rect[2, :] = edge_right_inner[1]
+        rect[3, :] = edge_right_inner[0]
+
         return rect
 
     def boundary_rects(self, step_size=40, perc_width=0.3, offset=False):
@@ -207,7 +151,7 @@ class BezierCyl2D:
             t_start = 0.5 * t_step_exact
             t_end = 1.0 - 0.5 * t_step_exact
         for t in np.arange(t_start, t_end, step=t_step_exact):
-            rect_left, rect_right = self._rect_corners(t, t + t_step_exact, perc_width=perc_width)
+            rect_left, rect_right = self._rect_corners_edges(t, t + t_step_exact, perc_width=perc_width)
             rects.append(rect_left)
             rects.append(rect_right)
             ts.append(t + 0.5 * t_step_exact)
@@ -269,28 +213,11 @@ class BezierCyl2D:
         crv_length = np.sqrt(np.sum((self.p2 - self.p0) ** 2))
         return min(1, step_size / crv_length)
 
-    def is_wire(self):
-        """Determine if this is likely a wire (long, narrow, straight, and thin)
-        @return True/False
-        """
-        rad_clip = 3
-        if self.end_radius > rad_clip or self.start_radius > rad_clip:
-            return False
-
-        line_axis = LineSeg2D(self.p0, self.p2)
-        pt_proj, _ = line_axis.projection(self.p1)
-
-        dist_line = np.linalg.norm(self.p1 - pt_proj)
-        if dist_line > rad_clip:
-            return False
-
-        return True
-
-    def draw_bezier(self, im):
-        """ Set the pixels corresponding to the quad to white
+    def draw_curve(self, im):
+        """ Set the pixels corresponding to the axis to grey, going from dark grey to white
         @im numpy array as image"""
         n_pts_quad = 6
-        pts = self.pt_axis(np.linspace(0, 1, n_pts_quad))
+        pts = self.eval_crv(np.linspace(0, 1, n_pts_quad))
         col_start = 125
         col_div = 120 // (n_pts_quad - 1)
         for p1, p2 in zip(pts[0:-1], pts[1:]):
@@ -307,20 +234,22 @@ class BezierCyl2D:
         """ Draw the edge boundary"""
         t_step = self._time_step_from_im_step(step_size)
         max_n = max(2, int(1.0 / t_step))
-        edge_pts_draw = [self.edge_pts(t) for t in np.linspace(0, 1, max_n)]
-        col_start = 125
-        col_div = 120 // max_n
-        for p1, p2 in zip(edge_pts_draw[0:-1], edge_pts_draw[1:]):
-            for i in range(0, 2):
-                cv2.line(im, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),
-                         (220 - i * 100, col_start, 20 + i * 100), thickness=2)
-                """
-                rr, cc = draw.line(int(pt1[i][0]), int(pt1[i][1]), int(pt2[i][0]), int(pt2[i][1]))
-                rr = np.clip(rr, 0, im.shape[0]-1)
-                cc = np.clip(cc, 0, im.shape[1]-1)
-                im[rr, cc, 0:3] = (0.3, 0.4, 0.5 + i * 0.25)
-                """
-            col_start += col_div
+
+        for dir in [-1, 1]:
+            edge_pts_draw = [self.edge_pts(t=t, perc_in_out=dir) for t in np.linspace(0, 1, max_n)]
+            col_start = 125
+            col_div = 120 // max_n
+            for p1, p2 in zip(edge_pts_draw[0:-1], edge_pts_draw[1:]):
+                for i in range(0, 2):
+                    cv2.line(im, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),
+                             (220 - i * 100, col_start, 20 + i * 100), thickness=2)
+                    """
+                    rr, cc = draw.line(int(pt1[i][0]), int(pt1[i][1]), int(pt2[i][0]), int(pt2[i][1]))
+                    rr = np.clip(rr, 0, im.shape[0]-1)
+                    cc = np.clip(cc, 0, im.shape[1]-1)
+                    im[rr, cc, 0:3] = (0.3, 0.4, 0.5 + i * 0.25)
+                    """
+                col_start += col_div
 
     @staticmethod
     def draw_edge_rect(im, rect, col=(50, 255, 255)):
@@ -390,9 +319,11 @@ class BezierCyl2D:
                   s2 * t * r[2] +
                   (1-s2) * t * r[3])
             if i % 2:
-                LineSeg2D.draw_line(im, p1, p2, color=col_left, thickness=2)
+                cv2.line(im, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), color=col_to_use, thickness=2)
+                #LineSeg2D.draw_line(im, p1, p2, color=col_left, thickness=2)
             else:
-                LineSeg2D.draw_line(im, p1, p2, color=col_right, thickness=2)
+                cv2.line(im, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), color=col_right, thickness=2)
+                #LineSeg2D.draw_line(im, p1, p2, color=col_right, thickness=2)
 
     def draw_interior_rects(self, im, step_size=40, perc_width=0.3):
         """ Draw the edge rectangles
@@ -455,63 +386,23 @@ class BezierCyl2D:
                                         step_size=step_size,
                                         perc_width=perc_fuzzy)
 
-    def write_json(self, fname):
-        """Convert to array and write out
-        @param fname file name to write to"""
-        fix_nparray = []
-        for k, v in self.__dict__.items():
-            try:
-                if v.size > 1:
-                    fix_nparray.append([k, v])
-                    setattr(self, k, [float(x) for x in v])
-            except AttributeError:
-                pass
-
-        with open(fname, "w") as f:
-            json.dump(self.__dict__, f, indent=2)
-
-        for fix in fix_nparray:
-            setattr(self, fix[0], fix[1])
-
-    @staticmethod
-    def read_json(fname, bezier_crv=None):
-        """ Read back in from json file
-        @param fname file name to read from
-        @param bezier_crv - an existing bezier curve to put the data in"""
-        with open(fname, 'r') as f:
-            my_data = json.load(f)
-            if not bezier_crv:
-                bezier_crv = BezierCyl2D([0, 0], [1, 1], 1)
-            for k, v in my_data.items():
-                try:
-                    if len(v) == 2:
-                        setattr(bezier_crv, k, np.array(v))
-                    else:
-                        setattr(bezier_crv, k, v)
-                except TypeError:
-                    setattr(bezier_crv, k, v)
-
-        return bezier_crv
-
 
 if __name__ == '__main__':
     # Make a horizontal curve
-    bezier_crv_horiz = BezierCyl2D([10, 130], [620, 60], 40, [320, 190])
-    assert(bezier_crv_horiz.orientation == "horizontal")
-    assert(not bezier_crv_horiz.is_wire())
-    # TODO set the two radii to be different and check that it renders corectly
+    bspline_crv_horiz = BSplineCylImage(ctrl_pts=[[10, 130], [620, 60], [320, 190]], radii=[40, 60])
+    assert bspline_crv_horiz.orientation == (1, 0)
+
     # Make a vertical curve
-    bezier_crv_vert = BezierCyl2D([320, 30], [290, 470], 40, [310, 210])
-    assert(bezier_crv_vert.orientation == "vertical")
-    assert(not bezier_crv_vert.is_wire())
+    bspline_crv_vert = BSplineCylImage(ctrl_pts=[[320, 30], [290, 470], [310, 210]], radii=[40, 60])
+    assert bspline_crv_vert.orientation == (0, 1)
 
     import matplotlib.pyplot as plt
     fig, axs = plt.subplots(3, 2)
     perc_width_interior = 0.5
     perc_width_edge = 0.2
-    for i_row, crv in enumerate([bezier_crv_horiz, bezier_crv_vert]):
+    for i_row, crv in enumerate([bspline_crv_horiz, bspline_crv_vert]):
         im_debug = np.zeros((480, 640, 3), np.uint8)
-        crv.draw_bezier(im_debug)
+        crv.draw_curve(im_debug)
         crv.draw_boundary(im_debug)
         crv.draw_edge_rects(im_debug, step_size=40, perc_width=perc_width_edge)
         crv.draw_interior_rects(im_debug, step_size=40, perc_width=perc_width_interior)
@@ -519,7 +410,7 @@ if __name__ == '__main__':
         axs[0, i_row].set_title(crv.orientation)
 
         im_debug = np.zeros((480, 640, 3), np.uint8)
-        crv.draw_bezier(im_debug)
+        crv.draw_curve(im_debug)
         crv.draw_boundary(im_debug)
         crv.draw_interior_rects_filled(im_debug, b_solid=False, step_size=40, perc_width=perc_width_interior)
         axs[1, i_row].imshow(im_debug)
@@ -530,10 +421,6 @@ if __name__ == '__main__':
         axs[2, i_row].imshow(im_debug)
         axs[2, i_row].set_title(crv.orientation + f" mask 0.25")
 
-        fname_test = "./data/test_crv.json"
-        crv.write_json(fname_test)
-
-        read_back_in_crv = BezierCyl2D.read_json(fname_test)
     plt.tight_layout()
     plt.show()
 

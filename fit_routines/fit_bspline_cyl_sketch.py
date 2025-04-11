@@ -1,28 +1,83 @@
 #!/usr/bin/env python3
 
-# Fit a Bezier cylinder to a sketch in an image
-#  Uses sketch to make initial Bezier curve
+# Fit a BSpline cylinder to a sketch in one, or more, images
+#  Uses sketch to make initial BSplineCyl
 #     backbone plus cross bars
-#  Creates a mask image from that sketch
-#  Option 1: Just make a fat cylinder
-#  Option 2: Uses the fit edge to fit profile curves, then just fills to the profile curves
-#  
+#  Keeps track of image/sketch pairs as they're added (plus offsets)
+#  Keeps one curve w/radii
+#  Can
+#     1) Generate a mask in an image
+#     2) Given an edge image, fit to the edges
+#     3) Draw curve in image (debugging purposes)
+#
+
 import numpy as np
-import cv2
-import json
-from os.path import exists
-from bezier_cyl_2d import BezierCyl2D
-from fit_bezier_cyl_2d import FitBezierCyl2D
-from FileNames import FileNames
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
-
-from Sketches_for_curves import SketchesForCurves
+from tree_geometry.b_spline_curve import BSplineCurve
+from tree_geometry.b_spline_cyl import BSplineCyl
+from fit_routines.bspline_fit_params import BSplineFitParams
+from fit_routines.b_spline_curve_fit import BSplineCurveFit
+from sketch_curves_gui.Sketches_for_curves import SketchesForCurves
 
 
-class FitBezierCyl2DSketch:
+class FitBSplineCyl2DSketch:
+    def __init__(self, params : dict=None):
+        """ Contains a 2D BSpline curve
+        @param params: Dictionary with
+            resample_mask_step_size: how many pixels to use in each reconstructed rectangle; 10-20 is reasonable
+            perc_fuzzy_mask: Percentage of the outer boundary to make fuzzy (128); 0 - 0.5
+            degree: One of linear, quadratic, or cubic
+            """
+        self.curve = None
+        self.pts_fit = None
+        self.image_frame_data = []
+
+        # Set required params and/or add new ones
+        self.params = {}
+        self.change_fit_params(params)
+
+    def change_fit_params(self, params : dict=None):
+        """ Contains a 2D BSpline curve
+        @param params: Dictionary with
+            "resample_mask_step_size": how many pixels to use in each reconstructed rectangle; 10-20 is reasonable
+            "perc_fuzzy_mask": Percentage of the outer boundary to make fuzzy (128); 0 - 0.5"""
+
+        if "resample_mask_step_size" not in self.params:
+            self.params["resample_mask_step_size"] = 10
+        if "perc_fuzzy_mask" not in self.params:
+            self.params["perc_fuzzy_mask"] = 0.2
+        if "degree" not in self.params:
+            self.params["degree"] = "quadratic"
+
+        if params:
+            for k in params:
+                self.params[k] = params[k]
+
+    def add_sketch(self, dict_sketch : dict, sketch : SketchesForCurves):
+        """ Add in a sketch. All inputs are in the dictionary.
+        Assumes up to the last 2 points (cubic) or 1 point (quadratic) are "fixed" and should not be changes
+        :param dict_sketch: All the parameters needed to add the sketch
+           rgb_image_name: Original rgb image name
+           edge_image_name: Original edge image name, if any
+           depth_image_name: Original depth image name, if any
+           offset: x,y offset from previous image to this one (if any)
+        :return: None """
+
+        if self.image_frame_data == []:
+            n_points = min(len(sketch.backbone_pts), BSplineCurve._degree_dict[self.params["degree"]])
+            curve = BSplineCyl(sketch.backbone_pts[n_points], degree=self.params["degree"], sketch.radii())
+            self.curve, self.pts_fit = BSplineCurveFit.fit_project_fit(curve, sketch.backbone_pts)
+        else:
+            self.curve, self.pts_fit = BSplineCurveFit.extend_curve(self.curve, self.pts_fit, sketch.backbone_pts)
+            self.curve.
+    def
+        """
+        @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
+        @param sketch_curves: SketchesForCurves - has backbone and cross bars
+        @param fname_mask_image: Mask image name - create a mask with that name
+        @param fname_edge_image: Create and store the edge image, or read it in if it exists. If none, don't use in the fit curve process
+        @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
+
     def __init__(self, fname_rgb_image, sketch_curves, fname_mask_image, fname_edge_image=None, fname_calculated=None, params=None, fname_debug=None, b_recalc=False):
         """ Create a mask image of the same size as the rgb image and a curve for the sketch_curves
         @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
@@ -61,16 +116,6 @@ class FitBezierCyl2DSketch:
             self.fname_sketch_bezier_crv = fname_calculated + "_sketch_curve_bezier.json"
             self.fname_params = fname_calculated + "_sketch_curve_params.json"
 
-        # Copy params and add new ones
-        self.params = {}
-        if "resample_mask_step_size" not in self.params:
-            self.params["resample_mask_step_size"] = 10
-        if "perc_fuzzy_mask" not in self.params:
-            self.params["perc_fuzzy_mask"] = 0.2
-
-        if params:
-            for k in params:
-                self.params[k] = params[k]
 
         # Don't save this - just do it
         self.sketch_crv = FitBezierCyl2DSketch._sketch_curve_to_bezier(sketch_curves)
@@ -110,7 +155,7 @@ class FitBezierCyl2DSketch:
         start_pt = sketch_curves.backbone_pts[0]
         end_pt = sketch_curves.backbone_pts[-1]
         mid_pt = [0.5 * (start_pt[0] + end_pt[0]), 0.5 * (start_pt[1] + end_pt[1])]
-        if len(sketch_curves.backbone_pts) > 2:            
+        if len(sketch_curves.backbone_pts) > 2:
             mid_pt = sketch_curves.backbone_pts[len(sketch_curves.backbone_pts) // 2]
 
         radii = np.zeros(len(sketch_curves.cross_bars))
@@ -126,7 +171,7 @@ class FitBezierCyl2DSketch:
             sketch_curves.end_radius = np.radius = np.mean(np.array(radii[half_way:]))
 
         fit_crv = FitBezierCyl2D(sketch_crv)
-        ts = np.linspace(0, 1, len(sketch_curves.backbone_pts))        
+        ts = np.linspace(0, 1, len(sketch_curves.backbone_pts))
         a_constraints, b_rhs = fit_crv.setup_least_squares(ts)
         for i, pt in enumerate(sketch_curves.backbone_pts):
             b_rhs[i, 0] = pt[0]
@@ -165,8 +210,8 @@ class FitBezierCyl2DSketch:
 
         if not exists(mask_fname):
             print(f"Warning, file {mask_fname} does not exist")
-        crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname, 
-                                                sketch_curves=sketch_crv, 
+        crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname,
+                                                sketch_curves=sketch_crv,
                                                 fname_mask_image=mask_fname,
                                                 fname_edge_image=edge_fname,
                                                 fname_debug=edge_fname_debug)
@@ -176,7 +221,7 @@ class FitBezierCyl2DSketch:
 
 if __name__ == '__main__':
     path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
-    all_files = FileNames.read_filenames(path=path_bpd_envy, 
+    all_files = FileNames.read_filenames(path=path_bpd_envy,
                                          fname="envy_fnames.json")
 
     # path_bpd = "./data/trunk_segmentation_names.json"
@@ -193,7 +238,7 @@ if __name__ == '__main__':
     if exists(crv_sketch_name):
         crv_in_image_coords = SketchesForCurves.read_json(crv_sketch_name)
 
-        crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(all_files, 
+        crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(all_files,
                                                                     crv_in_image_coords,
                                                                     ret_index_mask_id,
                                                                     b_do_debug=b_do_debug,

@@ -26,6 +26,18 @@ def plot_test():
     fig.canvas.mpl_disconnect(bs.cid)
     return
 
+def default_spline_test():
+    fig, ax = plt.subplots()
+    fig.set_size_inches(16, 9)
+    bs = BSplineCurve.default_spline("cubic", dim=2)
+    bs.fig = fig
+    bs.ax = ax
+    bs.enable_onclick()
+    # bs.plot_basis(plt)
+    bs.plot_curve()
+    plt.show()
+    fig.canvas.mpl_disconnect(bs.cid)
 
 if __name__ == "__main__":
     plot_test()
+    default_spline_test()

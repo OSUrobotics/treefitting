@@ -5,11 +5,17 @@ import sys
 sys.path.insert(0, os.path.abspath('./'))
 sys.path.insert(0, os.path.abspath('./Image_based'))
 sys.path.insert(0, os.path.abspath('./Utilities'))
+sys.path.insert(0, os.path.abspath('./utils'))
 sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
+sys.path.insert(0, os.path.abspath('./fit_routines'))
+sys.path.insert(0, os.path.abspath('./tree_geometry'))
 sys.path.insert(0, os.path.abspath('../'))
 sys.path.insert(0, os.path.abspath('../Image_based'))
 sys.path.insert(0, os.path.abspath('../Utilities'))
+sys.path.insert(0, os.path.abspath('../utils'))
+sys.path.insert(0, os.path.abspath('../tree_geometry'))
 sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
+sys.path.insert(0, os.path.abspath('../fit_routines'))
 from os.path import exists
 
 # Get OpenGL
@@ -29,6 +35,7 @@ from fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
 
 from sketch_curves_gui.Sketches_for_curves import SketchesForCurves
 
+from b_spline_curve_fit import BSplineCurveFit
 
 class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
@@ -77,8 +84,10 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
-        self.file_name = QLineEdit("envy_fnames.json")
+        # self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
+        # self.file_name = QLineEdit("envy_fnames.json")
+        self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
+        self.file_name = QLineEdit("bush_9_west_2_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)
@@ -291,7 +300,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.draw_backbone_button.clicked.connect(self.new_curve)
         clear_drawings_button = QPushButton('Clear drawings')
         clear_drawings_button.clicked.connect(self.clear_drawings)
-        self.mask_name = QTextEdit("sketch")
+        self.mask_name = QLabel("None")
 
         drawing_states_layout.addWidget(self.draw_backbone_button)
         drawing_states_layout.addWidget(clear_drawings_button)
@@ -318,7 +327,7 @@ class SketchCurvesMainWindow(QMainWindow):
         indx_image = self.image_number.value()
         indx_mask = self.mask_number.value()
         id_mask = self.mask_id_number.value()
-        print(f"Begin rest file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
+        print(f"Begin reset file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
         b_changed = False
         sldr_maxs_orig = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
@@ -362,11 +371,16 @@ class SketchCurvesMainWindow(QMainWindow):
 
         img_name = self.handle_filenames.get_image_name(index=indx)
         img_name_split = img_name.split("/")
+        if indx_mask >= 0 and indx_mask < len(self.handle_filenames.mask_names):
+            mask_name = self.handle_filenames.mask_names[indx_mask]
+        else:
+            mask_name = "none"
+        self.mask_name.setText(mask_name)
         if len(img_name_split) > 2:
             self.image_name.setAccessibleName(img_name_split[-2])
-            self.image_name.setText(img_name_split[-1])
+            self.image_name.setText(img_name_split[-1] + " mask: " + mask_name)
         else:
-            self.image_name.setText(img_name)
+            self.image_name.setText(img_name + " mask: " + mask_name)
         sldr_maxs = (self.sub_dir_number.slider.maximum(),
                      self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
@@ -447,9 +461,8 @@ class SketchCurvesMainWindow(QMainWindow):
             return
         
         self.sketch_curve.write_json("save_crv.json")
-        ret_index = self.handle_filenames.add_mask_name(self.mask_name.toPlainText())
         mask_id = f"{self.mask_id_number.slider.maximum()}"
-        self.last_index = self.handle_filenames.add_mask_id(ret_index, mask_id)
+        self.last_index = self.handle_filenames.add_mask_id(self.last_index, mask_id)
 
         # Actually convert the curve
         width_rgb_image = self.crv.image_rgb.shape[1]
@@ -498,12 +511,13 @@ class SketchCurvesMainWindow(QMainWindow):
                                                                b_do_recalc=b_recalc)
         self.crv = self.extract_crv.bezier_edge
 
-        depth_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
-        if exists(depth_fname):
-            depth_fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=False)
+        depth_image_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
+        depth_data_fname = self.handle_filenames.get_depth_data_name(index=self.last_index, b_add_tag=True)
+        if exists(depth_image_fname) or exists(depth_data_fname):
+            depth_fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_calculate_path=True, b_add_tag=False)
             depth_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
             params = {"camera_width_angle": self.horizontal_angle.value()}
-            self.fit_crv_3d = FitBezierCyl3dDepth(depth_fname, self.crv.bezier_crv_fit_to_edge,
+            self.fit_crv_3d = FitBezierCyl3dDepth(depth_image_fname, depth_data_fname, self.crv.bezier_crv_fit_to_edge,
                                                   params=params,
                                                   fname_calculated=depth_fname_calculate,
                                                   fname_debug=depth_fname_debug, b_recalc=b_recalc)
@@ -517,31 +531,21 @@ class SketchCurvesMainWindow(QMainWindow):
             b_get_image, self.last_index = self.reset_file_menus()
             print(f" masks {self.handle_filenames.mask_ids[self.last_index[0]][self.last_index[1]][self.last_index[2]]}")
             if b_get_image:
-                image_flow_name = self.handle_filenames.get_flow_image_name(index=self.last_index, b_add_tag=True)
-                image_depth_name = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
+                self.image_names = {}
+                self.image_names["rgb"] = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
+                self.image_names["mask"] = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=True)
+                self.image_names["edge"] = self.handle_filenames.get_edge_name(index=self.last_index, b_add_tag=True)
+                self.image_names["flow"] = self.handle_filenames.get_flow_image_name(index=self.last_index, b_add_tag=True)
+                self.image_names["depth"] = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
 
-                if exists(image_flow_name):
-                    image_flow = cv2.imread(image_flow_name)
-                else:
-                    image_flow = None
-
-                if exists(image_depth_name):
-                    image_depth = cv2.imread(image_depth_name)
-                else:
-                    image_depth = None
+                self.images = {}
+                for k, v in self.image_names.items():
+                    if exists(v):
+                        self.images[k] = cv2.imread(v)
 
                 self.set_crv(params=None)
-                if self.crv.mask_crv.stats_dict.mask_image.size < 256:
-                    img_mask = np.zeros((self.crv.image_rgb.shape[0],
-                                         self.crv.image_rgb.shape[1]), np.uint8)
-                else:
-                    img_mask = self.crv.mask_crv.stats_dict.mask_image
 
-                self.glWidget.bind_texture(self.crv.image_rgb,
-                                           img_mask,
-                                           self.crv.image_edge,
-                                           image_flow,
-                                           image_depth)
+                self.glWidget.bind_texture(self.images)
                 self.set_corners()
                 self.redraw_self()
         self.in_read_images = False

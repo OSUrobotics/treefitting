@@ -5,7 +5,7 @@ import json
 
 
 # Keep all of the sketching data until it is time to actually make a spline curve
-#  There's the curve backbone (2 o4 more points)
+#  There's the curve backbone (2 or more points)
 #  Plus 1 (or more) perpendicular cross bars to indicate width
 #
 # Regular clicking makes more backbone points (needs to bee in order)
@@ -18,6 +18,16 @@ class SketchesForCurves:
         """ Nothing in it to start"""
         self.backbone_pts = []
         self.cross_bars = []
+
+    def radii(self):
+        """ Convert the crossbars to radii and return a list
+        @return a list"""
+        radii_vs = []
+        for pts in self.cross_bars:
+            if len(pts) == 2:
+                radius = math.sqrt(math.pow(pts[1][0] - pts[0][0], 2) + math.pow(pts[1][1] - pts[0][1], 2)) / 2.0
+                radii_vs.append(radius)
+        return radii_vs
 
     @staticmethod
     def convert_pt(pt, lower_left, upper_right, width, height):
@@ -117,27 +127,22 @@ class SketchesForCurves:
         else:
             self.cross_bars.pop(i_closest_cross)
 
-    def write_json(self, fname):
-        """Convert to array and write out
+    def write_json(self):
+        """Convert to array and return dictionary
         @param fname file name to write to"""
-        with open(fname, "w") as f:
-            json.dump(self.__dict__, f, indent=2)
+        my_dict = {"Name": "SketchesForCurves", "backbone_pts": self.backbone_pts, "cross_bars": self.cross_bars}
 
     @staticmethod
-    def read_json(fname, sketches_crv=None):
+    def read_json(my_dict, sketches_crv :SketchesForCurves=None):
         """ Read back in from json file
-        @param fname file name to read from
-        @param bezier_crv - an existing bezier curve to put the data in"""
-        with open(fname, 'r') as f:
-            my_data = json.load(f)
-            if not sketches_crv:
-                sketches_crv = SketchesForCurves()
-            for k, v in my_data.items():
-                try:
-                    setattr(sketches_crv, k, v)
-                except TypeError:
-                    pass
+        @param my_dict - json dictionary
+        @param sketches_crv - an existing bezier SketchesForCurves to put the data in"""
+        assert my_dict["Name"] == "SketchesForCurves"
 
+        if not sketches_crv:
+            sketches_crv = SketchesForCurves()
+        sketches_crv.backbone_pts = my_dict["backbone_pts"]
+        sketches_crv.cross_bars = my_dict["cross_bars"]
         return sketches_crv
 
 
@@ -156,7 +161,25 @@ if __name__ == '__main__':
     print(sk.backbone_pts)
     print(sk.cross_bars)
 
-    sk_read = SketchesForCurves.read_json("save_crv.json")
+    import json
+    from os.path import exists
+
+    fname = "../Image_based/data/test_sketches_for_crvs.txt"
+    with open(fname, "w") as f:
+        json.dump(sk.write_json(), f, indent=2)
+
+    with open(fname, 'r') as f:
+        my_data = json.load(f)
+        sk_check = SketchesForCurves.read_json(my_data)
+        SketchesForCurves.read_json(my_data, sk_check)
+
+    if exists("../Image_based/data/save_crv.json"):
+        with open(fname, 'r') as f:
+            my_data = json.load(f)
+            sk_read = SketchesForCurves.read_json(my_data)
+    else:
+        sk_read = sk_check
+
     width_rgb_image = 640
     height_rgb_image = 480
 
