@@ -5,6 +5,7 @@ __pycache__/
 .vscode
 .idea
 .env
+.DS*
 
 # data
 /Image_based/data/forcindy/CalculatedData/
