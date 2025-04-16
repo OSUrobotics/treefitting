@@ -4,12 +4,13 @@ __pycache__/
 # Made files
 .vscode
 .idea
-.env
 
 # data
 /Image_based/data/forcindy/CalculatedData/
 /Image_based/data/forcindy/DebugImages/
 data/RWCheck.txt
+
+*~
 
 *.xml
 *.iml

@@ -49,7 +49,9 @@ class BSplineCyl(BSplineCurve):
         """Return radius at a point t along the spline
         @param t - the t value in 0, max_t"""
         t_radii = t / self.max_t()
-        return self.radii_crv.eval_crv(t_radii)[0]
+        if isinstance(t, float):
+            return self.radii_crv.eval_crv(t_radii)[0]
+        return self.radii_crv.eval_crv(t_radii)
 
     def edge_pts(self, t: Union[float, np.ndarray], perc_in_out : float=1.0):
         """ 
@@ -64,7 +66,12 @@ class BSplineCyl(BSplineCurve):
         vec = self.eval_norm(t)
         radius = perc_in_out * self.radius(t)
 
-        return pt + vec * radius
+        if isinstance(t, float):
+            return pt + vec * radius
+        
+        for d in range(0, vec.shape[1]):
+            vec[:, d] = radius.transpose() * vec[:, d]
+        return pt + vec
 
     def write_json(self):
         """Create a dictionary and return it"""

@@ -64,10 +64,12 @@ class FitBSplineCyl2DSketch:
         :return: None """
 
         if self.image_frame_data == []:
+            # First curve - just fit
             n_points = min(len(sketch.backbone_pts), BSplineCurve._degree_dict[self.params["degree"]])
             curve = BSplineCyl(sketch.backbone_pts[n_points], degree=self.params["degree"], sketch.radii())
             self.curve, self.pts_fit = BSplineCurveFit.fit_project_fit(curve, sketch.backbone_pts)
         else:
+            # Need to scale and shift the input points
             self.curve, self.pts_fit = BSplineCurveFit.extend_curve(self.curve, self.pts_fit, sketch.backbone_pts)
             self.curve.
     def
