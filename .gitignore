@@ -12,6 +12,8 @@ __pycache__/
 /Image_based/data/forcindy/DebugImages/
 data/RWCheck.txt
 
+*~
+
 *.xml
 *.iml
 

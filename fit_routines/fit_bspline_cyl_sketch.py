@@ -81,9 +81,161 @@ class FitBSplineCyl2DSketch:
         :return: None """
 
         if self.image_frame_data == []:
-            curve = self._sketch_curve_to_bspline_cyl(sketch)
+            # First curve - just fit
+            n_points = min(len(sketch.backbone_pts), BSplineCurve._degree_dict[self.params["degree"]])
+            curve = BSplineCyl(sketch.backbone_pts[n_points], degree=self.params["degree"], sketch.radii())
+            self.curve, self.pts_fit = BSplineCurveFit.fit_project_fit(curve, sketch.backbone_pts)
         else:
-            pass
+            # Need to scale and shift the input points
+            self.curve, self.pts_fit = BSplineCurveFit.extend_curve(self.curve, self.pts_fit, sketch.backbone_pts)
+            self.curve.
+    def
+        """
+        @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
+        @param sketch_curves: SketchesForCurves - has backbone and cross bars
+        @param fname_mask_image: Mask image name - create a mask with that name
+        @param fname_edge_image: Create and store the edge image, or read it in if it exists. If none, don't use in the fit curve process
+        @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
+
+    def __init__(self, fname_rgb_image, sketch_curves, fname_mask_image, fname_edge_image=None, fname_calculated=None, params=None, fname_debug=None, b_recalc=False):
+        """ Create a mask image of the same size as the rgb image and a curve for the sketch_curves
+        @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
+        @param sketch_curves: SketchesForCurves - has backbone and cross bars
+        @param fname_mask_image: Mask image name - create a mask with that name
+        @param fname_edge_image: Create and store the edge image, or read it in if it exists. If none, don't use in the fit curve process
+        @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json
+        @param params: Dictionary with
+            "resample_mask_step_size": how many pixels to use in each reconstructed rectangle; 10-20 is reasonable
+            "perc_fuzzy_mask": Percentage of the outer boundary to make fuzzy (128); 0 - 0.5
+        @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug image
+        @param b_recalc: Force recalculate the result, y/n"""
+
+        # Read in the RGB image
+        self.image_rgb = cv2.imread(fname_rgb_image)
+
+        # Now calculate the edge image, if it doesn't exist
+        if exists(fname_edge_image):
+            im_edge_color = cv2.imread(fname_edge_image)
+            self.image_edge = cv2.cvtColor(im_edge_color, cv2.COLOR_BGR2GRAY)
+        else:
+            im_gray = cv2.cvtColor(self.image_rgb, cv2.COLOR_BGR2GRAY)
+            self.image_edge = cv2.Canny(im_gray, 50, 150, apertureSize=3)
+            cv2.imwrite(fname_edge_image, self.image_edge)
+
+        # Create the calculated file names
+        b_debug = False
+        if fname_debug:
+            print(f"Fitting bezier curve to sketch {sketch_curves.backbone_pts}")
+            b_debug = True
+
+        self.fname_params = None  # Parameters used to do the fit
+        # Create the file names for the calculated data that we'll store (sketch curve, curve fit to sketch curve, mask, parameters)
+        if fname_calculated:
+            self.fname_sketch = fname_calculated + "_sketch_curve.json"
+            self.fname_sketch_bezier_crv = fname_calculated + "_sketch_curve_bezier.json"
+            self.fname_params = fname_calculated + "_sketch_curve_params.json"
+
+
+        # Don't save this - just do it
+        self.sketch_crv = FitBezierCyl2DSketch._sketch_curve_to_bezier(sketch_curves)
+        if fname_calculated:
+            # Write out sketch curve
+            sketch_curves.write_json(self.fname_sketch)
+            self.sketch_crv.write_json(self.fname_sketch_bezier_crv)
+
+            with open(self.fname_params, "w") as f:
+                json.dump(self.params, f, indent=2)
+
+        if fname_mask_image:
+            # Gray scale/bw that is the same size as rbg
+            self.mask = cv2.cvtColor(self.image_rgb, cv2.COLOR_RGB2GRAY)
+            # Make black
+            self.mask[:, :] = 0
+            self.sketch_crv.make_mask_image(self.mask, self.params["resample_mask_step_size"], self.params["perc_fuzzy_mask"])
+            cv2.imwrite(fname_mask_image, self.mask)
+
+        if fname_debug:
+            # Draw the mask with the initial and fitted curve
+            im_rgb = np.copy(self.image_rgb)
+            self.sketch_crv.draw_bezier(im_rgb)
+            self.sketch_crv.draw_boundary(im_rgb)
+
+            cv2.imwrite(fname_debug + "_sketch.png", im_rgb)
+
+        # self.score = self.score_mask_fit(self.stats_dict.mask_image)
+        # print(f"Mask {mask_fname}, score {self.score}")
+
+    @staticmethod
+    def _sketch_curve_to_bezier(sketch_curves):
+        """ Convert the sketch curve to the bezier
+        @param sketch_curves - has backbone and cross bars
+        @return bezier_cyl_2d"""
+            # First get the points in a reasonable form
+        start_pt = sketch_curves.backbone_pts[0]
+        end_pt = sketch_curves.backbone_pts[-1]
+        mid_pt = [0.5 * (start_pt[0] + end_pt[0]), 0.5 * (start_pt[1] + end_pt[1])]
+        if len(sketch_curves.backbone_pts) > 2:
+            mid_pt = sketch_curves.backbone_pts[len(sketch_curves.backbone_pts) // 2]
+
+        radii = np.zeros(len(sketch_curves.cross_bars))
+        for i, pts in enumerate(sketch_curves.cross_bars):
+            p1 = pts[0]
+            p2 = pts[1]
+            radii[i] = 0.5 * np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+        radius = np.mean(np.array(radii))
+        sketch_crv = BezierCyl2D(start_pt=start_pt, mid_pt=mid_pt, end_pt=end_pt, radius=radius)
+        if len(sketch_curves.cross_bars) > 1:
+            half_way = len(sketch_curves.cross_bars) // 2
+            sketch_curves.start_radius = np.radius = np.mean(np.array(radii[0:half_way]))
+            sketch_curves.end_radius = np.radius = np.mean(np.array(radii[half_way:]))
+
+        fit_crv = FitBezierCyl2D(sketch_crv)
+        ts = np.linspace(0, 1, len(sketch_curves.backbone_pts))
+        a_constraints, b_rhs = fit_crv.setup_least_squares(ts)
+        for i, pt in enumerate(sketch_curves.backbone_pts):
+            b_rhs[i, 0] = pt[0]
+            b_rhs[i, 1] = pt[1]
+
+        fit_crv.extract_least_squares(a_constraints=a_constraints, b_rhs=b_rhs)
+
+        return fit_crv.get_copy_of_2d_bezier_curve()
+
+    @staticmethod
+    def create_from_filenames(filenames, sketch_crv, index=(0, 0, 0, 0), b_do_debug=True, b_use_optical_flow_edge=False):
+        """ Create a base image from a file name in FileNames
+        @param filenames - FileNames instance
+        @param index tuple (eg (0,0,0,0))
+        @param sketch_crv - 2d sketched curv in image coords
+        @param b_do_debug - spit out a debug image y/n
+        @return FitBezierCyl2DSketch"""
+
+        rgb_fname = filenames.get_image_name(index=index, b_add_tag=True)
+
+        if not exists(rgb_fname):
+            raise ValueError(f"No file {rgb_fname}")
+
+        # File name
+        mask_fname = filenames.get_mask_name(index=index, b_add_tag=True)
+        # Debug image file name
+        if b_do_debug:
+            edge_fname_debug = filenames.get_mask_name(index=index, b_debug_path=True, b_add_tag=False)
+        else:
+            edge_fname_debug = None
+
+        edge_fname = filenames.get_edge_name(index=index, b_add_tag=True, b_optical_flow=b_use_optical_flow_edge)
+
+        # The stub of the filename to save all of the data to
+        edge_fname_calculate = filenames.get_mask_name(index=index, b_calculate_path=True, b_add_tag=False)
+
+        if not exists(mask_fname):
+            print(f"Warning, file {mask_fname} does not exist")
+        crv_from_sketch = FitBezierCyl2DSketch(fname_rgb_image=rgb_fname,
+                                                sketch_curves=sketch_crv,
+                                                fname_mask_image=mask_fname,
+                                                fname_edge_image=edge_fname,
+                                                fname_debug=edge_fname_debug)
+        return crv_from_sketch
+
 
 
 if __name__ == '__main__':

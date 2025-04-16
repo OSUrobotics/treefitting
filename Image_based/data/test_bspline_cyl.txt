@@ -1,0 +1,50 @@
+{
+  "Name": "BSplineCyl",
+  "radius": {
+    "Name": "BSplineCurve",
+    "degree": 2,
+    "crv_pts": {
+      "Name": "ControlHull",
+      "cntrl_hull_pts": {
+        "Name": "PointList",
+        "n_points": 3,
+        "pts": [
+          [
+            0.1
+          ],
+          [
+            0.1
+          ],
+          [
+            0.1
+          ]
+        ]
+      }
+    }
+  },
+  "bsplinecrv": {
+    "Name": "BSplineCurve",
+    "degree": 1,
+    "crv_pts": {
+      "Name": "ControlHull",
+      "cntrl_hull_pts": {
+        "Name": "PointList",
+        "n_points": 3,
+        "pts": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ],
+          [
+            2.0,
+            0.0
+          ]
+        ]
+      }
+    }
+  }
+}
