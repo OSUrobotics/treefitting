@@ -14,11 +14,13 @@ from os.path import exists
 import json
 from draw_routines.image_draw_geom_utils import LineSeg2D
 
+"""
 from os.path import abspath as os_abs_path
 from sys import path as syspath
 syspath.insert(0, os_abs_path('../Utilities'))
 syspath.insert(0, os_abs_path('./Utilities'))
-from FileNames import FileNames
+"""
+from utils.FileNames import FileNames
 
 
 class BaseStatsImage:

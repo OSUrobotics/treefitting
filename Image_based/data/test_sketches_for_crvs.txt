@@ -1,0 +1,25 @@
+{
+  "Name": "SketchesForCurves",
+  "backbone_pts": [
+    [
+      100,
+      20
+    ],
+    [
+      200,
+      30
+    ]
+  ],
+  "cross_bars": [
+    [
+      [
+        -5,
+        10
+      ],
+      [
+        25,
+        10
+      ]
+    ]
+  ]
+}

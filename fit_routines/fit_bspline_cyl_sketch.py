@@ -60,7 +60,7 @@ class FitBSplineCyl2DSketch:
            rgb_image_name: Original rgb image name
            edge_image_name: Original edge image name, if any
            depth_image_name: Original depth image name, if any
-           offset: x,y offset from previous image to this one (if any)
+           match_pts: List of pairs of points, one for the 
         :return: None """
 
         if self.image_frame_data == []:
@@ -69,9 +69,12 @@ class FitBSplineCyl2DSketch:
             curve = BSplineCyl(sketch.backbone_pts[n_points], degree=self.params["degree"], sketch.radii())
             self.curve, self.pts_fit = BSplineCurveFit.fit_project_fit(curve, sketch.backbone_pts)
         else:
-            # Need to scale and shift the input points
+            # Need to scale and shift the input points and the radii
+
             self.curve, self.pts_fit = BSplineCurveFit.extend_curve(self.curve, self.pts_fit, sketch.backbone_pts)
-            self.curve.
+
+
+            self.curve.radii_crv
     def
         """
         @param fname_rgb_image: Original rgb image name (for making edge name if we have to)

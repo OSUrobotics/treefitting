@@ -6,7 +6,7 @@
 #    moves the center by using each chunk's recommendation for where the center should be
 
 import numpy as np
-from bezier_cyl_2d import BezierCyl2D
+from Image_based.bezier_cyl_2d import BezierCyl2D
 from draw_routines.image_draw_geom_utils import LineSeg2D
 
 

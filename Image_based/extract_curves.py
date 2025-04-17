@@ -12,8 +12,8 @@ import cv2
 import json
 from os.path import exists
 from draw_routines.image_draw_geom_utils import LineSeg2D
-from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
-from FileNames import FileNames
+from Image_based.fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
+from utils.FileNames import FileNames
 
 
 class ExtractCurves:
