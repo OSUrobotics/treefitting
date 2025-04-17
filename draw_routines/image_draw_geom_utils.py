@@ -2,8 +2,8 @@
 
 # Read in masked images and estimate points where a side branch joins a leader (trunk)
 
-from point_lists import ControlHull
-from line_segs import LineSeg2D
+from tree_geometry.control_hull import ControlHull
+from tree_geometry.line_segs import LineSeg2D
 import numpy as np
 import cv2
 
@@ -92,7 +92,7 @@ def draw_hull(im, hull:ControlHull, color, thickness=1):
     @param color - rgb as an 0..255 tuple
     @param thickness - thickness of line
     """
-    for l in hull.polylines:
+    for l in hull.polylines():
         draw_line_seg(im, l, color=color, thickness=thickness)
 
 
@@ -110,11 +110,11 @@ if __name__ == '__main__':
     draw_hull(im, control_hull, color=(0, 255, 0), thickness=3)
     pt_close = np.array([100, 320])
     draw_cross(im, pt_close, color=(0, 255, 0), thickness=3)
-    ret = control_hull.parameteric_project(pt_close)
+    ret = control_hull.project_on_hull(pt_close)
     draw_cross(im, ret[1], color=(0, 255, 0), thickness=3)
-    pt_check = control_hull.polylines[ret[2]].eval(ret[0])
+    pt_check = control_hull.polylines()[ret[2]].eval(ret[0])
     draw_box(im, np.array(pt_check), color=(0, 0, 255), width=2)
-    draw_line_seg(im, control_hull.polylines[ret[2]], color=(0, 255, 0), thickness=1)
+    draw_line_seg(im, control_hull.polylines()[ret[2]], color=(0, 255, 0), thickness=1)
 
     plt.subplot()
     plt.imshow(im)

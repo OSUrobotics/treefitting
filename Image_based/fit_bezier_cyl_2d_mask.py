@@ -14,10 +14,10 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from bezier_cyl_2d import BezierCyl2D
-from fit_bezier_cyl_2d import FitBezierCyl2D
-from BaseStatsImage import BaseStatsImage
-from FileNames import FileNames
+from Image_based.bezier_cyl_2d import BezierCyl2D
+from Image_based.fit_bezier_cyl_2d import FitBezierCyl2D
+from Image_based.BaseStatsImage import BaseStatsImage
+from utils.FileNames import FileNames
 
 
 class FitBezierCyl2DMask:

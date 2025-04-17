@@ -10,11 +10,11 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from FileNames import FileNames
+from utils.FileNames import FileNames
 from bezier_cyl_3d import BezierCyl3D
-from fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
-from split_masks import convert_jet_to_grey
-from camera_projections import frustrum_matrix, from_image_to_box
+from Image_based.fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
+from Image_based.split_masks import convert_jet_to_grey
+from Image_based.camera_projections import frustrum_matrix, from_image_to_box
 
 
 class FitBezierCyl3dDepth:

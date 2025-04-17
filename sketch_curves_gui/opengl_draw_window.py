@@ -2,19 +2,19 @@
 
 from sketch_curves_gui.draw_images import DrawImages
 
+import numpy as np
+import cv2
+from ctypes import c_uint8
 from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
 from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
                              QWidget)
 from PyQt5.QtGui import QPainter, QBrush, QPen, QFont, QColor
 import OpenGL.GL as GL
-import cv2
-from ctypes import c_uint8
 
 from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
-from camera_projections import frame_at_z_near
+from Image_based.camera_projections import frame_at_z_near
 
 
-import numpy as np
 
 
 class DrawSpline3D(QOpenGLWidget):
@@ -554,6 +554,7 @@ class DrawSpline3D(QOpenGLWidget):
 
 if __name__ == '__main__':
     # THIS DOES NOT WORK - use Sketch_curvs_main_window
+    import sys
     from Window_3D import Window_3D
     app = QApplication(sys.argv)
     window = Window_3D(DrawSpline3D)

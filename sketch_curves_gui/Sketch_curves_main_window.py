@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
+import json
+
 import os
+"""
 import sys
 sys.path.insert(0, os.path.abspath('./'))
 sys.path.insert(0, os.path.abspath('./Image_based'))
@@ -16,6 +19,7 @@ sys.path.insert(0, os.path.abspath('../utils'))
 sys.path.insert(0, os.path.abspath('../tree_geometry'))
 sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
 sys.path.insert(0, os.path.abspath('../fit_routines'))
+"""
 from os.path import exists
 
 # Get OpenGL
@@ -26,15 +30,15 @@ import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
 from opengl_draw_window import DrawSpline3D
-from FileNames import FileNames
+from utils.FileNames import FileNames
 
-from extract_curves import ExtractCurves
-from fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
-from fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
+from Image_based.extract_curves import ExtractCurves
+from Image_based.fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
+from Image_based.fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
 
 from utils.sketched_curve import SketchedCurve
 
-from b_spline_curve_fit import BSplineCurveFit
+from fit_routines.b_spline_curve_fit import BSplineCurveFit
 
 class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
@@ -73,7 +77,9 @@ class SketchCurvesMainWindow(QMainWindow):
         self.sketch_curve = SketchedCurve()
         self.crv_from_sketch = None
         if exists("save_crv.json"):
-            self.sketch_curve = SketchedCurve.read_json("save_crv.json")
+            with open("save_crv.json", 'r') as f:
+                my_data = json.load(f)
+                self.sketch_curve = SketchesForCurves.read_json(my_data)
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -83,10 +89,10 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        # self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
-        # self.file_name = QLineEdit("envy_fnames.json")
-        self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
-        self.file_name = QLineEdit("bush_9_west_2_fnames.json")
+        self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
+        self.file_name = QLineEdit("envy_fnames.json")
+        # self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
+        # self.file_name = QLineEdit("bush_9_west_2_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)

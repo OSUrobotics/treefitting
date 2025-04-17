@@ -142,7 +142,7 @@ class SketchedCurve:
         return my_dict
 
     @staticmethod
-    def read_json(my_dict, sketches_crv=None):
+    def read_json(my_dict, sketches_crv :object=None):
         """ Read back in from json file
         @param my_dict - json dictionary
         @param sketches_crv - an existing bezier SketchedCurve to put the data in"""
@@ -182,8 +182,9 @@ if __name__ == '__main__':
         sk_check = SketchedCurve.read_json(my_data)
         SketchedCurve.read_json(my_data, sk_check)
 
-    if exists("../Image_based/data/save_crv.json"):
-        with open(fname, 'r') as f:
+    fname_save_crv = dirname + "save_crv.json"
+    if exists(fname_save_crv):
+        with open(fname_save_crv, 'r') as f:
             my_data = json.load(f)
             sk_read = SketchedCurve.read_json(my_data)
     else:
@@ -215,8 +216,8 @@ if __name__ == '__main__':
 
     # Actually convert the curve
     crv_in_image_coords = sk_read.convert_image(lower_left=lower_left, upper_right=upper_right, width=width_rgb_image, height=height_rgb_image)
-    fname = "save_crv_in_image.json"
-    with open(fname, "w") as f:
+    fname_convert_crv = dirname + "save_crv_in_image.json"
+    with open(fname_convert_crv, "w") as f:
         json.dump(crv_in_image_coords.write_json(), f, indent=2)
 
 
