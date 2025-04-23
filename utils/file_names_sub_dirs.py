@@ -50,16 +50,20 @@
 
 from glob import glob
 import json
-from os.path import exists, isdir, join
-from os import mkdir, walk
-from re import split as re_split
+from os.path import exists, isdir
+from os import mkdir
 from shutil import copyfile
 
 
-convert = lambda text: int(text) if text.isdigit() else text.lower()
-alphanumeric_key = lambda key: [convert(c) for c in re_split('([0-9]+)', key)]
+class FileNamesSubDirs:
+    @staticmethod
+    def alphanumeric_key(key):
+        numbers = ''.join(filter(str.isdigit, key))
+        if len(numbers) == 0:
+            return key.lower()
+        else:
+            return int(numbers)
 
-class FileNames:
     def __init__(self, path, img_type="png"):
         """Make directories/filenames
         @param path: the top level path
@@ -102,7 +106,7 @@ class FileNames:
         #Example 2: If the name has an RGB in it, then set name_filter to be RGB
         @param path: The directory to look in
         @param name_filter: If not none, all image names need to have this in their name
-        @returns a list of image names"""
+        @returns a list of image names, sorted by number in name, if any"""
         search_path = f"{path}*{name_filter}*" + self.image_tag
         fnames = glob(search_path)
         if fnames is None:
@@ -125,7 +129,7 @@ class FileNames:
             if im_name_split not in ret_names:
                 ret_names.append(im_name_split)
 
-        ret_names.sort(key=alphanumeric_key)
+        ret_names.sort(key=FileNamesSubDirs.alphanumeric_key)
         return ret_names
 
     def _add_mask_image_ids(self):
@@ -159,7 +163,7 @@ class FileNames:
                         self.mask_ids[-1][-1][-1].append(mask_id_name)
 
                     # Sort the list
-                    self.mask_ids[-1][-1][-1].sort(key=alphanumeric_key)
+                    self.mask_ids[-1][-1][-1].sort(key=FileNamesSubDirs.alphanumeric_key)
 
     def add_directory(self, name_filter=""):
         """Assumes all of the images are in a top-level directory (path) - no subdirectories
@@ -188,7 +192,7 @@ class FileNames:
         self.sub_dirs = []
         self.image_names = []
         self.mask_ids = []
-        fnames.sort(key=alphanumeric_key)
+        fnames.sort(key=FileNamesSubDirs.alphanumeric_key)
         for n in fnames:
             if not isdir(n):
                 continue
@@ -221,7 +225,7 @@ class FileNames:
         for ind, n in enumerate(mask_type_name):
             if n == mask_type_name:
                 print(f"Mask name {n} already exists")
-                return (0, 0, ind, 0)
+                return 0, 0, ind, 0
         # Add the actual name
         self.mask_names.append(mask_type_name)
 
@@ -230,7 +234,7 @@ class FileNames:
             for j, _ in enumerate(self.mask_ids[i]):
                 # One new list for the mask for each image
                 self.mask_ids[i][j].append([])
-        return (0, 0, len(self.mask_names) - 1, 0)
+        return 0, 0, len(self.mask_names) - 1, 0
 
     def add_mask_id(self, index, mask_id):
         """ Add another mask id to this image/mask pair
@@ -238,13 +242,8 @@ class FileNames:
         @param mask_id - should be string
         @return new index"""
 
-        if index[3] == -1 or len(self.mask_ids[index[0]][index[1]][index[2]]) == 0:
-            ret_index = (index[0], index[1], index[2], 0)
-        else:
-            # Adding the new mask id at the end
-            ret_index = (index[0], index[1], index[2], len(self.mask_ids[index[0]][index[1]][index[2]] + 1))
-
         self.mask_ids[index[0]][index[1]][index[2]].append(mask_id)
+        ret_index = (index[0], index[1], index[2], len(self.mask_ids[index[0]][index[1]][index[2]]))
         return ret_index
 
     def get_image_name(self, index, b_debug_path=False, b_add_tag=True):
@@ -401,34 +400,26 @@ class FileNames:
             if not exists(im_name):
                 raise ValueError(f"Filename {im_name} does not exist")
 
-    def write_filenames(self, fname):
-        """json dump this file list to fname
-        @param fname file to dump to"""
-
-        with open(fname, "w") as f:
-            json.dump(self.__dict__, f, indent=2)
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "FileNamesSubDirs", "data" : self.__dict__}
+        return my_dict
 
     @staticmethod
-    def read_filenames(fname, path=None):
-        """ Read in all the variables and put them back in the class
-        @param fname file to read from
-        @return a Handle File Names instance"""
-        if not exists(fname):
-            if exists(join(path, fname)):
-                fname = join(path, fname)
-                
-        with open(fname, "r") as f:
-            my_data = json.load(f)
+    def read_json(json_dict, file_names_sub_instance=None):
+        """ Read back in from json file
+        @param json_dict - dictionary read in from file
+        @param file_names_sub_instance - an existing of this class to put the data in"""
+        if json_dict["Name"] != "FileNamesSubDirs":
+            raise ValueError(f"This is not a FileNamesSub dictionary {json_dict}")
 
-            if not path:
-                path = my_data["path"]
+        if not file_names_sub_instance:
+            file_names_sub_instance = FileNamesSubDirs("")
 
-            handle_files = FileNames(path)
-            for k, v in my_data.items():
-                setattr(handle_files, k, v)
+        for k, v in json_dict["data"].items():
+            setattr(file_names_sub_instance, k, v)
 
-        return handle_files
-
+        return file_names_sub_instance
 
 def example_pull_with_skip(n_skip=10, image_tag="jpg"):
 
@@ -453,7 +444,6 @@ def example_pull_with_skip(n_skip=10, image_tag="jpg"):
     fnames = glob(search_path)
     if fnames is None:
         raise ValueError(f"No files in directory {search_path}")
-        return
 
     file_numbers = []
     for i_f, nf in enumerate(fnames):
@@ -492,20 +482,22 @@ def example_pull_with_skip(n_skip=10, image_tag="jpg"):
         dest_depth_name = dest_path + col_im_name_number + "_depth.csv"
         copyfile(src=depth_name, dst=dest_depth_name)
 
-    all_files = FileNames(path=dest_path, img_type=image_tag)
+    all_files = FileNamesSubDirs(path=dest_path, img_type=image_tag)
     all_files.mask_names = ["cane"]
     all_files.add_directory(name_filter="rgb")
-    all_files.write_filenames(dest_path + "/" + data_set_name + "_fnames.json")
 
-    return all_files
+    fname_write = dest_path + "/" + data_set_name + "_fnames.json"
+    with (open(fname_write, 'w') as f):
+        json.dump(all_files.write_json(), f, indent=2)
+
+    return all_files, fname_write
 
 
 if __name__ == '__main__':
 
-    all_files = example_pull_with_skip()
+    all_files, fname = example_pull_with_skip()
 
-    """ Example envy
-    from shutil import copyfile
+    """ Example envy    from shutil import copyfile
     b_get_box_files = False
     if b_get_box_files:
         dest_path = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
@@ -575,4 +567,7 @@ if __name__ == '__main__':
     all_files_trunk.check_names()
     """
 
-    #check_read = FileNames.read_filenames(fname_for_json_file)
+    f_check = FileNamesSubDirs("")
+    with open(fname, 'r') as f:
+        my_data = json.load(f)
+        FileNamesSubDirs.read_json(my_data, f_check)

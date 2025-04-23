@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+import numpy as np
 
 from tree_geometry.b_spline_curve import BSplineCurve
-from bspline_fit_params import BSplineFitParams
+from fit_routines.bspline_fit_params import BSplineFitParams
 from tree_geometry.point_lists import PointListWithTs, PointList
 from eval_routines.bspline_fit_eval import BSplineFitEval
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import math as math
-import json
 
 
 # Keep all of the sketching data until it is time to actually make a spline curve
@@ -13,7 +12,7 @@ import json
 # Cntrl clicking over a point erases it
 #  Keep all points in width/height - convert at the end
 
-class SketchesForCurves:
+class SketchedCurve:
     def __init__(self):
         """ Nothing in it to start"""
         self.backbone_pts = []
@@ -56,18 +55,18 @@ class SketchesForCurves:
         @param upper_right - upper right point of the image in the window
         @param width - width of image
         @param height - height of image
-        @returns SketchesForCurves in coordinate system
+        @returns SketchedCurve in coordinate system
         """
-        ret_sketch = SketchesForCurves()
+        ret_sketch = SketchedCurve()
         for pt in self.backbone_pts:
-            x, y = SketchesForCurves.convert_pt(pt, lower_left, upper_right, width, height)
+            x, y = SketchedCurve.convert_pt(pt, lower_left, upper_right, width, height)
             ret_sketch.add_backbone_point(x, y)
 
         for pts in self.cross_bars:
             # Make sure pts has two elements
             if len(pts) == 2:
                 for pt in pts:
-                    x, y = SketchesForCurves.convert_pt(pt, lower_left, upper_right, width, height)
+                    x, y = SketchedCurve.convert_pt(pt, lower_left, upper_right, width, height)
                     ret_sketch.add_crossbar_point(x, y)
         return ret_sketch
 
@@ -127,27 +126,37 @@ class SketchesForCurves:
         else:
             self.cross_bars.pop(i_closest_cross)
 
+    def copy(self):
+        """ make a copy and return it"""
+        copy_curve = SketchedCurve()
+        copy_curve.backbone_pts = [p.copy() for p in self.backbone_pts]
+        copy_curve.cross_bars = []
+        for cb in self.cross_bars:
+            copy_curve.cross_bars.append([p.copy() for p in cb])
+        return copy_curve
+
     def write_json(self):
         """Convert to array and return dictionary
         @param fname file name to write to"""
-        my_dict = {"Name": "SketchesForCurves", "backbone_pts": self.backbone_pts, "cross_bars": self.cross_bars}
+        my_dict = {"Name": "SketchedCurve", "backbone_pts": self.backbone_pts, "cross_bars": self.cross_bars}
+        return my_dict
 
     @staticmethod
-    def read_json(my_dict, sketches_crv :SketchesForCurves=None):
+    def read_json(my_dict, sketches_crv=None):
         """ Read back in from json file
         @param my_dict - json dictionary
-        @param sketches_crv - an existing bezier SketchesForCurves to put the data in"""
-        assert my_dict["Name"] == "SketchesForCurves"
+        @param sketches_crv - an existing bezier SketchedCurve to put the data in"""
+        assert my_dict["Name"] == "SketchedCurve"
 
         if not sketches_crv:
-            sketches_crv = SketchesForCurves()
+            sketches_crv = SketchedCurve()
         sketches_crv.backbone_pts = my_dict["backbone_pts"]
         sketches_crv.cross_bars = my_dict["cross_bars"]
         return sketches_crv
 
 
 if __name__ == '__main__':
-    sk = SketchesForCurves()
+    sk = SketchedCurve()
     sk.add_backbone_point(10, 10)
     sk.add_backbone_point(100, 20)
     sk.add_backbone_point(200, 30)
@@ -164,19 +173,19 @@ if __name__ == '__main__':
     import json
     from os.path import exists
 
-    fname = "../Image_based/data/test_sketches_for_crvs.txt"
+    fname = "test_sketches_for_crvs.json"
     with open(fname, "w") as f:
         json.dump(sk.write_json(), f, indent=2)
 
     with open(fname, 'r') as f:
         my_data = json.load(f)
-        sk_check = SketchesForCurves.read_json(my_data)
-        SketchesForCurves.read_json(my_data, sk_check)
+        sk_check = SketchedCurve.read_json(my_data)
+        SketchedCurve.read_json(my_data, sk_check)
 
     if exists("../Image_based/data/save_crv.json"):
         with open(fname, 'r') as f:
             my_data = json.load(f)
-            sk_read = SketchesForCurves.read_json(my_data)
+            sk_read = SketchedCurve.read_json(my_data)
     else:
         sk_read = sk_check
 
@@ -206,7 +215,9 @@ if __name__ == '__main__':
 
     # Actually convert the curve
     crv_in_image_coords = sk_read.convert_image(lower_left=lower_left, upper_right=upper_right, width=width_rgb_image, height=height_rgb_image)
-    crv_in_image_coords.write_json("save_crv_in_image.json")
+    fname = "save_crv_in_image.json"
+    with open(fname, "w") as f:
+        json.dump(crv_in_image_coords.write_json(), f, indent=2)
 
 
 

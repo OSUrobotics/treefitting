@@ -13,7 +13,7 @@ import json
 from os.path import exists
 from bezier_cyl_2d import BezierCyl2D
 from fit_bezier_cyl_2d import FitBezierCyl2D
-from FileNames import FileNames
+from utils.FileNames import FileNames
 
 import os
 import sys
@@ -26,7 +26,7 @@ class FitBezierCyl2DSketch:
     def __init__(self, fname_rgb_image, sketch_curves, fname_mask_image, fname_edge_image=None, fname_calculated=None, params=None, fname_debug=None, b_recalc=False):
         """ Create a mask image of the same size as the rgb image and a curve for the sketch_curves
         @param fname_rgb_image: Original rgb image name (for making edge name if we have to)
-        @param sketch_curves: SketchesForCurves - has backbone and cross bars
+        @param sketch_curves: SketchedCurve - has backbone and cross bars
         @param fname_mask_image: Mask image name - create a mask with that name
         @param fname_edge_image: Create and store the edge image, or read it in if it exists. If none, don't use in the fit curve process
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _crv.json

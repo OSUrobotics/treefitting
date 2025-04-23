@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-from FileNames import FileNames
+from file_names import FileNames
 import torchvision.transforms.functional as FV
 import torch.nn.functional as F
 

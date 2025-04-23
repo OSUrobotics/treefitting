@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath('./'))
-sys.path.insert(0, os.path.abspath('./Image_based'))
-sys.path.insert(0, os.path.abspath('./Utilities'))
-sys.path.insert(0, os.path.abspath('./utils'))
-sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
-sys.path.insert(0, os.path.abspath('./fit_routines'))
-sys.path.insert(0, os.path.abspath('./tree_geometry'))
-sys.path.insert(0, os.path.abspath('../'))
-sys.path.insert(0, os.path.abspath('../Image_based'))
-sys.path.insert(0, os.path.abspath('../Utilities'))
-sys.path.insert(0, os.path.abspath('../utils'))
-sys.path.insert(0, os.path.abspath('../tree_geometry'))
-sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
-sys.path.insert(0, os.path.abspath('../fit_routines'))
 from os.path import exists
 
 # Get OpenGL

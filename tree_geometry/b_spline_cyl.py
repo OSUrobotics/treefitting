@@ -76,7 +76,7 @@ class BSplineCyl(BSplineCurve):
     def read_json(json_dict, bspline_cyl_instance=None):
         """ Read back in from json file
         @param json_dict - dictionary read in from file
-        @param control_hull_instance - an existing of points list to put the data in"""
+        @param bspline_cyl_instance - an existing of bspline cylinder to put the data in"""
         if json_dict["Name"] != "BSplineCyl":
             raise ValueError(f"This is not a bspline cylinder dictionary {json_dict}")
 
