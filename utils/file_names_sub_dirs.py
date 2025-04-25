@@ -497,7 +497,8 @@ if __name__ == '__main__':
 
     all_files, fname = example_pull_with_skip()
 
-    """ Example envy """    from shutil import copyfile
+    """ Example envy 
+    from shutil import copyfile
     b_get_box_files = True
     if b_get_box_files:
         dest_path = "/Users/cindygrimm/VSCode/data/EnvyTree/"
@@ -526,7 +527,7 @@ if __name__ == '__main__':
     all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
     all_files_envy.add_sub_directories()
     all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
-    
+    """
 
     # Example bb
     """

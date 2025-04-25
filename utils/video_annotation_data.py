@@ -202,7 +202,11 @@ class VideoAnnotationData(FileNames):
             for n in fnames:
                 # Get rid of the path
                 im_name = str.split(n, "/")[-1]
-                copyfile(n, dest_path + "/" + im_name)
+                dest_im_name = dest_path + "/" + im_name
+                if exists(dest_im_name):
+                    continue
+                print(f"copying {n} {dest_im_name}")
+                copyfile(n, dest_im_name)
         else:
             dest_path = dest_path + tree_name + "/"
 
@@ -218,13 +222,16 @@ class VideoAnnotationData(FileNames):
 if __name__ == '__main__':
     import json
 
-    src_box_path = "/Users/grimmc/Library/CloudStorage/Box-Box/"
-    # src_box_path = "/Users/grimmc/MyBox/"
-    dest_path = "/Users/grimmc/PycharmProjects/data/EnvyTree/"
+    # path_start = "/Users/grimmc/"
+    path_start = "/Users/cindygrimm/"
+    # box_path = "Library/CloudStorage/Box-Box/"
+    box_path = "MyBox/"
+    src_box_path = path_start + box_path
+    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
     src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2"
     tree_name = "BP_R1_East_tree2"
-    # fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
+    fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=True)
 
     va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
     va.start_index = 0

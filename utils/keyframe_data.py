@@ -129,11 +129,14 @@ if __name__ == '__main__':
 
     fname = "test_sketches_for_crvs.json"
     sk_check = None
-    with open(fname, 'r') as f:
-        my_data = json.load(f)
-        sk_check = SketchedCurve.read_json(my_data)
+    try:
+        with open(fname, 'r') as f:
+            my_data = json.load(f)
+            sk_check = SketchedCurve.read_json(my_data)
 
-    kf.add_sketch(mask_index=0, sketch_curve=sk_check)
+        kf.add_sketch(mask_index=0, sketch_curve=sk_check)
+    except:
+        pass
 
     fname = "test_key_frame.txt"
     with open(fname, "w") as f:
