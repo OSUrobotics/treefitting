@@ -9,25 +9,19 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdi
 import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
-from Draw_spline_3D import DrawSpline3D
-from FileNames import FileNames
-
-from extract_curves import ExtractCurves
-from fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
-from fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
+from sketch_curves_gui.opengl_draw_window import DrawSpline3D
+from utils.video_annotation_data import VideoAnnotationData
 
 from utils.sketched_curve import SketchedCurve
 
-from b_spline_curve_fit import BSplineCurveFit
-
-class SketchCurvesMainWindow(QMainWindow):
+class DataAnnotationMainWindow(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
-        self.setWindowTitle('Fitted Curves Viewer')
+        self.setWindowTitle('Data Annotation Viewer')
 
         # Control buttons for the interface
         left_side_layout = self._init_left_layout_()
-        middle_layout = self._init_middle_layout_()
+        #middle_layout = self._init_middle_layout_()
         right_side_layout = self._init_right_layout_()
 
         # The layout of the interface
@@ -41,7 +35,6 @@ class SketchCurvesMainWindow(QMainWindow):
         widget.setLayout(top_level_layout)
 
         top_level_layout.addLayout(left_side_layout)
-        top_level_layout.addLayout(middle_layout)
         top_level_layout.addLayout(right_side_layout)
 
         SliderFloatDisplay.gui = self
@@ -67,11 +60,8 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        # self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
-        # self.file_name = QLineEdit("envy_fnames.json")
-        self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
-        self.file_name = QLineEdit("bush_9_west_2_fnames.json")
-        self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
+        self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/data/EnvyTree/")
+        self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Mask id", 0, 3, 0)
@@ -80,8 +70,6 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.addWidget(self.path_name)
         path_names_layout.addWidget(QLabel("File data names:"))
         path_names_layout.addWidget(self.file_name)
-        path_names_layout.addWidget(QLabel("Subdir:"))
-        path_names_layout.addWidget(self.sub_dir_number)
         path_names_layout.addWidget(QLabel("Image:"))
         path_names_layout.addWidget(self.image_number)
         path_names_layout.addWidget(QLabel("Mask:"))
@@ -92,7 +80,6 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.setSpacing(5)
         path_names.setLayout(path_names_layout)
 
-        self.sub_dir_number.slider.valueChanged.connect(self.read_images)
         self.image_number.slider.valueChanged.connect(self.read_images)
         self.mask_number.slider.valueChanged.connect(self.read_images)
         self.mask_id_number.slider.valueChanged.connect(self.read_images)
@@ -139,6 +126,42 @@ class SketchCurvesMainWindow(QMainWindow):
         params_crvs_layout.addWidget(self.n_along)
         params_crvs.setLayout(params_crvs_layout)
 
+        # For showing images and curves
+        shows = QGroupBox('Shows')
+        shows_layout = QVBoxLayout()
+
+        self.show_rgb_button = QCheckBox('Show rgb')
+        self.show_rgb_button.setCheckState(2)
+        self.show_rgb_button.clicked.connect(self.redraw_self)
+        self.show_overlay_button = QCheckBox('Overlay next')
+        self.show_overlay_button.clicked.connect(self.redraw_self)
+
+        self.show_backbone_button = QCheckBox('Show backbone')
+        self.show_backbone_button.setCheckState(2)
+        self.show_backbone_button.clicked.connect(self.redraw_self)
+        self.show_sketch_crv_button = QCheckBox('Show sketch')
+        self.show_sketch_crv_button.clicked.connect(self.redraw_self)
+
+        shows_layout.addWidget(self.show_rgb_button)
+        shows_layout.addWidget(self.show_overlay_button)
+        shows_layout.addWidget(self.show_backbone_button)
+        shows_layout.addWidget(self.show_sketch_crv_button)
+        shows_layout.setSpacing(5)
+        shows.setLayout(shows_layout)
+
+        # Drawing
+        drawing_states = QGroupBox('Drawing states         ')
+        drawing_states_layout = QVBoxLayout()
+        self.draw_backbone_button = QPushButton('New curve')
+        self.draw_backbone_button.clicked.connect(self.new_curve)
+        clear_drawings_button = QPushButton('Clear drawings')
+        clear_drawings_button.clicked.connect(self.clear_drawings)
+
+        drawing_states_layout.addWidget(self.draw_backbone_button)
+        drawing_states_layout.addWidget(clear_drawings_button)
+
+        drawing_states.setLayout(drawing_states_layout)
+
         # Put all the pieces in one box
         left_side_layout = QVBoxLayout()
 
@@ -146,11 +169,13 @@ class SketchCurvesMainWindow(QMainWindow):
         left_side_layout.addStretch()
         left_side_layout.addWidget(params_camera)
         left_side_layout.addWidget(params_crvs)
+        left_side_layout.addWidget(shows)
+        left_side_layout.addWidget(drawing_states)
 
         return left_side_layout
 
     # Drawing screen and quit button
-    def _init_middle_layout_(self):
+    def _init_right_layout_(self):
         # The display for the robot drawing
         self.glWidget = DrawSpline3D(self)
 
@@ -166,165 +191,30 @@ class SketchCurvesMainWindow(QMainWindow):
         quit_button.setMinimumWidth(640)
 
         # Put them together, quit button on the bottom
-        mid_layout = QVBoxLayout()
+        right_layout = QVBoxLayout()
 
-        mid_layout.addWidget(self.glWidget)
-        mid_layout.addWidget(self.blank_text)
-        mid_layout.addWidget(quit_button, stretch=20)
+        right_layout.addWidget(self.glWidget)
+        right_layout.addWidget(self.blank_text)
+        right_layout.addWidget(quit_button, stretch=20)
 
-        return mid_layout
-
-    # Set up the right set of sliders/buttons (recalc)
-    def _init_right_layout_(self):
-        # Iterate fits
-        restart_fit_button = QPushButton('Restart fit')
-        restart_fit_button.clicked.connect(self.refit)
-
-        # Fit mas has:
-        #   step_size - number of pixels along the mask
-        #   width_mask - percent bigger than mask to search (1.0 to 1.5ish)
-        #   width_edge - percent of edge +- to search (0.1 to 0.3)
-        #   width_profile - same, but for profile curves
-        #   edge_max - pixel value to call a valid edge (0..255)
-        #   n_per_seg - number of pixels along the profile to resample, should be less than step_size
-        #   width_inside - percentage considered "inside" mask
-        self.step_size = SliderIntDisplay('Step size', 10, 100, 40)
-        self.width_mask = SliderFloatDisplay('Width mask', 1.0, 2.0, 1.4)
-        self.width_edge = SliderFloatDisplay('Width edge', 0.1, 0.6, 0.3)
-        self.width_profile = SliderFloatDisplay('Width profile', 0.1, 0.6, 0.3)
-        self.edge_max = SliderIntDisplay('Edge max', 0, 255, 128)
-        self.n_per_seg = SliderIntDisplay('N per seg', 3, 40, 10)
-        self.width_inside = SliderFloatDisplay('Width inside', 0.1, 1.0, 0.6)
-
-        resets = QGroupBox('Resets')
-        resets_layout = QVBoxLayout()
-        resets_layout.addWidget(restart_fit_button)
-        resets_layout.setSpacing(5)
-        resets.setLayout(resets_layout)
-
-        curve_drawing = QGroupBox('Curve drawing')
-        curve_drawing_layout = QVBoxLayout()
-
-        self.show_backbone_button = QCheckBox('Show backbone')
-        self.show_backbone_button.setCheckState(2)
-        self.show_backbone_button.clicked.connect(self.redraw_self)
-
-        self.show_interior_rects_button = QCheckBox('Show interior rects')
-        self.show_interior_rects_button.clicked.connect(self.redraw_self)
-
-        self.show_edge_rects_button = QCheckBox('Show edge rects')
-        self.show_edge_rects_button.clicked.connect(self.redraw_self)
-
-        self.show_profiles_button = QCheckBox('Show profile curves')
-        self.show_profiles_button.clicked.connect(self.redraw_self)
-
-        curve_drawing_layout.addWidget(self.show_backbone_button)
-        curve_drawing_layout.addWidget(self.show_interior_rects_button)
-        curve_drawing_layout.addWidget(self.show_edge_rects_button)
-        curve_drawing_layout.addWidget(self.show_profiles_button)
-        curve_drawing_layout.addWidget(self.step_size)
-        curve_drawing_layout.addWidget(self.width_mask)
-        curve_drawing_layout.addWidget(self.width_edge)
-        curve_drawing_layout.addWidget(self.width_profile)
-        curve_drawing_layout.addWidget(self.edge_max)
-        curve_drawing_layout.addWidget(self.n_per_seg)
-        curve_drawing_layout.addWidget(self.width_inside)
-        curve_drawing_layout.setSpacing(5)
-        curve_drawing.setLayout(curve_drawing_layout)
-
-        # For showing images and curves
-        shows = QGroupBox('Shows')
-        shows_layout = QHBoxLayout()
-
-        self.show_rgb_button = QCheckBox('Show rgb')
-        self.show_rgb_button.setCheckState(2)
-        self.show_rgb_button.clicked.connect(self.redraw_self)
-        self.show_mask_button = QCheckBox('Show mask')
-        self.show_mask_button.clicked.connect(self.redraw_self)
-        self.show_edge_button = QCheckBox('Show edge')
-        self.show_edge_button.clicked.connect(self.redraw_self)
-        self.show_opt_flow_button = QCheckBox('Show optical flow')
-        self.show_opt_flow_button.clicked.connect(self.redraw_self)
-        self.show_depth_button = QCheckBox('Show depth')
-        self.show_depth_button.clicked.connect(self.redraw_self)
-
-        self.show_sketch_crv_button = QCheckBox('Show sketch')
-        self.show_sketch_crv_button.clicked.connect(self.redraw_self)
-        self.show_mask_crv_button = QCheckBox('Show mask')
-        self.show_mask_crv_button.clicked.connect(self.redraw_self)
-        self.show_edge_crv_button = QCheckBox('Show edge')
-        self.show_edge_crv_button.clicked.connect(self.redraw_self)
-        self.show_edge_crv_button.setCheckState(2)
-
-        show_images = QGroupBox('Image shows')
-        show_images_layout = QVBoxLayout()
-        show_images_layout.addWidget(self.show_rgb_button)
-        show_images_layout.addWidget(self.show_mask_button)
-        show_images_layout.addWidget(self.show_edge_button)
-        show_images_layout.addWidget(self.show_opt_flow_button)
-        show_images_layout.addWidget(self.show_depth_button)
-        show_images_layout.setSpacing(5)
-        show_images.setLayout(show_images_layout)
-
-        show_curves = QGroupBox('Curve shows')
-        show_curves_layout = QVBoxLayout()
-        show_curves_layout.addWidget(self.show_sketch_crv_button)
-        show_curves_layout.addWidget(self.show_mask_crv_button)
-        show_curves_layout.addWidget(self.show_edge_crv_button)
-        show_curves.setLayout(show_curves_layout)
-
-        shows_layout.addWidget(show_images)
-        shows_layout.addWidget(show_curves)
-        shows.setLayout(shows_layout)
-        # Drawing
-        drawing_states = QGroupBox('Drawing states         ')
-        drawing_states_layout = QVBoxLayout()
-        self.draw_backbone_button = QPushButton('New curve')
-        self.draw_backbone_button.clicked.connect(self.new_curve)
-        clear_drawings_button = QPushButton('Clear drawings')
-        clear_drawings_button.clicked.connect(self.clear_drawings)
-        self.mask_name = QLabel("None")
-
-        drawing_states_layout.addWidget(self.draw_backbone_button)
-        drawing_states_layout.addWidget(clear_drawings_button)
-        drawing_states_layout.addWidget(self.mask_name)
-
-        drawing_states.setLayout(drawing_states_layout)
-
-        # Put all the pieces in one box
-        right_side_layout = QVBoxLayout()
-
-        right_side_layout.addWidget(resets)
-        right_side_layout.addWidget(curve_drawing)
-        right_side_layout.addWidget(shows)
-        right_side_layout.addStretch()
-        right_side_layout.addWidget(drawing_states)
-
-        return right_side_layout
+        return right_layout
 
     def reset_file_menus(self):
         if self.in_reset_file_menus:
             return
         self.in_reset_file_menus = True
-        indx_sub_dir = self.sub_dir_number.value()
         indx_image = self.image_number.value()
         indx_mask = self.mask_number.value()
         id_mask = self.mask_id_number.value()
-        print(f"Begin reset file name {indx_sub_dir} {indx_image} {indx_mask} {id_mask}")
+        print(f"Begin reset file name {indx_image} {indx_mask} {id_mask}")
         b_changed = False
-        sldr_maxs_orig = (self.sub_dir_number.slider.maximum(),
-                     self.image_number.slider.maximum(),
-                     self.mask_number.slider.maximum(),
-                     self.mask_id_number.slider.maximum())
+        sldr_maxs_orig = (self.image_number.slider.maximum(),
+                        self.mask_number.slider.maximum(),
+                        self.mask_id_number.slider.maximum())
         print(f"Sliders orig {sldr_maxs_orig}")
-        if self.sub_dir_number.slider.maximum() > len(self.handle_filenames.sub_dirs):
-            self.sub_dir_number.slider.setMaximum(len(self.handle_filenames.sub_dirs))
-            b_changed = True
-        if indx_sub_dir >= self.sub_dir_number.slider.maximum():
-            indx_sub_dir = 0
 
-        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[indx_sub_dir]):
-            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[indx_sub_dir]))
+        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[0]):
+            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[0]))
             b_changed = True
             print(f" Changing image number {self.image_number.slider.maximum()} {indx_image}")
         if indx_image >= self.image_number.slider.maximum():
@@ -339,15 +229,15 @@ class SketchCurvesMainWindow(QMainWindow):
             indx_mask = 0
             self.mask_number.set_value(indx_mask)
 
-        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]):
-            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_ids[indx_sub_dir][indx_image][indx_mask]))
+        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_ids[0][indx_image][indx_mask]):
+            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_ids[0][indx_image][indx_mask]))
             b_changed = True
             print(f" Changing mask id number {self.mask_id_number.slider.maximum()} {id_mask}")
         if id_mask >= self.mask_id_number.slider.maximum():
             id_mask = 0
             self.mask_id_number.set_value(id_mask)
 
-        indx = (indx_sub_dir, indx_image, indx_mask, id_mask)
+        indx = (0, indx_image, indx_mask, id_mask)
         if indx != self.last_index:
             b_changed = True
         print(f" New index {indx}")
@@ -364,8 +254,7 @@ class SketchCurvesMainWindow(QMainWindow):
             self.image_name.setText(img_name_split[-1] + " mask: " + mask_name)
         else:
             self.image_name.setText(img_name + " mask: " + mask_name)
-        sldr_maxs = (self.sub_dir_number.slider.maximum(),
-                     self.image_number.slider.maximum(),
+        sldr_maxs = (self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
                      self.mask_id_number.slider.maximum())
         print(f"index {indx} sldrs {sldr_maxs} redo {b_changed}")
@@ -373,24 +262,15 @@ class SketchCurvesMainWindow(QMainWindow):
 
         return b_changed, indx
 
-    def reset_params_menus(self):
-        """ Set all the sliders based on the stored curve"""
-        if not self.extract_crv.params:
-            return
-        
-        self.step_size.set_value(self.extract_crv.params["step_size"])
-        self.width_mask.set_value(self.extract_crv.params["width_mask"])
-        self.width_edge.set_value(self.extract_crv.params["width_edge"])
-        self.width_profile.set_value(self.extract_crv.params["width_profile"])
-        self.edge_max.set_value(self.extract_crv.params["edge_max"])
-        self.n_per_seg.set_value(self.extract_crv.params["n_per_seg"])
-
     def get_file_name_tuple(self):
         return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
 
     def read_file_names(self):
+        import json
         fname = self.path_name.text() + self.file_name.text()
-        self.handle_filenames = FileNames.read_filenames(fname, path=self.path_name.text())
+        with open(fname, 'r') as f:
+            my_data = json.load(f)
+            self.handle_filenames = VideoAnnotationData.read_json(my_data)
         self.reset_file_menus()
         self.read_images()
         self.reset_params_menus()
@@ -402,7 +282,6 @@ class SketchCurvesMainWindow(QMainWindow):
 
             w = self.glWidget.width()
             h = int(aspect_ratio * w)
-
 
             self.glWidget.resize(w, h)
 

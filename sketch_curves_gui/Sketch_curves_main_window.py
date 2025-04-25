@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdi
 import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
-from Draw_spline_3D import DrawSpline3D
+from opengl_draw_window import DrawSpline3D
 from FileNames import FileNames
 
 from extract_curves import ExtractCurves
@@ -451,14 +451,37 @@ class SketchCurvesMainWindow(QMainWindow):
     def refit_edges(self):
         pass
 
+
     def clear_drawings(self):
         self.sketch_curve.clear()
         self.redraw_self()
 
+    def get_image_type(self):
+        if self.gui.show_rgb_button.checkState():
+            if self.gui.show_edge_button.checkState():
+                if self.gui.show_mask_button.checkState():
+                    return "rgb_edge_mask"
+                else:
+                    return "rgb_edge"
+            elif self.gui.show_mask_button.checkState():
+                return "rgb_mask"
+            else:
+                return "rgb"
+        if self.gui.show_edge_button.checkState():
+            return "edge"
+        elif self.gui.show_mask_button.checkState():
+            return "mask"
+        elif self.gui.show_opt_flow_button.checkState():
+            return "flow"
+        elif self.gui.show_depth_button.checkState():
+            return "depth"
+
+        return "none"
+
     def new_curve(self):
         if self.crv is None:
             return
-        
+
         self.sketch_curve.write_json("save_crv.json")
         mask_id = f"{self.mask_id_number.slider.maximum()}"
         self.last_index = self.handle_filenames.add_mask_id(self.last_index, mask_id)
@@ -544,7 +567,11 @@ class SketchCurvesMainWindow(QMainWindow):
 
                 self.set_crv(params=None)
 
-                self.glWidget.bind_texture(self.images)
+                self.glWidget.images.bind_texture(rgb_image=self.images["rgb"],
+                                                  edge_image=self.images["edge"],
+                                                  flow_image=self.images["flow"],
+                                                  mask_image=self.images["mask"],
+                                                  depth_image=self.images["depth"])
                 self.set_corners()
                 self.redraw_self()
         self.in_read_images = False

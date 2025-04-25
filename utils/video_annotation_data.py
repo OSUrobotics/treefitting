@@ -167,6 +167,7 @@ class VideoAnnotationData(FileNames):
             video_annotation_instance = VideoAnnotationData("")
 
         video_annotation_instance.super().read_json(json_dict["file_name_data"])
+        # Just make sure this comes after above
         video_annotation_instance.keyframes = []
         for kf in json_dict["keyframe_data"]:
             video_annotation_instance.keyframes.append(KeyFrameData.read_json(kf))
@@ -203,7 +204,7 @@ class VideoAnnotationData(FileNames):
                 im_name = str.split(n, "/")[-1]
                 copyfile(n, dest_path + "/" + im_name)
         else:
-            dest_path = dest_path + "/" + tree_name
+            dest_path = dest_path + tree_name + "/"
 
         all_fnames = FileNames(path=dest_path, img_type="png")
         all_fnames.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
@@ -215,12 +216,26 @@ class VideoAnnotationData(FileNames):
 
 
 if __name__ == '__main__':
+    import json
+
     src_box_path = "/Users/grimmc/Library/CloudStorage/Box-Box/"
     # src_box_path = "/Users/grimmc/MyBox/"
     dest_path = "/Users/grimmc/PycharmProjects/data/EnvyTree/"
     src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
     src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2"
     tree_name = "BP_R1_East_tree2"
-    va = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=True)
+    # fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
+
+    va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
+    va.start_index = 0
+    va.end_index = 115
+    va.skip_index = 10
+
+    va_fname = dest_path + tree_name + "/video_annot.json"
+    with open(va_fname, "w") as f:
+        json.dump(va.write_json(), f, indent=2)
+
+
+
 
 

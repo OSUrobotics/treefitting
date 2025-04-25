@@ -14,7 +14,7 @@ class FileNames(FileNamesSubDirs):
         """Make directories/filenames
         @param path: the top level path
         @param img_type: the .png or .jpg or whatever"""
-        super().__init__(self, path=path, img_type=img_type)
+        super().__init__(path=path, img_type=img_type)
 
     def n_images(self):
         """ How many images total?"""
