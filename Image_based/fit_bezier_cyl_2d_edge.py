@@ -243,7 +243,7 @@ class FitBezierCyl2DEdge:
         # Size of the rectangle(s) to cutout is based on the step size and the radius
         height = int(bezier_crv.radius(0.5))
         rect_destination = np.array([[0, 0], [step_size, 0], [step_size, height], [0, height]], dtype="float32")
-        rects, ts = bezier_crv.boundary_rects(step_size=step_size, perc_width=perc_width)
+        rects, ts = bezier_crv.boundary_rects_image(step_size=step_size, perc_width=perc_width)
 
         """ If you need to, pring out the edge boundary image
         im_rgb = cv2.cvtColor(im_edge, cv2.COLOR_GRAY2RGB)

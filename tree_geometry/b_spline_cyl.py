@@ -45,6 +45,78 @@ class BSplineCyl(BSplineCurve):
         self.radii_crv.reverse_direction()
         super().reverse_direction()
 
+    def _rect_corners_edges(self, t1, t2, perc_width=0.3):
+        """ Get two rectangles covering the expected left/right edges of the cylinder/tube
+        left rectangles start with the t = t1 inner point, then move clockwise
+        right rectangles start with the t= t2 inner point, then move clockwise
+        @param t1 starting t value
+        @param t2 ending t value
+        @param perc_width How much of the radius to move in/out of the edge
+        @returns two rectangles as 4x2 numpy arrays"""
+        edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), 1.0 - perc_width)
+        edge_left_outer = self.edge_pts(np.linspace(t1, t2, 2), 1.0 + perc_width)
+        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
+        edge_right_outer = self.edge_pts(np.linspace(t1, t2, 2), -1.0 - perc_width)
+
+        rect_left = np.zeros((4, 2), dtype="float32")
+        rect_right = np.zeros((4, 2), dtype="float32")
+
+        rect_left[0, :] = edge_left_inner[0]
+        rect_left[1, :] = edge_left_outer[0]
+        rect_left[2, :] = edge_left_outer[1]
+        rect_left[3, :] = edge_left_inner[1]
+
+        rect_right[0, :] = edge_right_inner[1]
+        rect_right[1, :] = edge_right_outer[1]
+        rect_right[2, :] = edge_right_outer[0]
+        rect_right[3, :] = edge_right_inner[0]
+
+        return rect_left, rect_right
+
+    def _rect_corners_interior(self, t1, t2, perc_width=0.3):
+        """ Get a rectangle covering the expected interior of the cylinder
+           Rectangle starts at t = t1, left side, and goes clockwise
+        @param t1 starting t value
+        @param t2 ending t value
+        @param perc_width How much of the radius to move in/out of the edge
+        @returns rectangle as 4x2 numpy array"""
+        edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), perc_width)
+        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
+
+        rect = np.zeros((4, 2), dtype="float32")
+        rect[0, :] = edge_left_inner[0]
+        rect[1, :] = edge_left_inner[1]
+        rect[2, :] = edge_right_inner[1]
+        rect[3, :] = edge_right_inner[0]
+
+        return rect
+
+    def edge_rects(self, ts, perc_width=0.3):
+        """ Get a set of rectangles covering the left/right expected edges of the cylinder/tube
+           March along the edges at the given image step size and produce rectangles in pairs
+        @param ts t values for the boundaries
+        @param perc_width How much of the radius to move in/out of the edge
+        @returns a list of pairs of left,right rectangles - evens are left, odds right"""
+
+        rects = []
+        for t1, t2 in zip(ts[0:-1], ts[1:]):
+            rect_left, rect_right = self._rect_corners_edges(t1, t2, perc_width=perc_width)
+            rects.append(rect_left)
+            rects.append(rect_right)
+        return rects
+
+    def interior_rects(self, ts, perc_width=0.3):
+        """ March along the interior of the tube and produce one rectangle for approximately step_size image pixels
+        @param ts t values for the boundaries
+        @param perc_width How much of the radius to move in/out of the edge
+        @return a list of rectangles covering the interior
+        """
+        rects = []
+        for t1, t2 in zip(ts[0:-1], ts[1:]):
+            rect = self._rect_corners_interior(t1, ts, perc_width=perc_width)
+            rects.append(rect)
+        return rects, ts
+
     def radius(self, t: Union[float, np.ndarray]):
         """Return radius at a point t along the spline
         @param t - the t value in 0, max_t"""

@@ -250,7 +250,7 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glLineWidth(2)
         if self.gui.show_interior_rects_button.checkState():
-            rects, _ = crv.interior_rects(self.gui.step_size.value(), self.gui.width_inside.value())
+            rects, _ = crv.interior_rects_image(self.gui.step_size.value(), self.gui.width_inside.value())
             col_incr = 1.0 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(i * col_incr, 0.8, 0.8)
@@ -261,7 +261,7 @@ class DrawSpline3D(QOpenGLWidget):
                 GL.glEnd()
 
         if self.gui.show_edge_rects_button.checkState():
-            rects, _ = crv.boundary_rects(self.gui.step_size.value(), self.gui.width_edge.value())
+            rects, _ = crv.boundary_rects_image(self.gui.step_size.value(), self.gui.width_edge.value())
             col_incr = 0.5 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(0.5 + i * col_incr, 0.3 + (i % 2) * 0.3, 0.5 + i * col_incr)

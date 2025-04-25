@@ -27,7 +27,6 @@ from tree_geometry.b_spline_cyl import BSplineCyl
 #from draw_routines.image_draw_geom_utils import LineSeg2D
 
 
-
 class BSplineCylImage(BSplineCyl):
     def __init__(self, ctrl_pts: Union[list[np.ndarray], np.ndarray, list[list]], degree: str = "quadratic", radii: Union[float, list[float]] = 1.0) -> None:
         """BSpline with radii initialization
@@ -87,25 +86,7 @@ class BSplineCylImage(BSplineCyl):
             return False
         return True
 
-    def _rect_corners_interior(self, t1, t2, perc_width=0.3):
-        """ Get a rectangle covering the expected interior of the cylinder
-           Rectangle starts at t = t1, left side, and goes clockwise
-        @param t1 starting t value
-        @param t2 ending t value
-        @param perc_width How much of the radius to move in/out of the edge
-        @returns rectangle as 4x2 numpy array"""
-        edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), perc_width)
-        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
-
-        rect = np.zeros((4, 2), dtype="float32")
-        rect[0, :] = edge_left_inner[0]
-        rect[1, :] = edge_left_inner[1]
-        rect[2, :] = edge_right_inner[1]
-        rect[3, :] = edge_right_inner[0]
-
-        return rect
-
-    def boundary_rects(self, step_size=40, perc_width=0.3, offset=False):
+    def edge_rects_image(self, step_size=40, perc_width=0.3, offset=False):
         """ Get a set of rectangles covering the left/right expected edges of the cylinder/tube
            March along the edges at the given image step size and produce rectangles in pairs
         @param step_size how many pixels to move along the boundary
@@ -114,7 +95,7 @@ class BSplineCylImage(BSplineCyl):
         @returns a list of pairs of left,right rectangles - evens are left, odds right"""
 
         t_step = self._time_step_from_im_step(step_size)
-        n_boxes = int(max(self.max_t(), 1.0 / t_step))
+        n_boxes = int(max(1, 1.0 / t_step))
         t_step_exact = self.max_t() / n_boxes
         left_rects = []
         right_rects = []
@@ -124,7 +105,7 @@ class BSplineCylImage(BSplineCyl):
             t_start = 0.5 * t_step_exact
             t_end = self.max_t() - 0.5 * t_step_exact
 
-        ts = np.linspace(0.0, self.max_t(), n_boxes)
+        ts = np.linspace(t_start, t_end, n_boxes)
 
         left_edge_pts_outer = self.edge_pts(ts, 1.0 + perc_width)
         left_edge_pts_inner = self.edge_pts(ts, 1.0 - perc_width)
@@ -139,7 +120,7 @@ class BSplineCylImage(BSplineCyl):
             right_rects.append(right_rect)
         return left_rects, right_rects, ts
 
-    def interior_rects(self, step_size=40, perc_width=0.3):
+    def interior_rects_image(self, step_size=40, perc_width=0.3):
         """ March along the interior of the tube and produce one rectangle for approximately step_size image pixels
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
@@ -147,17 +128,13 @@ class BSplineCylImage(BSplineCyl):
         """
         t_step = self._time_step_from_im_step(step_size)
         n_boxes = max(1, int(self.max_t() / t_step))
-        t_step_exact = self.max_t() / n_boxes
-        rects = []
-
         ts = np.linspace(0.0, self.max_t(), n_boxes)
-        left_edge_pts = self.edge_pts(ts,  perc_width)
-        right_edge_pts = self.edge_pts(ts, -perc_width)
-        for i in range(0, ts.shape[0]-1):
-            # go clockwise, starting with the t = t, left point
-            rect = [left_edge_pts[i], left_edge_pts[i+1], right_edge_pts[i+1], right_edge_pts[i]]
-            rects.append(rect)
-        return rects, ts
+        rects = self.interior_rects(ts, perc_width)
+
+        ts_ret = []
+        for t1, t2 in zip(ts[0:-1], ts[1:]):
+            ts_ret.append(0.5 * (t1 + t2))
+        return rects, ts_ret
 
     def interior_rects_mask(self, image_shape, step_size=40, perc_width=0.3):
         """ Overlay the interior rectangles on the image and set any pixels in the interior of the rectangle
@@ -167,11 +144,14 @@ class BSplineCylImage(BSplineCyl):
         @param perc_width How much of the radius to move in/out of the edge. 0.5 will cover entire cylinder
         @return image with pixels set to 256 where quad covers them
         """
-        rects, _ = self.interior_rects(step_size=step_size, perc_width=perc_width)
+        rects, _ = self.interior_rects_image(step_size=step_size, perc_width=perc_width)
 
         ret_im_mask = np.zeros(image_shape, dtype=bool)
         for r in rects:
             self.draw_rect_filled(ret_im_mask, r)
+        for t in np.arange(0, self.max_t(), step=t_step_exact):
+            rect = self._rect_corners_interior(t, t + t_step_exact, perc_width=perc_width)
+            self.draw_rect_filled(ret_im_mask, rect)
 
         return ret_im_mask
 
@@ -273,13 +253,18 @@ class BSplineCylImage(BSplineCyl):
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
-        left_rects, right_rects, _ = self.boundary_rects(step_size, perc_width)
+        left_rects, right_rects, _ = self.edge_rects_image(step_size, perc_width)
         col_incr = 255 // len(left_rects)
         for i, (lr, rr) in enumerate(zip(left_rects, right_rects)):
             left_col = (i * col_incr, 100, i * col_incr)
             self.draw_edge_rect(im, lr, col=left_col)
             right_col = (i * col_incr, 200, i * col_incr)
             self.draw_edge_rect(im, rr, col=right_col)
+        rects, _ = self.edge_rects_image(step_size, perc_width)
+        col_incr = 255 // len(rects)
+        for i, r in enumerate(rects):
+            col = (i * col_incr, 100 + (i % 2) * 100, i * col_incr)
+            self.draw_edge_rect(im, r, col=col)
 
     def draw_edge_rects_markers(self, im, step_size=40, perc_width=0.3):
         """ Draw the edge rectangles
@@ -287,7 +272,8 @@ class BSplineCylImage(BSplineCyl):
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
-        left_rects, right_rects, _ = self.boundary_rects(step_size, perc_width)
+        left_rects, right_rects, _ = self.edge_rects_image(step_size, perc_width)
+        rects, _ = self.edge_rects_image(step_size, perc_width)
         s1 = 0.25
         s2 = 0.5
         t = 0.25
@@ -315,7 +301,7 @@ class BSplineCylImage(BSplineCyl):
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
-        rects, _ = self.interior_rects(step_size, perc_width)
+        rects, _ = self.interior_rects_image(step_size, perc_width)
         col_incr = 255 // len(rects)
         for i, r in enumerate(rects):
             col = (i * col_incr, 100 + (i % 2) * 100, i * col_incr)
@@ -329,7 +315,7 @@ class BSplineCylImage(BSplineCyl):
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
-        rects, _ = self.interior_rects(step_size, perc_width)
+        rects, _ = self.interior_rects_image(step_size, perc_width)
         col_incr = 128 // len(rects)
         for i, r in enumerate(rects):
             if b_solid:
@@ -346,12 +332,15 @@ class BSplineCylImage(BSplineCyl):
         @param step_size how many pixels to move along the boundary
         @param perc_width How much of the radius to move in/out of the edge
         """
-        left_rects, right_rects, _ = self.boundary_rects(step_size, perc_width)
+        left_rects, right_rects, _ = self.edge_rects_image(step_size, perc_width)
         col_incr = 128 // len(left_rects)
         for i, (lr, rr) in enumerate(zip(left_rects, right_rects)):
+        rects, _ = self.edge_rects_image(step_size, perc_width)
+        col_incr = 128 // len(rects)
+        for i, r in enumerate(rects):
             if b_solid:
                 col = col_solid
-            else:                
+            else:
                 col = (128 + i * col_incr, 100 + (i % 2) * 50, 128 + i * col_incr)
             self.draw_rect_filled(im, lr, col=col)
             self.draw_rect_filled(im, rr, col=col)
@@ -392,9 +381,7 @@ if __name__ == '__main__':
     for i_row, crv in enumerate([bspline_crv_horiz, bspline_crv_vert]):
         im_debug = np.zeros((im_height, im_width, 3), np.uint8)
         crv.draw_curve(im_debug)
-        crv.draw_boundary(im_debug, step_size=step_size)
         crv.draw_edge_rects(im_debug, step_size=step_size, perc_width=perc_width_edge)
-        crv.draw_boundary(im_debug, step_size=step_size)
         crv.draw_interior_rects(im_debug, step_size=step_size, perc_width=perc_width_interior)
         axs[i_row, 0].imshow(im_debug)
         axs[i_row, 0].set_title(f"{crv.orientation()}")

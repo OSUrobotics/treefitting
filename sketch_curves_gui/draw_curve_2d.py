@@ -20,12 +20,18 @@ class DrawCurve2D():
 
         self.selected_point = 0
 
-        self.crvs = []
-
         self.firstPos = QPoint()
         self.lastPos = QPoint()
 
-        self.show = True
+        # Number of points per segment
+        self.n_pts_backbone = 8
+        self.n_rects_edge = 6
+        self.width_edge_rect = 0.2
+        self.n_rects_interior = 6
+        self.perc_interior_rect = 0.2
+        self.show_backbone = True
+        self.show_edge_rects = True
+        self.show_interior_rects = True
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
@@ -36,54 +42,79 @@ class DrawCurve2D():
         pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
         return pts
 
-    def draw_crv_2d(self, crv, b_draw_backbone=True, width_edge_rects=0.0, b_draw_interior_rects=False):
+    def draw_backbone(self, crv):
         """ Draw a Bezier or bspline curve
         @param crv one of the two curve types"""
 
+        if not self.show_backbone:
+            return
+
         GL.glDisable(GL.GL_LIGHTING)
-        if b_draw_backbone:
-            GL.glLineWidth(4)
-            n_pts_quad = 6
-            try:
-                ts = np.linspace(0, crv.max_t(), n_pts_quad * int(crv.max_t()))
-                pts = crv.eval_crv(ts)
-                edge_pts_left = crv.edge_pts(ts, 1.0)
-                edge_pts_right = crv.edge_pts(ts, -1.0)
+        GL.glLineWidth(4)
+        try:
+            ts = np.linspace(0, crv.max_t(), self.n_pts_backbone * int(crv.max_t()))
+            pts = crv.eval_crv(ts)
+            edge_pts_left = crv.edge_pts(ts, 1.0)
+            edge_pts_right = crv.edge_pts(ts, -1.0)
 
-            except AttributeError:
-                pts = crv.pt_axis(np.linspace(0, 1, n_pts_quad))
-                edge_pts_left = np.zeros((n_pts_quad, 2))
-                edge_pts_right = np.zeros((n_pts_quad, 2))
-                for i, t in enumerate(np.linspace(0, 1, n_pts_quad)):
-                    edge_pts_left[i, :], edge_pts_right[i, :] = crv.edge_pts(t)
+        except AttributeError:
+            pts = crv.pt_axis(np.linspace(0, 1, self.n_pts_backbone))
+            edge_pts_left = np.zeros((self.n_pts_backbone, 2))
+            edge_pts_right = np.zeros((self.n_pts_backbone, 2))
+            for i, t in enumerate(np.linspace(0, 1, self.n_pts_backbone)):
+                edge_pts_left[i, :], edge_pts_right[i, :] = crv.edge_pts(t)
 
+        GL.glBegin(GL.GL_LINE_STRIP)
+        col_start = 0.5
+        col_div = 0.5 / (len(pts) - 1.0)
+        pts_backbone = self.convert_pts(pts)
+        for p in pts_backbone:
+            GL.glColor3d(col_start, col_start, col_start)
+            GL.glVertex2d(p[0], p[1])
+            col_start += col_div
+        GL.glEnd()
+
+        edge_pts_left = self.convert_pts(edge_pts_left)
+        edge_pts_right = self.convert_pts(edge_pts_right)
+
+        GL.glLineWidth(3)
+        for pts in (edge_pts_left, edge_pts_right):
+            col_start = 0.25
+            col_div = 0.75 / (len(pts) - 1.0)
             GL.glBegin(GL.GL_LINE_STRIP)
-            col_start = 0.5
-            col_div = 0.5 / (n_pts_quad - 1.0)
-            pts_backbone = self.convert_pts(pts)
-            for p in pts_backbone:
+            for p in pts:
                 GL.glColor3d(col_start, col_start, col_start)
                 GL.glVertex2d(p[0], p[1])
                 col_start += col_div
             GL.glEnd()
 
-            edge_pts_left = self.convert_pts(edge_pts_left)
-            edge_pts_right = self.convert_pts(edge_pts_right)
+    def draw_edge_rects(self, crv):
+            """ Draw the edge rectangles
+            @param crv one of the two curve types"""
 
-            GL.glLineWidth(3)
-            for pts in (edge_pts_left, edge_pts_right):
-                col_start = 0.25
-                col_div = 0.75 / (n_pts_quad - 1.0)
-                GL.glBegin(GL.GL_LINE_STRIP)
-                for p in pts:
-                    GL.glColor3d(col_start, col_start, col_start)
-                    GL.glVertex2d(p[0], p[1])
-                    col_start += col_div
-                GL.glEnd()
+        if not self.show_edge_rects:
+            return
 
+        GL.glDisable(GL.GL_LIGHTING)
+        GL.glLineWidth(4)
+
+        try:
+            ts = np.linspace(0, crv.max_t(), self.n_rects_edge * int(crv.max_t()))
+            rects_left, rects_right = crv.
+            pts = crv.eval_crv(ts)
+            edge_pts_left = crv.edge_pts(ts, 1.0)
+            edge_pts_right = crv.edge_pts(ts, -1.0)
+
+        except AttributeError:
+
+            rects, _ = crv.boundary_rects_image(int(self.im_size[0] / self.n_rects_edge), self.width_edge_rect)
+            rects_left = rects[0:2:]
+            rects_right = rects[1:2:]
+
+            GL.glBegin(GL.GL_LINE_STRIP)
         GL.glLineWidth(2)
         if width_edge_rects > 0.0:
-            rects, _ = crv.interior_rects(self.gui.step_size.value(), self.gui.width_inside.value())
+            rects, _ = crv.interior_rects_image(self.gui.step_size.value(), self.gui.width_inside.value())
             col_incr = 1.0 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(i * col_incr, 0.8, 0.8)
@@ -94,7 +125,7 @@ class DrawCurve2D():
                 GL.glEnd()
 
         if self.gui.show_edge_rects_button.checkState():
-            rects, _ = crv.boundary_rects(self.gui.step_size.value(), self.gui.width_edge.value())
+            rects, _ = crv.boundary_rects_image(self.gui.step_size.value(), self.gui.width_edge.value())
             col_incr = 0.5 // len(rects)
             for i, r in enumerate(rects):
                 GL.glColor3f(0.5 + i * col_incr, 0.3 + (i % 2) * 0.3, 0.5 + i * col_incr)

@@ -127,7 +127,7 @@ class FitBezierCyl3dDepth:
 
         # Fuzzy rectangles along the boundary
         n_pixs = int(crv_2d.curve_length() * params["perc_along_depth"])
-        rects, _ = crv_2d.interior_rects(step_size=n_pixs, perc_width=params["perc_width_depth"])
+        rects, _ = crv_2d.interior_rects_image(step_size=n_pixs, perc_width=params["perc_width_depth"])
 
         ts = np.linspace(0, 1, len(rects) + 1)
 
