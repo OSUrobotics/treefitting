@@ -453,7 +453,7 @@ if __name__ == "__main__":
 
             assert crv_check.degree_name() == deg_check
 
-            fname = "../Image_based/data/test_bspline_crv.txt"
+            fname = "test_bspline_crv.txt"
             crv_check_duplicate = BSplineCurve(crv_check.points(), degree=deg_check)
             with open(fname, "w") as f:
                 json.dump(crv_check.write_json(), f, indent=2)

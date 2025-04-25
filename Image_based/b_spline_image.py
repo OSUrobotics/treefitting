@@ -129,7 +129,7 @@ class BSplineCylImage(BSplineCyl):
         t_step = self._time_step_from_im_step(step_size)
         n_boxes = max(1, int(self.max_t() / t_step))
         ts = np.linspace(0.0, self.max_t(), n_boxes)
-        rects = self.interior_rects(ts, perc_width)
+        rects, _ = self.interior_rects(ts, perc_width)
 
         ts_ret = []
         for t1, t2 in zip(ts[0:-1], ts[1:]):
@@ -214,7 +214,7 @@ class BSplineCylImage(BSplineCyl):
                 col_start += col_div
 
     @staticmethod
-    def draw_edge_rect(im, rect, col=(50, 255, 255)):
+    def draw_rect_edge(im, rect, col=(50, 255, 255)):
         """ Draw a rectangle in the image
         @param im - the image
         @param col - rgb color as triple 0-255
@@ -257,14 +257,9 @@ class BSplineCylImage(BSplineCyl):
         col_incr = 255 // len(left_rects)
         for i, (lr, rr) in enumerate(zip(left_rects, right_rects)):
             left_col = (i * col_incr, 100, i * col_incr)
-            self.draw_edge_rect(im, lr, col=left_col)
+            self.draw_rect_edge(im, lr, col=left_col)
             right_col = (i * col_incr, 200, i * col_incr)
-            self.draw_edge_rect(im, rr, col=right_col)
-        rects, _ = self.edge_rects_image(step_size, perc_width)
-        col_incr = 255 // len(rects)
-        for i, r in enumerate(rects):
-            col = (i * col_incr, 100 + (i % 2) * 100, i * col_incr)
-            self.draw_edge_rect(im, r, col=col)
+            self.draw_rect_edge(im, rr, col=right_col)
 
     def draw_edge_rects_markers(self, im, step_size=40, perc_width=0.3):
         """ Draw the edge rectangles
@@ -305,7 +300,7 @@ class BSplineCylImage(BSplineCyl):
         col_incr = 255 // len(rects)
         for i, r in enumerate(rects):
             col = (i * col_incr, 100 + (i % 2) * 100, i * col_incr)
-            self.draw_edge_rect(im, r, col=col)
+            self.draw_rect_edge(im, r, col=col)
 
     def draw_interior_rects_filled(self, im, b_solid=True, col_solid=(255, 255, 255), step_size=40, perc_width=0.5):
         """ Draw the edge rectangles
@@ -335,9 +330,6 @@ class BSplineCylImage(BSplineCyl):
         left_rects, right_rects, _ = self.edge_rects_image(step_size, perc_width)
         col_incr = 128 // len(left_rects)
         for i, (lr, rr) in enumerate(zip(left_rects, right_rects)):
-        rects, _ = self.edge_rects_image(step_size, perc_width)
-        col_incr = 128 // len(rects)
-        for i, r in enumerate(rects):
             if b_solid:
                 col = col_solid
             else:

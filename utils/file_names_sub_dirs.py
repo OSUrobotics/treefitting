@@ -402,7 +402,11 @@ class FileNamesSubDirs:
 
     def write_json(self):
         """Create a dictionary and return it"""
-        my_dict = {"Name": "FileNamesSubDirs", "data" : self.__dict__}
+        foo = FileNamesSubDirs(self.path)
+        
+        my_dict = {"Name": "FileNamesSubDirs", "data" : {}}
+        for k, v in foo.__dict__.items():
+            my_dict["data"][k] = self.__dict__[k]
         return my_dict
 
     @staticmethod
@@ -420,6 +424,33 @@ class FileNamesSubDirs:
             setattr(file_names_sub_instance, k, v)
 
         return file_names_sub_instance
+
+    def create_edge_images(self, b_use_optical_flow=False):
+        """ Create edge images if they don't already exist
+        @param b_use_optical_flow - if optical flow exists, use optical flow image to create edge image"""
+
+        import cv2
+        from os.path import exists
+        for im_indx in self.loop_images():
+            # Read in the RGB or optical flow image
+            fname_opt_flow = self.get_flow_image_name(im_indx, b_add_tag=True)
+            fname_edge = self.get_edge_name(im_indx, b_add_tag=True)
+            fname_rgb = self.get_image_name(im_indx, b_add_tag=True)
+            if exists(fname_edge):
+                continue
+            im = None
+            if b_use_optical_flow and exists(fname_opt_flow):
+                im = cv2.imread(fname_opt_flow)
+            elif exists(fname_rgb):
+                im = cv2.imread(fname_rgb)
+            else:
+                continue
+
+            # Now calculate the edge image
+            im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+            image_edge = cv2.Canny(im_gray, 50, 150, apertureSize=3)
+            cv2.imwrite(fname_edge, image_edge)
+
 
 def example_pull_with_skip(n_skip=10, image_tag="jpg"):
 

@@ -113,7 +113,7 @@ class BSplineCyl(BSplineCurve):
         """
         rects = []
         for t1, t2 in zip(ts[0:-1], ts[1:]):
-            rect = self._rect_corners_interior(t1, ts, perc_width=perc_width)
+            rect = self._rect_corners_interior(t1, t2, perc_width=perc_width)
             rects.append(rect)
         return rects, ts
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
         assert np.isclose(edge_pts_right[ind][1], cntrl_hull_straight_radius * -0.5)
 
     import json
-    fname = "../Image_based/data/test_bspline_cyl.txt"
+    fname = "test_bspline_cyl.txt"
     with open(fname, "w") as f:
         json.dump(crv_straight.write_json(), f, indent=2)
 

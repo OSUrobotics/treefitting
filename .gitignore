@@ -6,6 +6,8 @@ __pycache__/
 .idea
 .env
 .DS*
+*.txt
+*.json
 
 # data
 /Image_based/data/forcindy/CalculatedData/

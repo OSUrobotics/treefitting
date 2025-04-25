@@ -62,8 +62,8 @@ class VideoAnnotationData(FileNames):
         @return None"""
         # No subdirectory, set to be blank
         self.sub_dirs = [""]
-        self.image_names = []
-        self.mask_ids = []
+        self.image_names = [[]]
+        self.mask_ids = [[]]
         # This function does the hard work
         image_names = self._find_files(self.path, name_filter=name_filter)
 
@@ -74,10 +74,10 @@ class VideoAnnotationData(FileNames):
         if end_index == -1:
             self.end_index = len(image_names)
         for indx in range(self.start_index, self.end_index, skip_index):
-            self.image_names.append(image_names[indx])
-            self.mask_ids.append([])
+            self.image_names[0].append(image_names[indx])
+            self.mask_ids[0].append([])
             for mn in self.mask_names:
-                self.mask_ids[-1].append([])
+                self.mask_ids[0][-1].append([])
 
         self.keyframes = [KeyFrameData(im_name) for im_name in self.image_names]
 
@@ -148,7 +148,7 @@ class VideoAnnotationData(FileNames):
     def write_json(self):
         """Create a dictionary and return it"""
         my_dict = {"Name": "Video_annotation_data",
-                   "file_name_data" : super().__dict__,
+                   "file_name_data" : super().write_json(),
                    "keyframe_data" : [kf.write_json() for kf in self.keyframes],
                    "start_index" : self.start_index,
                    "end_index" : self.end_index,
@@ -166,7 +166,7 @@ class VideoAnnotationData(FileNames):
         if not video_annotation_instance:
             video_annotation_instance = VideoAnnotationData("")
 
-        video_annotation_instance.super().read_json(json_dict["file_name_data"])
+        FileNames.read_json(json_dict["file_name_data"], video_annotation_instance)
         # Just make sure this comes after above
         video_annotation_instance.keyframes = []
         for kf in json_dict["keyframe_data"]:
@@ -212,8 +212,9 @@ class VideoAnnotationData(FileNames):
 
         all_fnames = FileNames(path=dest_path, img_type="png")
         all_fnames.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
-        all_fnames.add_sub_directories()
+        all_fnames.add_directory(name_filter="rgb")
         fname_write = dest_path + "/all_fnames.json"
+        all_fnames.image_name = ""
         with open(fname_write, "w") as f:
             json.dump(all_fnames.write_json(), f, indent=2)
         return all_fnames
@@ -231,18 +232,20 @@ if __name__ == '__main__':
     src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
     src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2"
     tree_name = "BP_R1_East_tree2"
-    fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=True)
+    # fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
 
     va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
-    va.start_index = 0
-    va.end_index = 115
-    va.skip_index = 10
+
+    va.add_directory(name_filter="rgb", start_index=0, end_index=115, skip_index=10)
 
     va_fname = dest_path + tree_name + "/video_annot.json"
     with open(va_fname, "w") as f:
-        json.dump(va.write_json(), f, indent=2)
+        my_dict = va.write_json()
+        json.dump(my_dict, f, indent=2)
 
-
+    with open(va_fname, "r") as f:
+        my_dict = json.load(f)
+        va_back = VideoAnnotationData.read_json(my_dict)
 
 
 
