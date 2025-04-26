@@ -2,35 +2,18 @@
 
 import json
 
-import os
-"""
-import sys
-sys.path.insert(0, os.path.abspath('./'))
-sys.path.insert(0, os.path.abspath('./Image_based'))
-sys.path.insert(0, os.path.abspath('./Utilities'))
-sys.path.insert(0, os.path.abspath('./utils'))
-sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
-sys.path.insert(0, os.path.abspath('./fit_routines'))
-sys.path.insert(0, os.path.abspath('./tree_geometry'))
-sys.path.insert(0, os.path.abspath('../'))
-sys.path.insert(0, os.path.abspath('../Image_based'))
-sys.path.insert(0, os.path.abspath('../Utilities'))
-sys.path.insert(0, os.path.abspath('../utils'))
-sys.path.insert(0, os.path.abspath('../tree_geometry'))
-sys.path.insert(0, os.path.abspath('../sketch_curves_gui'))
-sys.path.insert(0, os.path.abspath('../fit_routines'))
-"""
 from os.path import exists
 
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit, QSizePolicy
+
 import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
-from opengl_draw_window import DrawSpline3D
-from utils.FileNames import FileNames
+from opengl_draw_window import OopenGLDrawWindow
+from utils.file_names import FileNames
 
 from Image_based.extract_curves import ExtractCurves
 from Image_based.fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
@@ -53,8 +36,6 @@ class SketchCurvesMainWindow(QMainWindow):
         # The layout of the interface
         widget = QWidget()
         self.setCentralWidget(widget)
-        self.lower_left = [0, 0]
-        self.upper_right = [1, 1]
 
         # Two side-by-side panes
         top_level_layout = QHBoxLayout()
@@ -79,7 +60,7 @@ class SketchCurvesMainWindow(QMainWindow):
         if exists("save_crv.json"):
             with open("save_crv.json", 'r') as f:
                 my_data = json.load(f)
-                self.sketch_curve = SketchesForCurves.read_json(my_data)
+                self.sketch_curve = SketchedCurve.read_json(my_data)
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -89,8 +70,8 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("/Users/cindygrimm/PycharmProjects/treefitting/Image_based/data/EnvyTree/")
-        self.file_name = QLineEdit("envy_fnames.json")
+        self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
+        self.file_name = QLineEdit("forcindy_fnames.json")
         # self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
         # self.file_name = QLineEdit("bush_9_west_2_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
@@ -174,7 +155,7 @@ class SketchCurvesMainWindow(QMainWindow):
     # Drawing screen and quit button
     def _init_middle_layout_(self):
         # The display for the robot drawing
-        self.glWidget = DrawSpline3D(self)
+        self.glWidget = OopenGLDrawWindow(self)
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -407,15 +388,41 @@ class SketchCurvesMainWindow(QMainWindow):
         self.edge_max.set_value(self.extract_crv.params["edge_max"])
         self.n_per_seg.set_value(self.extract_crv.params["n_per_seg"])
 
+    def set_draw_params_from_sliders(self):
+        """ Set all the draw drawing parameters from the sliders"""
+        # Image
+        self.glWidget.draw_images.draw_tex = self.get_image_type()
+
+        # 2D Drawing
+        self.glWidget.draw_curve_2d.show_backbone = self.show_backbone_button.value()
+        self.glWidget.draw_curve_2d.show_edge_rects = self.show_edge_rects_button.value()
+        self.glWidget.draw_curve_2d.show_interior_rects = self.show_interior_rects_button.value()
+        self.glWidget.draw_curve_2d.show_profile_curves = self.show_profiles_button.value()
+
+        self.glWidget.draw_curve_2d.perc_interior_rect = self.width_inside.value()
+        self.glWidget.draw_curve_2d.width_edge_rect = self.width_edge.value()
+
+        self.glWidget.draw_curve_2d.show_sketched_curve = self.show_sketch_crv_button.value()
+
+        # 3d Drawing
+        self.glWidget.draw_curve_3d.show = self.show_3d_crv_button.value()
+        self.glWidget.draw_curve_3d.show_mesh = self.show_3d_crv_axis_button.value()
+
+        self.glWidget.draw_curve_3d.n_around = self.n_around.value()
+        self.glWidget.draw_curve_3d.n_along = self.n_along.value()
+
     def get_file_name_tuple(self):
         return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
 
     def read_file_names(self):
         fname = self.path_name.text() + self.file_name.text()
-        self.handle_filenames = FileNames.read_filenames(fname, path=self.path_name.text())
-        self.reset_file_menus()
-        self.read_images()
-        self.reset_params_menus()
+        if exists(fname):
+            with open(fname, "r") as f:
+                my_dict = json.load(f)
+                self.handle_filenames = FileNames.read_json(my_dict)
+                self.reset_file_menus()
+                self.read_images()
+                self.reset_params_menus()
 
         if self.crv:
             width_rgb_image = self.crv.image_rgb.shape[1]
@@ -424,7 +431,6 @@ class SketchCurvesMainWindow(QMainWindow):
 
             w = self.glWidget.width()
             h = int(aspect_ratio * w)
-
 
             self.glWidget.resize(w, h)
 
@@ -456,7 +462,6 @@ class SketchCurvesMainWindow(QMainWindow):
 
     def refit_edges(self):
         pass
-
 
     def clear_drawings(self):
         self.sketch_curve.clear()
@@ -522,8 +527,8 @@ class SketchCurvesMainWindow(QMainWindow):
         height_window = self.glWidget.height()
 
         # The rectangle of the image in window coordinates
-        self.lower_left = [0, 0]
-        self.upper_right = [width_window, height_window]
+        self.glWidget.draw_curve_2d.lower_left = [0, 0]
+        self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
 
     def set_crv(self, params):
         """Read in the images etc and recalc (or not)
@@ -550,6 +555,15 @@ class SketchCurvesMainWindow(QMainWindow):
                                                   fname_calculated=depth_fname_calculate,
                                                   fname_debug=depth_fname_debug, b_recalc=b_recalc)
 
+    def sketched_curves(self):
+        return [self.sketch_curve]
+
+    def spline_curves(self):
+        return [self.crv]
+
+    def curves_3d(self):
+        return [self.extract_crv]
+
     def read_images(self):
         if self.in_read_images:
             return
@@ -570,14 +584,16 @@ class SketchCurvesMainWindow(QMainWindow):
                 for k, v in self.image_names.items():
                     if exists(v):
                         self.images[k] = cv2.imread(v)
+                    else:
+                        self.images[k] = None
 
                 self.set_crv(params=None)
 
-                self.glWidget.images.bind_texture(rgb_image=self.images["rgb"],
-                                                  edge_image=self.images["edge"],
-                                                  flow_image=self.images["flow"],
-                                                  mask_image=self.images["mask"],
-                                                  depth_image=self.images["depth"])
+                self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
+                                                       edge_image=self.images["edge"],
+                                                       flow_image=self.images["flow"],
+                                                       mask_image=self.images["mask"],
+                                                       depth_image=self.images["depth"])
                 self.set_corners()
                 self.redraw_self()
         self.in_read_images = False

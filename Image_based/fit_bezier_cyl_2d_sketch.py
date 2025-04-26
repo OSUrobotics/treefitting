@@ -13,13 +13,9 @@ import json
 from os.path import exists
 from Image_based.bezier_cyl_2d import BezierCyl2D
 from Image_based.fit_bezier_cyl_2d import FitBezierCyl2D
-from utils.FileNames import FileNames
+from utils.file_names import FileNames
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath('./sketch_curves_gui'))
-
-from Sketches_for_curves import SketchesForCurves
+from utils.sketched_curve import SketchedCurve
 
 
 class FitBezierCyl2DSketch:
@@ -176,22 +172,26 @@ class FitBezierCyl2DSketch:
 
 if __name__ == '__main__':
     path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
-    all_files = FileNames.read_filenames(path=path_bpd_envy, 
-                                         fname="envy_fnames.json")
+    if exists(path_bpd_envy):
+        with open(path_bpd_envy, "r") as f:
+            my_dict = json.load(f)
+            all_files = FileNames.read_json(my_dict)
+
+        mask_index = all_files.add_mask_name("sketch")
+        ret_index_mask_id = all_files.add_mask_id(index=mask_index, mask_id="s1")
 
     # path_bpd = "./data/trunk_segmentation_names.json"
     # path_bpd = "./Image_based/data/forcindy_fnames.json"
     # all_files = FileNames.read_filenames(path_bpd)
-
-    mask_index = all_files.add_mask_name("sketch")
-    ret_index_mask_id = all_files.add_mask_id(index=mask_index, mask_id="s1")
 
     b_do_debug = True
     b_use_optical_flow = False
 
     crv_sketch_name = "save_crv_in_image.json"
     if exists(crv_sketch_name):
-        crv_in_image_coords = SketchesForCurves.read_json(crv_sketch_name)
+        with open(crv_sketch_name, "r") as f:
+            my_dict = json.load(f)
+            crv_in_image_coords = SketchedCurve.read_json(my_dict)
 
         crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(all_files, 
                                                                     crv_in_image_coords,

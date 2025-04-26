@@ -11,9 +11,9 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from draw_routines.image_draw_geom_utils import LineSeg2D
+from draw_routines.image_draw_geom_utils import draw_box, draw_line
 from Image_based.fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
-from utils.FileNames import FileNames
+from utils.file_names import FileNames
 
 
 class ExtractCurves:
@@ -106,8 +106,8 @@ class ExtractCurves:
                 ix = int(pix[0])
                 iy = int(pix[1])
                 try:
-                    LineSeg2D.draw_box(im_covert_back, (ix, iy), color=(255, 0, 0))
-                    LineSeg2D.draw_box(im_rgb, (ix, iy), color=(255, 255, 255))
+                    draw_box(im_covert_back, (ix, iy), color=(255, 0, 0))
+                    draw_box(im_rgb, (ix, iy), color=(255, 255, 255))
                     im_covert_back[ix, iy, :] = (255, 0, 0)
                     im_rgb[ix, iy, :] = (255, 255, 255)
                 except IndexError:
@@ -119,8 +119,8 @@ class ExtractCurves:
                 for pt_e1, pt_e2 in zip(do_both_crv[0:-1], do_both_crv[1:]):
                     pt1 = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(pt_e1[0], pt_e1[1], do_both_name)
                     pt2 = self.bezier_edge.bezier_crv_fit_to_edge.edge_offset_pt(pt_e2[0], pt_e2[1], do_both_name)
-                    LineSeg2D.draw_line(im_covert_back, pt1, pt2, color=(255, 255, 0))
-                    LineSeg2D.draw_line(im_rgb, pt1, pt2, color=(255, 255, 0))
+                    draw_line(im_covert_back, pt1, pt2, color=(255, 255, 0))
+                    draw_line(im_rgb, pt1, pt2, color=(255, 255, 0))
             im_both = np.hstack([im_covert_back, im_rgb])
             cv2.imwrite(fname_debug + "_extract_profiles.png", im_both)
 
@@ -316,26 +316,30 @@ class ExtractCurves:
 
 if __name__ == '__main__':
     path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
-    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
-                                               fname="envy_fnames.json")
-    ExtractCurves.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+    if exists(path_bpd_envy):
+        with open(path_bpd_envy, "r") as f:
+            my_dict = json.load(f)
+            all_fnames_envy = FileNames.read_json(my_dict)
+        ExtractCurves.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
 
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = FileNames.read_filenames(path_bpd)
+    with open(path_bpd, "r") as f:
+        my_dict = json.load(f)
+        all_files = FileNames.read_json(my_dict)
 
     b_do_debug = True
     b_do_recalc = True
     b_use_optical_flow_edge = True
     for ind in all_files.loop_masks():
-        rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_optical_flow=b_use_optical_flow_edge, b_add_tag=True)
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        ec_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
+        rgb_fname = all_files.get_image_name(index=ind, b_add_tag=True)
+        edge_fname = all_files.get_edge_name(index=ind, b_optical_flow=b_use_optical_flow_edge, b_add_tag=True)
+        mask_fname = all_files.get_mask_name(index=ind, b_add_tag=True)
+        ec_fname_debug = all_files.get_mask_name(index=ind, b_add_tag=False)
         if not b_do_debug:
             ec_fname_debug =  None
 
-        ec_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
+        ec_fname_calculate = all_files.get_mask_name(index=ind, b_add_tag=False)
 
         if not exists(mask_fname):
             raise ValueError(f"Error, file {mask_fname} does not exist")

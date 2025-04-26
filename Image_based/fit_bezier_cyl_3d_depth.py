@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 import json
 from os.path import exists
-from utils.FileNames import FileNames
+from utils.file_names import FileNames
 from bezier_cyl_3d import BezierCyl3D
 from Image_based.fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from Image_based.split_masks import convert_jet_to_grey
@@ -127,7 +127,7 @@ class FitBezierCyl3dDepth:
 
         # Fuzzy rectangles along the boundary
         n_pixs = int(crv_2d.curve_length() * params["perc_along_depth"])
-        rects, _ = crv_2d.interior_rects_image(step_size=n_pixs, perc_width=params["perc_width_depth"])
+        rects, _ = crv_2d.interior_rects(step_size=n_pixs, perc_width=params["perc_width_depth"])
 
         ts = np.linspace(0, 1, len(rects) + 1)
 
@@ -279,21 +279,23 @@ class FitBezierCyl3dDepth:
 if __name__ == '__main__':
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = FileNames.read_filenames(path_bpd)
+    with open(path_bpd, "r") as f:
+        my_dict = json.load(f)
+        all_files = FileNames.read_json(my_dict)
 
     b_do_debug = True
     b_do_recalc = True
     for ind in all_files.loop_masks():
-        rgb_fname = all_files.get_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        edge_fname = all_files.get_edge_image_name(path=all_files.path_calculated, index=ind, b_add_tag=True)
-        depth_fname = all_files.get_depth_image_name(path=all_files.path, index=ind, b_add_tag=True)
-        mask_fname = all_files.get_mask_name(path=all_files.path, index=ind, b_add_tag=True)
-        depth_fname_debug = all_files.get_mask_name(path=all_files.path_debug, index=ind, b_add_tag=False)
+        rgb_fname = all_files.get_image_name(index=ind, b_add_tag=True)
+        edge_fname = all_files.get_edge_name(index=ind, b_add_tag=True)
+        depth_fname = all_files.get_depth_image_name(index=ind, b_add_tag=True)
+        mask_fname = all_files.get_mask_name(index=ind, b_add_tag=True)
+        depth_fname_debug = all_files.get_mask_name(index=ind, b_add_tag=False)
         if not b_do_debug:
             depth_fname_debug =  None
 
-        edge_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
-        depth_fname_calculate = all_files.get_mask_name(path=all_files.path_calculated, index=ind, b_add_tag=False)
+        edge_fname_calculate = all_files.get_mask_name(index=ind, b_add_tag=False)
+        depth_fname_calculate = all_files.get_mask_name(index=ind, b_add_tag=False)
 
         if not exists(mask_fname):
             raise ValueError(f"Error, file {mask_fname} does not exist")

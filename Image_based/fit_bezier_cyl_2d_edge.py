@@ -27,7 +27,7 @@ from Image_based.bezier_cyl_2d import BezierCyl2D
 from Image_based.fit_bezier_cyl_2d import FitBezierCyl2D
 from draw_routines.image_draw_geom_utils import LineSeg2D
 from Image_based.fit_bezier_cyl_2d_mask import FitBezierCyl2DMask
-from utils.FileNames import FileNames
+from utils.file_names import FileNames
 
 
 class FitBezierCyl2DEdge:
@@ -460,13 +460,17 @@ class FitBezierCyl2DEdge:
 
 if __name__ == '__main__':
     path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
-    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
-                                               fname="envy_fnames.json")
-    FitBezierCyl2DEdge.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+    if exists(path_bpd_envy):
+        with open(path_bpd_envy, "r") as f:
+            my_dict = json.load(f)
+            all_fnames_envy = FileNames.read_json(my_dict)
+        FitBezierCyl2DEdge.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
 
     # path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = FileNames.read_filenames(path_bpd)
+    with open(path_bpd, "r") as f:
+        my_dict = json.load(f)
+        all_files = FileNames.read_json(my_dict)
 
     b_do_debug = True
     b_do_recalc = False

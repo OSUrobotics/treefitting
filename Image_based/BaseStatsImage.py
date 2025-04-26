@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 from os.path import exists
 import json
-from draw_routines.image_draw_geom_utils import LineSeg2D
+from draw_routines.image_draw_geom_utils import draw_line, draw_rect, draw_cross
 
 """
 from os.path import abspath as os_abs_path
@@ -20,7 +20,7 @@ from sys import path as syspath
 syspath.insert(0, os_abs_path('../Utilities'))
 syspath.insert(0, os_abs_path('./Utilities'))
 """
-from utils.FileNames import FileNames
+from utils.file_names import FileNames
 
 
 class BaseStatsImage:
@@ -176,20 +176,20 @@ class BaseStatsImage:
         @param in_image: The image to draw on top of"""
         p1 = self.stats_dict["lower_left"]
         p2 = self.stats_dict["upper_right"]
-        LineSeg2D.draw_line(in_image, p1, p2, (220, 128, 220), 2)
+        draw_line(in_image, p1, p2, (220, 128, 220), 2)
 
         p1 = self.stats_dict["left_edge"]
         p2 = self.stats_dict["right_edge"]
-        LineSeg2D.draw_line(in_image, p1, p2, (128, 128, 128), 2)
+        draw_line(in_image, p1, p2, (128, 128, 128), 2)
 
         pc = self.stats_dict["center"]
-        LineSeg2D.draw_cross(in_image, pc, (256, 256, 128), 1, 2)
+        draw_cross(in_image, pc, (256, 256, 128), 1, 2)
 
         xmin = self.stats_dict["x_min"]
         xmax = self.stats_dict["x_max"]
         ymin = self.stats_dict["y_min"]
         ymax = self.stats_dict["y_max"]
-        LineSeg2D.draw_rect(in_image, [[xmin, xmax], [ymin, ymax]], (256, 128, 128), 2)
+        draw_rect(in_image, [[xmin, xmax], [ymin, ymax]], (256, 128, 128), 2)
 
     @staticmethod
     def create_from_filenames(filenames, index=(0,0,0,0), b_do_recalc=False, b_do_debug=True):
@@ -219,13 +219,17 @@ class BaseStatsImage:
 
 if __name__ == '__main__':
     path_bpd_envy = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/EnvyTree/"
-    all_fnames_envy = FileNames.read_filenames(path=path_bpd_envy, 
-                                               fname="envy_fnames.json")
-    BaseStatsImage.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
+    if exists(path_bpd_envy):
+        with open(path_bpd_envy, "r") as f:
+            my_dict = json.load(f)
+            all_fnames_envy = FileNames.read_json(my_dict)
+        BaseStatsImage.create_from_filenames(all_fnames_envy, (0, 0, 0, 0), b_do_recalc=False, b_do_debug=False)
 
     #path_bpd = "./data/trunk_segmentation_names.json"
     path_bpd = "./data/forcindy_fnames.json"
-    all_files = FileNames.read_filenames(path_bpd)
+    with open(path_bpd, "r") as f:
+        my_dict = json.load(f)
+        all_files = FileNames.read_json(my_dict)
 
     b_do_debug = True
     b_do_recalc = False

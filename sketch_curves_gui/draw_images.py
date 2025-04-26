@@ -11,15 +11,23 @@ class DrawImages():
     im_dict = {"rgb": 0, "depth": 1, "edge": 2, "flow": 3, "mask": 4,
                "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8}
 
-    def __init__(self, gui, parent=None):
-        self.crv_gl_list = -1
+    def __init__(self):
+        # Created when OpenGL initialized (bind_texture)
         self.image_gl_tex = []
 
-        # Pointer back to gui window
-        self.gui = gui
-
+        # Set once an image is loaded in (bind_texture)
         self.aspect_ratio = 1.0
         self.im_size = (0, 0)
+
+        # Initially set to "None" if nothing to draw
+        self.draw_tex = "None"
+
+    def _get_gl_index(self):
+        try:
+            return self.image_gl_tex[DrawImages.im_dict[self.draw_tex]]
+        except KeyError or IndexError:
+            pass
+        return 0
 
     def bind_texture(self, rgb_image, edge_image=None, mask_image=None, flow_image=None, depth_image=None, next_rgb_image=None):
         self.aspect_ratio = rgb_image.shape[0] / rgb_image.shape[1]
@@ -30,13 +38,16 @@ class DrawImages():
             im_size = 1024
         im_sq = cv2.resize(rgb_image, (im_size, im_size))
 
-        if mask_image:
-            im_sq_mask = cv2.cvtColor(cv2.resize(mask_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
+        if mask_image is not None:
+            if mask_image.ndim == 3:
+                im_sq_mask = cv2.resize(mask_image, (im_size, im_size))
+            else:
+                im_sq_mask = cv2.cvtColor(cv2.resize(mask_image, (im_size, im_size)), cv2.COLOR_GRAY2RGB)
         else:
             im_sq_mask = im_sq
 
-        if edge_image:
-            if len(edge_image.shape) == 3:
+        if edge_image is not None:
+            if edge_image.ndim == 3:
                 edge_flattened = cv2.cvtColor(edge_image, cv2.COLOR_BGR2GRAY)
             else:
                 edge_flattened = edge_image
@@ -44,17 +55,17 @@ class DrawImages():
         else:
             im_sq_edge = im_sq
 
-        if flow_image:
+        if flow_image is not None:
             im_sq_flow = cv2.resize(flow_image, (im_size, im_size))
         else:
             im_sq_flow = None
 
-        if depth_image:
+        if depth_image is not None:
             im_sq_depth = cv2.resize(depth_image, (im_size, im_size))
         else:
             im_sq_depth = None
 
-        if next_rgb_image:
+        if next_rgb_image is not None:
             im_sq_next_rgb = cv2.resize(next_rgb_image, (im_size, im_size))
             im_sq_next_rgb = cv2.cvtColor(im_sq_next_rgb, cv2.COLOR_BGR2GRAY)
         else:
@@ -67,7 +78,7 @@ class DrawImages():
         for ch in (1, 2):
             im_sq_rgb_edge[:, :, ch] = im_sq_rgb_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
             im_sq_rgb_mask_edge[:, :, ch] = im_sq_rgb_mask_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
-            im_sq_rgb_rgb_next = im_sq_rgb_mask_edge[:, :, ch] + im_sq_next_rgb[:, :, ch] // 2
+            #im_sq_rgb_rgb_next[:, :, ch] = im_sq_rgb_mask_edge[:, :, ch] + im_sq_next_rgb[:, :, ch] // 2
         im_sq_rgb_mask[:, :, 0] = im_sq_rgb_mask[:, :, 0] + im_sq_mask[:, :, 0] // 2
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
@@ -77,8 +88,7 @@ class DrawImages():
         for i, im in enumerate(
                 # im_dict={"rgb": 0, "depth": 1, "edge": 2, "flow": 3, "mask": 4,
                 #          "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8}
-                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge,
-                 im_sq_rgb_rgb_next]):
+                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge]):
             if im is None:
                 self.image_gl_tex[i] = 100
             else:
@@ -90,17 +100,18 @@ class DrawImages():
                 GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, 3, im_size, im_size, 0, GL.GL_BGR, GL.GL_UNSIGNED_BYTE,
                                 c_my_texture.value)
 
-    def draw_image(self, which_image):
+    def draw_image(self):
         """ Draw the image
         @param which_image is one of im_dict entries"""
         if len(self.image_gl_tex) == 0:
             return
 
-        tex_indx = DrawImages.im_dict[which_image]
+        if self.draw_tex == "None":
+            return
 
-        if self.image_gl_tex[tex_indx] != 100:
+        if self._get_gl_index() != 100:
             GL.glTexEnvf(GL.GL_TEXTURE_ENV, GL.GL_TEXTURE_ENV_MODE, GL.GL_DECAL)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self.image_gl_tex[tex_indx])
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self._get_gl_index())
             GL.glEnable(GL.GL_TEXTURE_2D)
 
             quad_size_x = 1.0

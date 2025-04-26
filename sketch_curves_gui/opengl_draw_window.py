@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 from sketch_curves_gui.draw_images import DrawImages
+from sketch_curves_gui.draw_curve_2d import DrawCurve2D
+from sketch_curves_gui.draw_curve_3d import DrawCurve3D
 
 import numpy as np
-import cv2
-from ctypes import c_uint8
 from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
 from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
                              QWidget)
@@ -15,18 +15,18 @@ from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
 from Image_based.camera_projections import frame_at_z_near
 
 
-
-
-class DrawSpline3D(QOpenGLWidget):
+class OopenGLDrawWindow(QOpenGLWidget):
     upDownRotationChanged = pyqtSignal(int)
     turntableRotationChanged = pyqtSignal(int)
     zRotationChanged = pyqtSignal(int)
     gl_inited = False
 
     def __init__(self, gui, parent=None):
-        super(DrawSpline3D, self).__init__(parent)
+        super(OopenGLDrawWindow, self).__init__(parent)
 
-        self.images = DrawImages()
+        self.draw_images = DrawImages()
+        self.draw_curve_2d = DrawCurve2D()
+        self.draw_curve_3d = DrawCurve3D()
 
         self.object = 0
         self.up_down = 0
@@ -35,19 +35,13 @@ class DrawSpline3D(QOpenGLWidget):
 
         self.pt_center = np.array([0, 0, 0])
 
-        self.crv_gl_list = -1
-        self.image_gl_tex = []
-
         self.selected_point = 0
 
         # Pointer back to sketch_curves_main_window
         self.gui = gui
-        self.crvs = []
 
         self.firstPos = QPoint()
         self.lastPos = QPoint()
-
-        self.show = True
 
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
@@ -94,13 +88,9 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glClearColor(0.0, 0.0, 0.0, 1.0)
 
-        self.crv_gl_list = self.make_crv_gl_list()
         GL.glShadeModel(GL.GL_FLAT)
         #  GL.glEnable(GL.GL_DEPTH_TEST)
         #  GL.glEnable(GL.GL_CULL_FACE)
-
-    def recalc_gl_ids(self):
-        self.crv_gl_list = self.make_crv_gl_list()
 
     @staticmethod
     def draw_box(x_center, y_center, width, height=0):
@@ -129,239 +119,19 @@ class DrawSpline3D(QOpenGLWidget):
             GL.glVertex2d(x_center + circ_radius * np.cos(t), y_center + circ_radius * np.sin(t))
         GL.glEnd()
 
-    def draw_crv_3d(self, crv_3d):
-        """ Render curve as 3D generalized cylinder
-        @param branch_crv - the actual 3D cylinder, which has had make_mesh called
-        """
-        # GL.glEnable(GL.GL_DEPTH_TEST)
-        if self.gui.show_3d_crv_axis_button.checkState():
-            GL.glColor3f(0.75, 0.9, 0.95)
-            GL.glLineWidth(5)
-            GL.glBegin(GL.GL_LINE_STRIP)
-            #GL.glVertex3d(0, 0, -1)
-            for t in np.linspace(0, 1, 15):
-                v = crv_3d.pt_axis(t)
-                GL.glVertex3d(v[0], v[1], v[2])
-            GL.glEnd()
-
-        if self.gui.show_3d_crv_button.checkState():
-            GL.glEnable(GL.GL_LIGHTING)
-            GL.glEnable(GL.GL_DEPTH_TEST)
-            ambient_light = 0.1 * np.ones((4,1), dtype=float)
-            diffuse_light = 0.75 * np.ones((4,1), dtype=float)
-            specular_light = diffuse_light * 0.5
-            obj_col = diffuse_light * 0.5
-            GL.glEnable(GL.GL_LIGHT0)
-            GL.glLightfv(GL.GL_LIGHT0, GL.GL_AMBIENT, ambient_light)
-            GL.glLightfv(GL.GL_LIGHT0, GL.GL_DIFFUSE, diffuse_light)
-            GL.glLightfv(GL.GL_LIGHT0, GL.GL_SPECULAR, specular_light)
-            light_pos = np.ones((4,1), dtype=float)
-            light_pos[0] = 2.0
-            light_pos[1] = 5.0
-            GL.glLightfv(GL.GL_LIGHT0, GL.GL_POSITION, light_pos)
-            obj_col[0] = 0.75
-            obj_col[1] = 0.1
-            GL.glMaterialfv(GL.GL_FRONT_AND_BACK, GL.GL_DIFFUSE, obj_col)
-            GL.glColor3f(0.75, 0.5, 0.95)
-            for it in range(0, crv_3d.n_along - 1):
-                GL.glBegin(GL.GL_TRIANGLE_STRIP)
-                # The first two vertices
-                #  Alternate left, right
-                for ir in range(0, crv_3d.n_around):
-                    ir_next = (ir + 1) % crv_3d.n_around
-                    v = crv_3d.vertex_locs[it, ir, :]
-                    n = crv_3d.vertex_normals[it, ir, :]
-                    GL.glVertex3d(v[0], v[1], v[2])
-                    GL.glNormal3d(n[0], n[1], n[2])
-                    v = crv_3d.vertex_locs[it + 1, ir_next, :]
-                    n = crv_3d.vertex_normals[it + 1, ir_next, :]
-                    GL.glVertex3d(v[0], v[1], v[2])
-                    GL.glNormal3d(n[0], n[1], n[2])
-                GL.glEnd()
-
     def set_2d_projection(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
         aspect_ratio_window = self.height() / self.width()
-        if self.gui.crv:
-            width_rgb_image = self.gui.crv.image_rgb.shape[1]
-            height_rgb_image = self.gui.crv.image_rgb.shape[0]
+        if self.draw_images.im_size[0] > 0:
+            width_rgb_image = self.draw_images.im_size[0]
+            height_rgb_image = self.draw_images.im_size[1]
             aspect_ratio_window = height_rgb_image / width_rgb_image
         GL.glOrtho(-1.0, 1.0, -aspect_ratio_window, aspect_ratio_window, -1.0, 1.0)
 
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
 
-    def draw_images(self):
-        if len(self.image_gl_tex) == 0:
-            return
-
-        im_type = self.gui.get_image_type()
-        if im_type == "none":
-            return
-
-        self.images.draw_image(im_type)
-
-    def convert_pts(self, pts):
-        pts[:, 0] = 2 * (pts[:, 0] / self.im_size[0] - 0.5)
-        pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
-        return pts
-
-    def draw_crv_2d(self, crv):
-
-        if not crv:
-            return
-        
-        if self.gui.show_backbone_button.checkState():
-            n_pts_quad = 6
-            try:
-                pts = self.convert_pts(crv.eval_crv(np.linspace(0, 1, n_pts_quad)))
-            except AttributeError:
-                pts = self.convert_pts(crv.pt_axis(np.linspace(0, 1, n_pts_quad)))
-
-            GL.glDisable(GL.GL_LIGHTING)
-            GL.glLineWidth(4)
-            GL.glBegin(GL.GL_LINE_STRIP)
-            col_start = 0.5
-            col_div = 0.5 / (n_pts_quad - 1.0)
-            for p in pts:
-                GL.glColor3d(col_start, col_start, col_start)
-                GL.glVertex2d(p[0], p[1])
-                col_start += col_div
-            GL.glEnd()
-
-            edge_pts_left = np.zeros((n_pts_quad, 2))
-            edge_pts_right = np.zeros((n_pts_quad, 2))
-            for i, t in enumerate(np.linspace(0, 1, n_pts_quad)):
-                edge_pts_left[i, :], edge_pts_right[i, :] = crv.edge_pts(t)
-            edge_pts_left = self.convert_pts(edge_pts_left)
-            edge_pts_right = self.convert_pts(edge_pts_right)
-
-            GL.glLineWidth(3)
-            for pts in (edge_pts_left, edge_pts_right):
-                col_start = 0.25
-                col_div = 0.75 / (n_pts_quad - 1.0)
-                GL.glBegin(GL.GL_LINE_STRIP)
-                for p in pts:
-                    GL.glColor3d(col_start, col_start, col_start)
-                    GL.glVertex2d(p[0], p[1])
-                    col_start += col_div
-                GL.glEnd()
-
-        GL.glLineWidth(2)
-        if self.gui.show_interior_rects_button.checkState():
-            rects, _ = crv.interior_rects_image(self.gui.step_size.value(), self.gui.width_inside.value())
-            col_incr = 1.0 // len(rects)
-            for i, r in enumerate(rects):
-                GL.glColor3f(i * col_incr, 0.8, 0.8)
-                GL.glBegin(GL.GL_LINE_LOOP)
-                pts = self.convert_pts(r)
-                for p in pts:
-                    GL.glVertex2d(p[0], p[1])
-                GL.glEnd()
-
-        if self.gui.show_edge_rects_button.checkState():
-            rects, _ = crv.boundary_rects_image(self.gui.step_size.value(), self.gui.width_edge.value())
-            col_incr = 0.5 // len(rects)
-            for i, r in enumerate(rects):
-                GL.glColor3f(0.5 + i * col_incr, 0.3 + (i % 2) * 0.3, 0.5 + i * col_incr)
-                GL.glBegin(GL.GL_LINE_LOOP)
-                pts = self.convert_pts(r)
-                for p in pts:
-                    GL.glVertex2d(p[0], p[1])
-                GL.glEnd()
-
-        if self.gui.show_profiles_button.checkState():
-            pts_reconstruct = np.zeros((len(self.gui.extract_crv.edge_stats["pixs_edge"]), 2))
-            for i, pt_reconstruct in enumerate(self.gui.extract_crv.edge_stats["pixs_edge"]):
-                pts_reconstruct[i, 0] = pt_reconstruct[0]
-                pts_reconstruct[i, 1] = pt_reconstruct[1]
-            pts = self.convert_pts(pts_reconstruct)
-
-            GL.glPointSize(4.0)
-            GL.glBegin(GL.GL_POINTS)
-            GL.glColor3f(1.0, 0.5, 0.5)
-            for pt in pts:
-                GL.glVertex2d(pt[0], pt[1])
-            GL.glEnd()
-
-            # pixs_filtered or pixs_reconstruct
-            b_do_profile_debug = False
-            if b_do_profile_debug:
-                pts_reconstruct = np.zeros((len(self.gui.extract_crv.edge_stats["pixs_filtered"]), 2))
-                for i, pt_reconstruct in enumerate(self.gui.extract_crv.edge_stats["pixs_filtered"]):
-                    pts_reconstruct[i, 0] = pt_reconstruct[0]
-                    pts_reconstruct[i, 1] = pt_reconstruct[1]
-                pts = self.convert_pts(pts_reconstruct)
-
-                GL.glPointSize(2.0)
-                GL.glBegin(GL.GL_POINTS)
-                GL.glColor3f(1.0, 1.0, 0.5)
-                for pt in pts:
-                    GL.glVertex2d(pt[0], pt[1])
-                GL.glEnd()
-
-            for profile_crv, dir in zip([self.gui.extract_crv.left_curve, self.gui.extract_crv.right_curve], ['Left', 'Right']):
-                col_incr = 0.5 // len(profile_crv)
-                pts_reconstruct = np.zeros((len(profile_crv), 2))
-                for i, pt in enumerate(profile_crv):
-                    pt_reconstruct = self.gui.crv.bezier_crv_fit_to_edge.edge_offset_pt(pt[0], pt[1], dir)
-                    pts_reconstruct[i, 0] = pt_reconstruct[0]
-                    pts_reconstruct[i, 1] = pt_reconstruct[1]
-                pts = self.convert_pts(pts_reconstruct)
-                GL.glLineWidth(2.0)
-                GL.glBegin(GL.GL_LINE_STRIP)
-                for i, pt in enumerate(pts):
-                    GL.glColor3f(0.5 + i * col_incr, 0.6, 0.5 + i * col_incr)
-                    GL.glVertex2d(pt[0], pt[1])
-                GL.glEnd()
-
-
-        #GL.glBegin(GL.GL_LINE_LOOP)
-        #GL.glColor3d(1.0, 1.0, 1.0)
-        #GL.glVertex2d(-0.25, -0.25)
-        #GL.glVertex2d( 0.25, -0.25)
-        #GL.glVertex2d( 0.25,  0.25)
-        #GL.glVertex2d(-0.25,  0.25)
-        #GL.glEnd()
-
-    def draw_sketch(self):
-        """ The marks the user made"""
-        if not self.gui or not self.gui.crv or not self.gui.sketch_curve:
-            return
-        qp = QPainter()
-        qp.begin(self)
-        pen_backbone = QPen(Qt.yellow, 3, Qt.SolidLine)
-        pen_cross = QPen(Qt.blue, 4, Qt.SolidLine)
-        pen_corner = QPen(Qt.white, 2, Qt.SolidLine)
-        brush = QBrush(Qt.CrossPattern)
-        qp.setPen(pen_backbone)
-        qp.setBrush(brush)
-        sc = self.gui.sketch_curve
-        for pt in sc.backbone_pts:
-            qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
-            qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
-
-        for pt1, pt2 in zip(sc.backbone_pts[0:-1], sc.backbone_pts[1:]):
-            qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
-
-        qp.setPen(pen_cross)
-        for pts in sc.cross_bars:
-            for pt in pts:
-                qp.drawLine(int(pt[0] - 3), int(pt[1]), int(pt[0] + 3), int(pt[1]))
-                qp.drawLine(int(pt[0]), int(pt[1] - 3), int(pt[0]), int(pt[1] + 3))
-            if len(pts) > 1:
-                pt1 = pts[0]
-                pt2 = pts[1]
-                qp.drawLine(int(pt1[0]), int(pt1[1]), int(pt2[0]), int(pt2[1]))
-
-        qp.setPen(pen_corner)
-        sc = self.gui.sketch_curve
-        for pt in [self.gui.lower_left, self.gui.upper_right]:
-            qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
-            qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
-        qp.end()
-        
     def draw_camera_frame_3d(self):
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
@@ -371,10 +141,9 @@ class DrawSpline3D(QOpenGLWidget):
 
         width_rgb_image = 640
         height_rgb_image = 480
-        if self.gui.crv:
-            if self.gui.crv:
-                width_rgb_image = self.gui.crv.image_rgb.shape[1]
-                height_rgb_image = self.gui.crv.image_rgb.shape[0]
+        if self.draw_images.im_size[0] > 0:
+            width_rgb_image = self.draw_images.im_size[0]
+            height_rgb_image = self.draw_images.im_size[1]
 
         params = {"z_near": 1.0,
                   "z_far": 100.0,
@@ -445,29 +214,26 @@ class DrawSpline3D(QOpenGLWidget):
 
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         self.set_2d_projection()
-        self.draw_images()
+        self.draw_images.draw_image()
 
-        if self.gui.show_sketch_crv_button.checkState():
-            if self.gui.crv_from_sketch:
-                self.draw_crv_2d(self.gui.crv_from_sketch.sketch_crv)
-        if self.gui.crv:
-            if self.gui.show_mask_crv_button.checkState():
-                self.draw_crv_2d(self.gui.crv.mask_crv.bezier_crv_fit_to_mask)
-            if self.gui.show_edge_crv_button.checkState():
-                self.draw_crv_2d(self.gui.crv.bezier_crv_fit_to_edge)
+        for crv in self.gui.sketched_curves():
+            if crv is not None:
+                self.draw_curve_2d.draw_sketch(q_wind=self, sketched_curve=crv)
+        for crv in self.gui.spline_curves():
+            if crv is not None:
+                self.draw_curve_2d.draw_backbone(crv)
+                self.draw_curve_2d.draw_interior_rects(crv)
+                self.draw_curve_2d.draw_edge_rects(crv)
+                self.draw_curve_2d.draw_profile_curves(crv)
 
         GL.glShadeModel(GL.GL_FLAT)
         GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
         GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glDisable(GL.GL_TEXTURE_2D)
         self.draw_camera_frame_3d()
-        if self.gui.fit_crv_3d:
-            self.draw_crv_3d(self.gui.fit_crv_3d.crv_3d)
-
-        if self.show and self.crv_gl_list is not None:
-            GL.glCallList(self.crv_gl_list)
-
-        self.draw_sketch()
+        for crv in self.gui.curves_3d():
+            if crv is not None:
+                self.draw_curve_3d.draw_crv_3d(crv)
 
     @staticmethod
     def resizeGL(width, height):
@@ -481,8 +247,6 @@ class DrawSpline3D(QOpenGLWidget):
         GL.glLoadIdentity()
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
-
-        DrawSpline3D.gl_inited = True        
 
     def mousePressEvent(self, event):
         self.firstPos = event.pos()
@@ -521,26 +285,6 @@ class DrawSpline3D(QOpenGLWidget):
 
         self.update()
 
-    def make_crv_gl_list(self):
-        if not DrawSpline3D.gl_inited:
-            return
-
-        self.pt_center = [0.0, 0.0, 0.0]
-
-        if self.crv_gl_list == -1:
-            self.crv_gl_list = GL.glGenLists(1)
-
-        GL.glNewList(self.crv_gl_list, GL.GL_COMPILE)
-
-        for crv in self.crvs:
-            crv.set_dims(self.gui.n_along.value(), self.gui.n_around.value())
-            crv.make_mesh()
-            self.draw_crv(crv)
-
-        GL.glEndList()
-
-        return self.crv_gl_list
-
     def normalize_angle(self, angle):
         while angle < 0:
             angle += 360
@@ -554,17 +298,4 @@ class DrawSpline3D(QOpenGLWidget):
 
 if __name__ == '__main__':
     # THIS DOES NOT WORK - use Sketch_curvs_main_window
-    import sys
-    from Window_3D import Window_3D
-    app = QApplication(sys.argv)
-    window = Window_3D(DrawSpline3D)
-
-    branch = BezierCyl3DWithDetail()
-
-    branch.set_pts([506.5, 156.0, 0.0], [457.49999996771703, 478.9999900052037, 0.0], [521.5, 318.0, 0.0])
-    branch.set_radii_and_junction(start_radius=10.5, end_radius=8.25, b_start_is_junction=True, b_end_is_bud=False)
-
-    window.glWidget.crvs.append(branch)
-
-    window.show()
-    sys.exit(app.exec_())
+    pass
