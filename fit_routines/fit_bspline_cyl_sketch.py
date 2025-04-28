@@ -18,6 +18,7 @@ from tree_geometry.b_spline_cyl import BSplineCyl
 from fit_routines.b_spline_curve_fit import BSplineCurveFit
 from utils.sketched_curve import SketchedCurve
 from tree_geometry.point_lists import PointList
+from fit_routines.bspline_fit_params import BSplineFitParams
 
 
 class FitBSplineCyl2DSketch:
@@ -53,7 +54,7 @@ class FitBSplineCyl2DSketch:
             for k in params:
                 self.params[k] = params[k]
 
-    def _sketch_curve_to_bspline_cyl(self, sketch : SketchedCurve):
+    def _sketch_curve_to_bspline_cyl(self, sketch : SketchedCurve, fit_params: BSplineFitParams =None ):
         """ Convert the sketch curve to the bspline cylinder
         @param sketch_curves - has backbone and cross bars
         @return bspline_cyl"""
@@ -68,7 +69,15 @@ class FitBSplineCyl2DSketch:
         start_curve = BSplineCurve(pts_start, degree=self.params["degree"])
         curve_fit, _, _ = BSplineCurveFit.fit_project_fit(start_curve, PointList(sketch.backbone_pts))
 
-        return BSplineCyl(ctrl_pts=curve_fit.points(), degree=self.params["degree"], radii=sketch.radii())
+        curve_final = BSplineCurveFit.fit_adjust_control_pts(curve_fit, PointList(sketch.backbone_pts), fit_params)
+
+        radii_ctrs, radii_radii = sketch.radii()
+        ts = []
+        for r_ctr in radii_ctrs:
+            ts.append(crv_linear.project_to_curve(r_ctr)[0])
+        radii_sorted = [r for _, r in sorted(zip(ts, radii_radii), key=lambda  pair: pair[0])]
+
+        return BSplineCyl(ctrl_pts=curve_final[0].points(), degree=self.params["degree"], radii=radii_sorted)
 
     def add_sketch(self, dict_sketch : dict, sketch : SketchedCurve):
         """ Add in a sketch. All inputs are in the dictionary.

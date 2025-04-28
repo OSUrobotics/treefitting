@@ -66,6 +66,13 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
+    def refit(self):
+        fit_sketch = FitBSplineCyl2DSketch()
+
+        for mask_indx, _ in enumerate(self.mask_names):
+            for indx, (sk, bs) in enumerate(zip(self.sketch_curves[mask_indx], self.bspline_cyls[mask_indx])):
+                self.bspline_cyls[indx] = fit_sketch._sketch_curve_to_bspline_cyl(sk)
+
     def write_json(self):
         """Create a dictionary and return it"""
         my_dict = {"Name": "KeyFrameData",
@@ -103,13 +110,13 @@ class KeyFrameData:
         for lst in json_dict["sketch_curves"]:
             key_frame_instance.sketch_curves.append([])
             for crv in lst:
-                key_frame_instance.sketch_curves.append(SketchedCurve.read_json(crv))
+                key_frame_instance.sketch_curves[-1].append(SketchedCurve.read_json(crv))
 
         key_frame_instance.bspline_cyls = []
         for lst in json_dict["bspline_cyls"]:
             key_frame_instance.bspline_cyls.append([])
             for crv in lst:
-                key_frame_instance.sketch_curves.append(BSplineCyl.read_json(crv))
+                key_frame_instance.bspline_cyls[-1].append(BSplineCyl.read_json(crv))
 
         key_frame_instance.image_name = json_dict["ImageName"]
         key_frame_instance.mask_names = json_dict["mask_names"].copy()

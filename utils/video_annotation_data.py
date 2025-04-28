@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from sphinx.writers.text import my_wrap
 
 # Video annotation data format, built off of FileNames
 # Assumptions (video)
@@ -79,7 +78,7 @@ class VideoAnnotationData(FileNames):
             for mn in self.mask_names:
                 self.mask_ids[0][-1].append([])
 
-        self.keyframes = [KeyFrameData(im_name) for im_name in self.image_names]
+        self.keyframes = [KeyFrameData(im_name) for im_name in self.image_names[0]]
 
         # If mask_names exist, add them in to both key frames and the mask names
         for kf in self.keyframes:
@@ -97,15 +96,16 @@ class VideoAnnotationData(FileNames):
 
         return ret_indx
 
-    def add_sketch(self, image_index, mask_index, sketch):
+    def add_sketch(self, image_index, sketch):
         """ Add another mask id to this image/mask pair
         @param image_index - which image
         @param mask_index - which index
         @param sketch - the sketch
         @return index for new sketch"""
 
-        ret_indx = super().add_mask_id((image_index, mask_index, -1))
-        self.keyframes[image_index].add_sketch(mask_index, sketch)
+        mask_id = len(self.mask_ids[0][image_index[0]][image_index[1]])
+        ret_indx = super().add_mask_id(image_index, mask_id)
+        self.keyframes[image_index[0]].add_sketch(image_index[1], sketch)
 
     def replace_sketch(self, image_index, mask_index, id_index, sketch):
         """ Add another mask id to this image/mask pair
@@ -220,23 +220,44 @@ class VideoAnnotationData(FileNames):
         return all_fnames
 
 
-if __name__ == '__main__':
+def read_and_rerun():
     import json
 
-    # path_start = "/Users/grimmc/"
-    path_start = "/Users/cindygrimm/"
+    path_start = "/Users/grimmc/"
+    # path_start = "/Users/cindygrimm/"
+    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
+    tree_name = "BP_R1_East_tree2"
+    va_fname = dest_path + tree_name + "/first_tree_annot.json"
+
+    with open(va_fname, "r") as f:
+        my_dict = json.load(f)
+        va = VideoAnnotationData.read_json(my_dict)
+
+    for kf in va.keyframes:
+        kf.refit()
+
+
+if __name__ == '__main__':
+    read_and_rerun()
+
+    import json
+
+    path_start = "/Users/grimmc/"
+    # path_start = "/Users/cindygrimm/"
     # box_path = "Library/CloudStorage/Box-Box/"
     box_path = "MyBox/"
     src_box_path = path_start + box_path
     dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
-    src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2"
+    src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2/"
     tree_name = "BP_R1_East_tree2"
     # fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
 
     va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
 
+    va.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
     va.add_directory(name_filter="rgb", start_index=0, end_index=115, skip_index=10)
+    va.image_name = ""
 
     va_fname = dest_path + tree_name + "/video_annot.json"
     with open(va_fname, "w") as f:

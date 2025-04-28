@@ -67,28 +67,31 @@ class DrawImages():
 
         if next_rgb_image is not None:
             im_sq_next_rgb = cv2.resize(next_rgb_image, (im_size, im_size))
-            im_sq_next_rgb = cv2.cvtColor(im_sq_next_rgb, cv2.COLOR_BGR2GRAY)
         else:
-            im_sq_next_rgb = cv2.cvtColor(im_sq, cv2.COLOR_BGR2GRAY)
+            im_sq_next_rgb = None
 
+        # Cut all color values in half
         im_sq_rgb_edge = im_sq // 2
         im_sq_rgb_mask = im_sq // 2
         im_sq_rgb_mask_edge = im_sq // 2
-        im_sq_rgb_rgb_next = im_sq_next_rgb // 2
+        im_sq_rgb_rgb_next = im_sq // 2
         for ch in (1, 2):
             im_sq_rgb_edge[:, :, ch] = im_sq_rgb_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
             im_sq_rgb_mask_edge[:, :, ch] = im_sq_rgb_mask_edge[:, :, ch] + im_sq_edge[:, :, ch] // 2
-            #im_sq_rgb_rgb_next[:, :, ch] = im_sq_rgb_mask_edge[:, :, ch] + im_sq_next_rgb[:, :, ch] // 2
+            if im_sq_next_rgb is not None:
+                im_sq_rgb_rgb_next[:, :, ch] = im_sq_rgb_rgb_next[:, :, ch] + im_sq_next_rgb[:, :, 0] // 2
+        if im_sq_next_rgb is not None:
+            im_sq_rgb_rgb_next[:, :, 0] = im_sq_rgb_rgb_next[:, :, 0] + im_sq_next_rgb[:, :, 0] // 2
         im_sq_rgb_mask[:, :, 0] = im_sq_rgb_mask[:, :, 0] + im_sq_mask[:, :, 0] // 2
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
         if len(self.image_gl_tex) == 0:
-            n_textures = 10
+            n_textures = len(DrawImages.im_dict)
             self.image_gl_tex = GL.glGenTextures(n_textures)
         for i, im in enumerate(
                 # im_dict={"rgb": 0, "depth": 1, "edge": 2, "flow": 3, "mask": 4,
                 #          "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8}
-                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge]):
+                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge, im_sq_rgb_rgb_next]):
             if im is None:
                 self.image_gl_tex[i] = 100
             else:

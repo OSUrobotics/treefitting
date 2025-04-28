@@ -21,7 +21,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
     zRotationChanged = pyqtSignal(int)
     gl_inited = False
 
-    def __init__(self, gui, parent=None):
+    def __init__(self, gui, parent=None, size_start=(2*640, 2*480)):
         super(OopenGLDrawWindow, self).__init__(parent)
 
         self.draw_images = DrawImages()
@@ -46,6 +46,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
         self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
         self.im_size = (0, 0)
+        self.size_start = size_start
 
     @staticmethod
     def get_opengl_info():
@@ -67,7 +68,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
         return QSize(50, 50)
 
     def sizeHint(self):
-        return QSize(640, 480)
+        return QSize(self.size_start[0], self.size_start[1])
 
     def set_up_down_rotation(self, angle):
         angle = self.normalize_angle(angle)
@@ -174,9 +175,10 @@ class OopenGLDrawWindow(QOpenGLWidget):
         """Draw a frame to verify aspect ratio and camera param alignment"""
         pt_center = self.pt_center
         pt_center[2] = -1.0
-        if self.gui:
-            if self.gui.fit_crv_3d:
-                pt_center[2] = self.gui.fit_crv_3d.crv_3d.pt_axis(0.5)[2]
+        # if self.gui:
+            # TODO Set pt_center[2] to middle of selected keyframe curve
+            # if self.gui.fit_crv_3d:
+                # pt_center[2] = self.gui.fit_crv_3d.crv_3d.pt_axis(0.5)[2]
                 # pt_center[2] = -1.0
         scl_factor = 1
         if hasattr(self.gui, "zoom"):
@@ -209,8 +211,6 @@ class OopenGLDrawWindow(QOpenGLWidget):
         GL.glTranslated(-pt_center[0], -pt_center[1], -pt_center[2])
 
     def paintGL(self):
-        if self.gui:
-            self.gui.set_corners()
 
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         self.set_2d_projection()

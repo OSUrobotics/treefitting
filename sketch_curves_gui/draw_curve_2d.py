@@ -96,9 +96,9 @@ class DrawCurve2D():
 
         try:
             ts = np.linspace(0, crv.max_t(), self.n_rects_edge * int(crv.max_t()))
-            rects, _ = crv.edge_rects(ts, self.width_edge_rect)
+            rects = crv.edge_rects(ts, self.width_edge_rect)
         except AttributeError:
-            rects, _ = crv.boundary_rects(int(self.im_size[0] / self.n_rects_edge), self.width_edge_rect)
+            rects = crv.boundary_rects(int(self.im_size[0] / self.n_rects_edge), self.width_edge_rect)
 
         rects_left = rects[0:2:]
         rects_right = rects[1:2:]

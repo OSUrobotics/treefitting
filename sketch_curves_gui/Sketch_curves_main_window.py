@@ -21,8 +21,6 @@ from Image_based.fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
 
 from utils.sketched_curve import SketchedCurve
 
-from fit_routines.b_spline_curve_fit import BSplineCurveFit
-
 class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
@@ -539,6 +537,8 @@ class SketchCurvesMainWindow(QMainWindow):
         self.glWidget.draw_curve_2d.im_size = (width_rgb_image, height_rgb_image)
         self.glWidget.draw_curve_2d.lower_left = [0, 0]
         self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
+
+        self.glWidget.draw_curve_2d.aspect_ratio = height_rgb_image / width_rgb_image
 
     def set_crv(self, params):
         """Read in the images etc and recalc (or not)

@@ -22,11 +22,13 @@ class SketchedCurve:
         """ Convert the crossbars to radii and return a list
         @return a list"""
         radii_vs = []
+        radii_ctrs = []
         for pts in self.cross_bars:
             if len(pts) == 2:
                 radius = math.sqrt(math.pow(pts[1][0] - pts[0][0], 2) + math.pow(pts[1][1] - pts[0][1], 2)) / 2.0
+                radii_ctrs.append([0.5 * (pts[0][0] + pts[1][0]), 0.5 * (pts[0][1] + pts[1][1])])
                 radii_vs.append(radius)
-        return radii_vs
+        return radii_ctrs, radii_vs
 
     @staticmethod
     def convert_pt(pt, lower_left, upper_right, width, height):

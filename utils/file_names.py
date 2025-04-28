@@ -119,8 +119,8 @@ class FileNames(FileNamesSubDirs):
 if __name__ == '__main__':
 
     import json
-    # path_start = "/Users/grimmc/"
-    path_start = "/Users/cindygrimm/"
+    path_start = "/Users/grimmc/"
+    # path_start = "/Users/cindygrimm/"
     tree_name = "BP_R1_East_tree2"
     data_path = path_start + "PycharmProjects/data/EnvyTree/" + tree_name + "/"
     key_frame_names = "video_annot.json"

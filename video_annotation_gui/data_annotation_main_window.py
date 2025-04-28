@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdi
 import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
-from sketch_curves_gui.opengl_draw_window import DrawSpline3D
+from sketch_curves_gui.opengl_draw_window import OopenGLDrawWindow
 from utils.video_annotation_data import VideoAnnotationData
 
 from utils.sketched_curve import SketchedCurve
@@ -27,8 +27,8 @@ class DataAnnotationMainWindow(QMainWindow):
         # The layout of the interface
         widget = QWidget()
         self.setCentralWidget(widget)
-        self.lower_left = [0, 0]
-        self.upper_right = [1, 1]
+
+        self.last_read_image_index = -1
 
         # Two side-by-side panes
         top_level_layout = QHBoxLayout()
@@ -40,17 +40,19 @@ class DataAnnotationMainWindow(QMainWindow):
         SliderFloatDisplay.gui = self
         SliderIntDisplay.gui = self
 
-        self.last_index = ()
-        self.handle_filenames = None
-        self.crv = None
-        self.extract_crv = None
-        self.fit_crv_3d = None
+        self.glWidget.draw_curve_2d.show_profile_curves = False
+        self.glWidget.draw_curve_2d.show_edge_rects = False
+        self.glWidget.draw_curve_2d.show_interior_rects = False
+
+        self.video_annot = None
         self.in_reset_file_menus = False
         self.in_read_images = False
         self.sketch_curve = SketchedCurve()
-        self.crv_from_sketch = None
         if exists("save_crv.json"):
-            self.sketch_curve = SketchedCurve.read_json("save_crv.json")
+            with open("save_crv.json", "r") as f:
+                import json
+                my_dict = json.load(f)
+                self.sketch_curve = SketchedCurve.read_json(my_dict)
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -60,24 +62,32 @@ class DataAnnotationMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/data/EnvyTree/")
+        src_drive = "/Users/grimmc/PycharmProjects/data/"
+        #src_drive = "/Users/cindygrimm/PycharmProjects/data/"
+        self.path_name = QLineEdit(src_drive + "EnvyTree/BP_R1_East_tree2/")
         self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
-        self.mask_number = SliderIntDisplay("Mask", 0, 3, 0)
-        self.mask_id_number = SliderIntDisplay("Mask id", 0, 3, 0)
-        self.image_name = QLabel("image name")
+        self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
+        self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
+
         path_names_layout.addWidget(QLabel("Path dir:"))
         path_names_layout.addWidget(self.path_name)
         path_names_layout.addWidget(QLabel("File data names:"))
         path_names_layout.addWidget(self.file_name)
         path_names_layout.addWidget(QLabel("Image:"))
         path_names_layout.addWidget(self.image_number)
-        path_names_layout.addWidget(QLabel("Mask:"))
+        path_names_layout.addWidget(QLabel("Type:"))
         path_names_layout.addWidget(self.mask_number)
-        path_names_layout.addWidget(QLabel("Mask id:"))
+        path_names_layout.addWidget(QLabel("Type id:"))
         path_names_layout.addWidget(self.mask_id_number)
-        path_names_layout.addWidget(self.image_name)
-        path_names_layout.setSpacing(5)
+
+        names_layout = QHBoxLayout()
+        self.image_name = QLabel("image name")
+        self.mask_name = QLabel("None")
+        names_layout.addWidget(self.image_name)
+        names_layout.addWidget(self.mask_name)
+
+        # path_names_layout.setSpacing(5)
         path_names.setLayout(path_names_layout)
 
         self.image_number.slider.valueChanged.connect(self.read_images)
@@ -91,6 +101,7 @@ class DataAnnotationMainWindow(QMainWindow):
         file_io_layout = QVBoxLayout()
         file_io_layout.addWidget(path_names)
         file_io_layout.addWidget(read_filenames_button)
+        file_io_layout.addLayout(names_layout)
         file_io.setLayout(file_io_layout)
 
         # Sliders for Camera
@@ -110,18 +121,19 @@ class DataAnnotationMainWindow(QMainWindow):
         params_camera_layout.addWidget(self.horizontal_angle)
         params_camera.setLayout(params_camera_layout)
 
-        params_crvs = QGroupBox('3D Curve parameters')
+        params_crvs = QGroupBox('3D Data parameters')
         params_crvs_layout = QVBoxLayout()
         self.show_3d_crv_button = QCheckBox('Show 3d crv')
-        self.show_3d_crv_button.setCheckState(2)
         self.show_3d_crv_button.clicked.connect(self.redraw_self)
         self.show_3d_crv_axis_button = QCheckBox('Show 3d crv axis')
         self.show_3d_crv_axis_button.clicked.connect(self.redraw_self)
-        self.show_3d_crv_axis_button.setCheckState(2)
+        self.show_3d_pts_button = QCheckBox('Show 3d pts')
+        self.show_3d_pts_button.clicked.connect(self.redraw_self)
         self.n_around = SliderIntDisplay("N around", 8, 64, 32)
         self.n_along = SliderIntDisplay("N along", 8, 64, 16)
         params_crvs_layout.addWidget(self.show_3d_crv_button)
         params_crvs_layout.addWidget(self.show_3d_crv_axis_button)
+        params_crvs_layout.addWidget(self.show_3d_pts_button)
         params_crvs_layout.addWidget(self.n_around)
         params_crvs_layout.addWidget(self.n_along)
         params_crvs.setLayout(params_crvs_layout)
@@ -141,6 +153,7 @@ class DataAnnotationMainWindow(QMainWindow):
         self.show_backbone_button.clicked.connect(self.redraw_self)
         self.show_sketch_crv_button = QCheckBox('Show sketch')
         self.show_sketch_crv_button.clicked.connect(self.redraw_self)
+        self.show_sketch_crv_button.setCheckState(2)
 
         shows_layout.addWidget(self.show_rgb_button)
         shows_layout.addWidget(self.show_overlay_button)
@@ -177,7 +190,7 @@ class DataAnnotationMainWindow(QMainWindow):
     # Drawing screen and quit button
     def _init_right_layout_(self):
         # The display for the robot drawing
-        self.glWidget = DrawSpline3D(self)
+        self.glWidget = OopenGLDrawWindow(gui=self, parent=self, size_start=(2*640, 2*480))
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -188,7 +201,7 @@ class DataAnnotationMainWindow(QMainWindow):
         self.blank_text = QTextEdit('Space')
         quit_button = QPushButton('Quit')
         quit_button.clicked.connect(app.exit)
-        quit_button.setMinimumWidth(640)
+        quit_button.setMinimumWidth(1280)
 
         # Put them together, quit button on the bottom
         right_layout = QVBoxLayout()
@@ -202,7 +215,10 @@ class DataAnnotationMainWindow(QMainWindow):
     def reset_file_menus(self):
         if self.in_reset_file_menus:
             return
+
+        # Poor person's lock
         self.in_reset_file_menus = True
+
         indx_image = self.image_number.value()
         indx_mask = self.mask_number.value()
         id_mask = self.mask_id_number.value()
@@ -213,54 +229,38 @@ class DataAnnotationMainWindow(QMainWindow):
                         self.mask_id_number.slider.maximum())
         print(f"Sliders orig {sldr_maxs_orig}")
 
-        if self.image_number.slider.maximum() != len(self.handle_filenames.image_names[0]):
-            self.image_number.slider.setMaximum(len(self.handle_filenames.image_names[0]))
+        if self.image_number.slider.maximum() != len(self.video_annot.image_names[0]):
+            self.image_number.slider.setMaximum(len(self.video_annot.image_names[0]))
             b_changed = True
             print(f" Changing image number {self.image_number.slider.maximum()} {indx_image}")
         if indx_image >= self.image_number.slider.maximum():
             indx_image = 0
             self.image_number.set_value(indx_image)
 
-        if self.mask_number.slider.maximum() != len(self.handle_filenames.mask_names):
-            self.mask_number.slider.setMaximum(len(self.handle_filenames.mask_names))
+        if self.mask_number.slider.maximum() != len(self.video_annot.mask_names):
+            self.mask_number.slider.setMaximum(len(self.video_annot.mask_names))
             b_changed = True
             print(f" Changing mask number {self.mask_number.slider.maximum()} {indx_mask}")
         if indx_mask >= self.mask_number.slider.maximum():
             indx_mask = 0
             self.mask_number.set_value(indx_mask)
 
-        if self.mask_id_number.slider.maximum() != len(self.handle_filenames.mask_ids[0][indx_image][indx_mask]):
-            self.mask_id_number.slider.setMaximum(len(self.handle_filenames.mask_ids[0][indx_image][indx_mask]))
+        if self.mask_id_number.slider.maximum() != len(self.video_annot.mask_ids[0][indx_image][indx_mask]):
+            self.mask_id_number.slider.setMaximum(len(self.video_annot.mask_ids[0][indx_image][indx_mask]))
             b_changed = True
             print(f" Changing mask id number {self.mask_id_number.slider.maximum()} {id_mask}")
         if id_mask >= self.mask_id_number.slider.maximum():
             id_mask = 0
             self.mask_id_number.set_value(id_mask)
 
-        indx = (0, indx_image, indx_mask, id_mask)
-        if indx != self.last_index:
-            b_changed = True
-        print(f" New index {indx}")
-
-        img_name = self.handle_filenames.get_image_name(index=indx)
-        img_name_split = img_name.split("/")
-        if indx_mask >= 0 and indx_mask < len(self.handle_filenames.mask_names):
-            mask_name = self.handle_filenames.mask_names[indx_mask]
-        else:
-            mask_name = "none"
-        self.mask_name.setText(mask_name)
-        if len(img_name_split) > 2:
-            self.image_name.setAccessibleName(img_name_split[-2])
-            self.image_name.setText(img_name_split[-1] + " mask: " + mask_name)
-        else:
-            self.image_name.setText(img_name + " mask: " + mask_name)
         sldr_maxs = (self.image_number.slider.maximum(),
                      self.mask_number.slider.maximum(),
                      self.mask_id_number.slider.maximum())
-        print(f"index {indx} sldrs {sldr_maxs} redo {b_changed}")
+
+        print(f"index {indx_image} {indx_mask} {id_mask} sldrs {sldr_maxs} redo {b_changed}")
         self.in_reset_file_menus = False
 
-        return b_changed, indx
+        return (indx_image, indx_mask, id_mask)
 
     def get_file_name_tuple(self):
         return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
@@ -270,20 +270,50 @@ class DataAnnotationMainWindow(QMainWindow):
         fname = self.path_name.text() + self.file_name.text()
         with open(fname, 'r') as f:
             my_data = json.load(f)
-            self.handle_filenames = VideoAnnotationData.read_json(my_data)
+            self.video_annot = VideoAnnotationData.read_json(my_data)
         self.reset_file_menus()
+        self.last_image_index = -1
         self.read_images()
-        self.reset_params_menus()
+        self.set_draw_params_from_sliders()
 
-        if self.crv:
-            width_rgb_image = self.crv.image_rgb.shape[1]
-            height_rgb_image = self.crv.image_rgb.shape[0]
-            aspect_ratio = height_rgb_image / width_rgb_image
+    def set_draw_params_from_sliders(self):
+        """ Set all the draw drawing parameters from the sliders"""
+        # Image
+        self.glWidget.draw_images.draw_tex = "None"
+        if self.show_rgb_button.isChecked():
+            if self.show_overlay_button.isChecked():
+                self.glWidget.draw_images.draw_tex = "rgb_edge_rgb_next"
+            else:
+                self.glWidget.draw_images.draw_tex = "rgb"
 
-            w = self.glWidget.width()
-            h = int(aspect_ratio * w)
+        # 2D Drawing
+        self.glWidget.draw_curve_2d.show_backbone = self.show_backbone_button.isChecked()
 
-            self.glWidget.resize(w, h)
+        self.glWidget.draw_curve_2d.show_sketched_curve = self.show_sketch_crv_button.isChecked()
+
+        # 3d Drawing
+        self.glWidget.draw_curve_3d.show_axis = self.show_3d_crv_button.isChecked()
+        self.glWidget.draw_curve_3d.show_mesh = self.show_3d_crv_axis_button.isChecked()
+
+        self.glWidget.draw_curve_3d.n_around = self.n_around.value()
+        self.glWidget.draw_curve_3d.n_along = self.n_along.value()
+
+        if self.video_annot is not None:
+            # Pull out the image name
+            img_name = self.video_annot.get_image_name(index=(self.image_number.value(), 0, 0))
+            img_name_split = img_name.split("/")
+            indx_mask = self.mask_number.value()
+            if indx_mask >= 0 and indx_mask < len(self.video_annot.mask_names):
+                mask_name = self.video_annot.mask_names[indx_mask]
+            else:
+                mask_name = "none"
+
+            self.mask_name.setText(mask_name)
+            if len(img_name_split) > 2:
+                self.image_name.setAccessibleName(img_name_split[-2])
+                self.image_name.setText(img_name_split[-1])
+            else:
+                self.image_name.setText(img_name)
 
     def reset_view(self):
         self.turntable.set_value(0.0)
@@ -294,137 +324,132 @@ class DataAnnotationMainWindow(QMainWindow):
     def sizePolicy(self) -> 'QSizePolicy':
         return QSizePolicy.Fixed
 
-    def refit(self):
-        params = {}
-        params["step_size"] = self.step_size.value()
-        params["width_mask"] = self.width_mask.value()
-        params["width_edge"] = self.width_edge.value()
-        params["width_profile"] = self.width_profile.value()
-        params["edge_max"] = self.edge_max.value()
-        params["n_per_seg"] = self.n_per_seg.value()
-
-        self.step_size.set_value(self.extract_crv.params["step_size"])
-        self.width_mask.set_value(self.extract_crv.params["width_mask"])
-        self.width_edge.set_value(self.extract_crv.params["width_edge"])
-        self.width_profile.set_value(self.extract_crv.params["width_profile"])
-        self.edge_max.set_value(self.extract_crv.params["edge_max"])
-        self.n_per_seg.set_value(self.extract_crv.params["n_per_seg"])
-        self.set_crv(params)
-
-    def refit_edges(self):
-        pass
-
     def clear_drawings(self):
         self.sketch_curve.clear()
         self.redraw_self()
 
     def new_curve(self):
-        if self.crv is None:
+        import json
+        if self.video_annot is None:
             return
         
-        self.sketch_curve.write_json("save_crv.json")
-        mask_id = f"{self.mask_id_number.slider.maximum()}"
-        self.last_index = self.handle_filenames.add_mask_id(self.last_index, mask_id)
+        fname = "save_crv.json"
+        with open(fname, "w") as f:
+            json.dump(self.sketch_curve.write_json(), f)
 
         # Actually convert the curve
-        width_rgb_image = self.crv.image_rgb.shape[1]
-        height_rgb_image = self.crv.image_rgb.shape[0]
-        crv_in_image_coords = self.sketch_curve.convert_image(lower_left=self.lower_left, upper_right=self.upper_right, 
+        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+        crv_in_image_coords = self.sketch_curve.convert_image(lower_left=ll, upper_right=ur,
                                                               width=width_rgb_image, height=height_rgb_image)
-        self.sketch_curve.write_json("save_crv_in_image.json")
+        fname = "save_crv_in_image.json"
+        with open(fname, "w") as f:
+            json.dump(self.sketch_curve.write_json(), f)
 
-        # Will create a mask image
-        self.crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(self.handle_filenames,
-                                                                          crv_in_image_coords,
-                                                                          self.last_index)
+        # Will create bspline curve
+        indx = (self.image_number.value(), self.mask_number.value(), 0)
+        self.video_annot.add_sketch(image_index=indx, sketch=crv_in_image_coords)
+
+        fname = "save_video_annot.json"
+        with open(fname, "w") as f:
+            json.dump(self.video_annot.write_json(), f, indent=2)
+
         self.reset_file_menus()
-        self.mask_number.set_value(self.last_index[2])
-        self.mask_id_number.set_value(self.last_index[3])
-        self.refit()
-        self.read_images()
-
-    def set_corners(self):
-        """ Calculate the lower left and upper right corners of the image in the window frame"""
-
-        if self.crv == None:
-            return
-        
-        width_rgb_image = self.crv.image_rgb.shape[1]
-        height_rgb_image = self.crv.image_rgb.shape[0]
-
-        width_window = self.glWidget.width()
-        height_window = self.glWidget.height()
-
-        # The rectangle of the image in window coordinates
-        self.lower_left = [0, 0]
-        self.upper_right = [width_window, height_window]
-
-    def set_crv(self, params):
-        """Read in the images etc and recalc (or not)
-        @param params - if None, recalculate"""
-        print(f"{self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)}")
-
-        b_recalc = False
-        if params is not None:
-            b_recalc = True
-        self.extract_crv = ExtractCurves.create_from_filenames(self.handle_filenames,
-                                                               index=self.last_index,
-                                                               b_do_debug=False,
-                                                               b_do_recalc=b_recalc)
-        self.crv = self.extract_crv.bezier_edge
-
-        depth_image_fname = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
-        depth_data_fname = self.handle_filenames.get_depth_data_name(index=self.last_index, b_add_tag=True)
-        if exists(depth_image_fname) or exists(depth_data_fname):
-            depth_fname_calculate = self.handle_filenames.get_mask_name(index=self.last_index, b_calculate_path=True, b_add_tag=False)
-            depth_fname_debug = self.handle_filenames.get_mask_name(index=self.last_index, b_debug_path=True, b_add_tag=False)
-            params = {"camera_width_angle": self.horizontal_angle.value()}
-            self.fit_crv_3d = FitBezierCyl3dDepth(depth_image_fname, depth_data_fname, self.crv.bezier_crv_fit_to_edge,
-                                                  params=params,
-                                                  fname_calculated=depth_fname_calculate,
-                                                  fname_debug=depth_fname_debug, b_recalc=b_recalc)
+        self.sketch_curve.clear()
+        self.redraw_self()
 
     def read_images(self):
         if self.in_read_images:
             return
-        self.in_read_images = True
-        if self.handle_filenames is not None:
-            print("Read images")
-            b_get_image, self.last_index = self.reset_file_menus()
-            print(f" masks {self.handle_filenames.mask_ids[self.last_index[0]][self.last_index[1]][self.last_index[2]]}")
-            if b_get_image:
-                self.image_names = {}
-                self.image_names["rgb"] = self.handle_filenames.get_image_name(index=self.last_index, b_add_tag=True)
-                self.image_names["mask"] = self.handle_filenames.get_mask_name(index=self.last_index, b_add_tag=True)
-                self.image_names["edge"] = self.handle_filenames.get_edge_name(index=self.last_index, b_add_tag=True)
-                self.image_names["flow"] = self.handle_filenames.get_flow_image_name(index=self.last_index, b_add_tag=True)
-                self.image_names["depth"] = self.handle_filenames.get_depth_image_name(index=self.last_index, b_add_tag=True)
 
-                self.images = {}
-                for k, v in self.image_names.items():
-                    if exists(v):
-                        self.images[k] = cv2.imread(v)
+        if self.video_annot is not None:
+            print("Read images frame {self.}")
 
-                self.set_crv(params=None)
+            if self.last_image_index == self.image_number.value():
+                self.set_draw_params_from_sliders()
+                self.in_read_images = False
+                return
+            else:
+                self.last_image_index = self.image_number.value()
 
-                self.glWidget.bind_texture(self.images)
-                self.set_corners()
-                self.redraw_self()
+            self.image_names = {}
+            indx = (self.image_number.value(), 0, 0)
+            self.image_names["rgb"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
+            self.image_names["edge"] = self.video_annot.get_edge_name(index=indx, b_add_tag=True)
+            if indx[0] + 1 < len(self.video_annot.image_names[0]):
+                index_next = (self.image_number.value()+1, 0, 0)
+                self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_edge_name(index=index_next, b_add_tag=True)
+            else:
+                # Get a copy of this image
+                self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
+
+            self.images = {}
+            for k, v in self.image_names.items():
+                if exists(v):
+                    self.images[k] = cv2.imread(v)
+                else:
+                    self.images[k] = None
+
+            if self.images["rgb"] is not None:
+                width_rgb_image = self.images["rgb"].shape[1]
+                height_rgb_image = self.images["rgb"].shape[0]
+
+                width_window = self.glWidget.width()
+                height_window = self.glWidget.height()
+
+                # The rectangle of the image in window coordinates
+                self.glWidget.draw_curve_2d.im_size = (width_rgb_image, height_rgb_image)
+                self.glWidget.draw_curve_2d.lower_left = [0, 0]
+                self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
+                self.glWidget.draw_curve_2d.aspect_ratio = height_rgb_image / width_rgb_image
+
+                w = self.glWidget.width()
+                h = int(self.glWidget.draw_curve_2d.aspect_ratio * w)
+
+                self.glWidget.resize(w, h)
+
+            self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
+                                                   edge_image=self.images["edge"],
+                                                   next_rgb_image=self.images["rgb_edge_rgb_next"])
+            self.redraw_self()
         self.in_read_images = False
+
+    def sketched_curves(self):
+        return [self.sketch_curve]
+
+    def spline_curves(self):
+        if self.video_annot:
+            crv_list = []
+            image_indx = self.image_number.value()
+            if image_indx < len(self.video_annot.keyframes):
+                kf = self.video_annot.keyframes[image_indx]
+                for cyl_type in kf.bspline_cyls:
+                    for crv in cyl_type:
+                        crv_list.append(crv)
+            return crv_list
+        return []
+
 
     def resizeEvent(self, event):
         # Really only need to do this on resize
-        self.set_corners()
+        if self.glWidget:
+            width_window = self.glWidget.width()
+            height_window = self.glWidget.height()
+
+            self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
 
     def redraw_self(self):
         self.glWidget.update()
+        self.set_draw_params_from_sliders()
         self.repaint()
 
 
 if __name__ == '__main__':
     app = QApplication([])
 
-    gui = SketchCurvesMainWindow()
+    gui = DataAnnotationMainWindow()
 
     gui.show()
 
