@@ -231,9 +231,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
         GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glDisable(GL.GL_TEXTURE_2D)
         self.draw_camera_frame_3d()
-        for crv in self.gui.curves_3d():
-            if crv is not None:
-                self.draw_curve_3d.draw_crv_3d(crv)
+        self.draw_curve_3d.draw()
 
     @staticmethod
     def resizeGL(width, height):

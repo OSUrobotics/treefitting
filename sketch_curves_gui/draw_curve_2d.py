@@ -6,17 +6,13 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
 from PyQt5.QtGui import QPainter, QBrush, QPen, QFont, QColor
 import OpenGL.GL as GL
 
-from camera_projections import frame_at_z_near
+from Image_based.camera_projections import frame_at_z_near
 
 import numpy as np
 
 
 class DrawCurve2D():
     def __init__(self):
-        self.crv_gl_list = -1
-
-        self.selected_point = 0
-
         # Number of points per segment
         self.n_pts_backbone = 8
         self.n_rects_edge = 6
@@ -30,7 +26,6 @@ class DrawCurve2D():
 
         self.show_sketched_curve = True
 
-        self.axis_colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]]
         self.aspect_ratio = 1.0
         self.lower_left = [0, 0]
         self.upper_right = [1, 1]
@@ -103,7 +98,7 @@ class DrawCurve2D():
             ts = np.linspace(0, crv.max_t(), self.n_rects_edge * int(crv.max_t()))
             rects, _ = crv.edge_rects(ts, self.width_edge_rect)
         except AttributeError:
-            rects, _ = crv.boundary_rects_image(int(self.im_size[0] / self.n_rects_edge), self.width_edge_rect)
+            rects, _ = crv.boundary_rects(int(self.im_size[0] / self.n_rects_edge), self.width_edge_rect)
 
         rects_left = rects[0:2:]
         rects_right = rects[1:2:]

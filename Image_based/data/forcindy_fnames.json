@@ -1,9 +1,9 @@
 {
   "Name": "FileNamesSubDirs",
   "data": {
-    "path": "/Users/grimmc/PycharmProjects/treefitting/Image_based/data/forcindy/",
-    "path_debug": "/Users/grimmc/PycharmProjects/treefitting/Image_based/data/forcindy/DebugImages/",
-    "path_calculated": "/Users/grimmc/PycharmProjects/treefitting/Image_based/data/forcindy/CalculatedData/",
+    "path": "/Users/cindygrimm/VSCode/treefitting/Image_based/data/forcindy/",
+    "path_debug": "/Users/cindygrimm/VSCode/treefitting/Image_based/data/forcindy/DebugImages/",
+    "path_calculated": "/Users/cindygrimm/VSCode/treefitting/Image_based/data/forcindy/CalculatedData/",
     "name_seperator": "_",
     "mask_names": [
       "trunk",

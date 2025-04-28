@@ -5,6 +5,7 @@ __pycache__/
 .vscode
 .idea
 .env
+.obj
 .DS*
 *.txt
 *.json

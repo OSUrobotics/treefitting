@@ -140,7 +140,7 @@ class FitBezierCyl2DMask:
         @param perc_width - how much wider than the radius to look in the mask
         @returns how much the points moved"""
         height = int(fit_bezier_crv.radius(0.5))
-        rects, ts = fit_bezier_crv.interior_rects_image(step_size=step_size, perc_width=perc_width)
+        rects, ts = fit_bezier_crv.interior_rects(step_size=step_size, perc_width=perc_width)
 
         # Set up the matrix - include the 3 current points plus the centers of the mask
         a_constraints, b_rhs = fit_bezier_crv.setup_least_squares(ts)

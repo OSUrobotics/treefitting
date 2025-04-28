@@ -278,7 +278,7 @@ class FitBezierCyl3dDepth:
 
 if __name__ == '__main__':
     # path_bpd = "./data/trunk_segmentation_names.json"
-    path_bpd = "./data/forcindy_fnames.json"
+    path_bpd = "/Users/cindygrimm/VSCode/treefitting/Image_based/data/forcindy_fnames.json"
     with open(path_bpd, "r") as f:
         my_dict = json.load(f)
         all_files = FileNames.read_json(my_dict)
@@ -289,6 +289,7 @@ if __name__ == '__main__':
         rgb_fname = all_files.get_image_name(index=ind, b_add_tag=True)
         edge_fname = all_files.get_edge_name(index=ind, b_add_tag=True)
         depth_fname = all_files.get_depth_image_name(index=ind, b_add_tag=True)
+        depth_data_fname = all_files.get_depth_data_name(index=ind, b_add_tag=True)
         mask_fname = all_files.get_mask_name(index=ind, b_add_tag=True)
         depth_fname_debug = all_files.get_mask_name(index=ind, b_add_tag=False)
         if not b_do_debug:
@@ -304,7 +305,8 @@ if __name__ == '__main__':
 
         edge_crv = FitBezierCyl2DEdge(rgb_fname, edge_fname, mask_fname, edge_fname_calculate, None, b_recalc=False)
 
-        crv_3d = FitBezierCyl3dDepth(depth_fname, edge_crv.bezier_crv_fit_to_edge,
+        crv_3d = FitBezierCyl3dDepth(fname_depth_image=depth_fname, fname_depth_data=depth_data_fname,
+                                     crv_2d=edge_crv.bezier_crv_fit_to_edge,
                                      params=None,
                                      fname_calculated=depth_fname_calculate,
                                      fname_debug=depth_fname_debug, b_recalc=b_do_recalc)

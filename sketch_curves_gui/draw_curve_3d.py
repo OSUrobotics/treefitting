@@ -10,15 +10,17 @@ class DrawCurve3D():
         self.n_along = 20
         self.n_around = 16
 
-        self.crv_gl_list = -1
+        self.crv_gl_list_mesh = -1
+        self.crv_gl_list_axis = -1
 
-        self.show = True
+        self.show_axis = True
         self.show_mesh = True
 
-    def draw_crv_3d(self, crv_3d):
+    def draw_crv_axis_3d(self, crv_3d):
         """ Render curve as 3D generalized cylinder
         @param branch_crv - the actual 3D cylinder, which has had make_mesh called
         """
+
         # GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glColor3f(0.75, 0.9, 0.95)
         GL.glLineWidth(5)
@@ -28,6 +30,8 @@ class DrawCurve3D():
             v = crv_3d.pt_axis(t)
             GL.glVertex3d(v[0], v[1], v[2])
         GL.glEnd()
+
+    def draw_crv_mesh_3d(self, crv_3d):
 
         GL.glEnable(GL.GL_LIGHTING)
         GL.glEnable(GL.GL_DEPTH_TEST)
@@ -67,19 +71,28 @@ class DrawCurve3D():
 
         self.pt_center = [0.0, 0.0, 0.0]
 
-        if self.crv_gl_list == -1:
-            self.crv_gl_list = GL.glGenLists(1)
+        if self.crv_gl_list_axis == -1:
+            self.crv_gl_list_axis = GL.glGenLists(1)
+        if self.crv_gl_list_mesh == -1:
+            self.crv_gl_list_mesh = GL.glGenLists(1)
 
-        GL.glNewList(self.crv_gl_list, GL.GL_COMPILE)
+        GL.glNewList(self.crv_gl_list_axis, GL.GL_COMPILE)
+        for crv in crvs:
+            self.draw_crv_axis_3d(crv)
+        GL.glEndList()
 
+        GL.glNewList(self.crv_gl_list_mesh, GL.GL_COMPILE)
         for crv in crvs:
             crv.set_dims(self.n_along, self.n_around)
             crv.make_mesh()
-            self.draw_crv_3d(crv)
-
+            self.draw_crv_mesh_3d(crv)
         GL.glEndList()
 
-        return self.crv_gl_list
+    def draw(self):
+        if self.show_mesh and self.crv_gl_list_mesh is not None:
+            GL.glCallList(self.crv_gl_list_mesh)
+        if self.show_axis and self.crv_gl_list_axis is not None:
+            GL.glCallList(self.crv_gl_list_axis)
 
 
 if __name__ == '__main__':

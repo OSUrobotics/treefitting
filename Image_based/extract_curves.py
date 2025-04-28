@@ -133,9 +133,9 @@ class ExtractCurves:
         @return ts, perc off of edge, actual pixels (for debugging) and total number of segs"""
 
         # Fuzzy rectangles along the boundary
-        bdry_rects1, ts1 = bezier_edge.boundary_rects_image(step_size=params["step_size"], perc_width=params["width_profile"])
+        bdry_rects1, ts1 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["width_profile"])
         # Repeat, but offset by 1/2 of the width of the boundary
-        bdry_rects2, ts2 = bezier_edge.boundary_rects_image(step_size=params["step_size"], perc_width=params["width_profile"], offset=True)
+        bdry_rects2, ts2 = bezier_edge.boundary_rects(step_size=params["step_size"], perc_width=params["width_profile"], offset=True)
         n_bdry1 = len(bdry_rects1)
         try:
             t_step = ts1[2] - ts1[0]

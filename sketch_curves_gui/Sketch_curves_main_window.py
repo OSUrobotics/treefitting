@@ -70,7 +70,8 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
+        #self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
+        self.path_name = QLineEdit("/Users/cindygrimm/VSCode/treefitting/Image_based/data/")
         self.file_name = QLineEdit("forcindy_fnames.json")
         # self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
         # self.file_name = QLineEdit("bush_9_west_2_fnames.json")
@@ -394,19 +395,19 @@ class SketchCurvesMainWindow(QMainWindow):
         self.glWidget.draw_images.draw_tex = self.get_image_type()
 
         # 2D Drawing
-        self.glWidget.draw_curve_2d.show_backbone = self.show_backbone_button.value()
-        self.glWidget.draw_curve_2d.show_edge_rects = self.show_edge_rects_button.value()
-        self.glWidget.draw_curve_2d.show_interior_rects = self.show_interior_rects_button.value()
-        self.glWidget.draw_curve_2d.show_profile_curves = self.show_profiles_button.value()
+        self.glWidget.draw_curve_2d.show_backbone = self.show_backbone_button.isChecked()
+        self.glWidget.draw_curve_2d.show_edge_rects = self.show_edge_rects_button.isChecked()
+        self.glWidget.draw_curve_2d.show_interior_rects = self.show_interior_rects_button.isChecked()
+        self.glWidget.draw_curve_2d.show_profile_curves = self.show_profiles_button.isChecked()
 
         self.glWidget.draw_curve_2d.perc_interior_rect = self.width_inside.value()
         self.glWidget.draw_curve_2d.width_edge_rect = self.width_edge.value()
 
-        self.glWidget.draw_curve_2d.show_sketched_curve = self.show_sketch_crv_button.value()
+        self.glWidget.draw_curve_2d.show_sketched_curve = self.show_sketch_crv_button.isChecked()
 
         # 3d Drawing
-        self.glWidget.draw_curve_3d.show = self.show_3d_crv_button.value()
-        self.glWidget.draw_curve_3d.show_mesh = self.show_3d_crv_axis_button.value()
+        self.glWidget.draw_curve_3d.show_axis = self.show_3d_crv_button.isChecked()
+        self.glWidget.draw_curve_3d.show_mesh = self.show_3d_crv_axis_button.isChecked()
 
         self.glWidget.draw_curve_3d.n_around = self.n_around.value()
         self.glWidget.draw_curve_3d.n_along = self.n_along.value()
@@ -433,6 +434,8 @@ class SketchCurvesMainWindow(QMainWindow):
             h = int(aspect_ratio * w)
 
             self.glWidget.resize(w, h)
+
+        self.set_draw_params_from_sliders()
 
     def reset_view(self):
         self.turntable.set_value(0.0)
@@ -468,41 +471,47 @@ class SketchCurvesMainWindow(QMainWindow):
         self.redraw_self()
 
     def get_image_type(self):
-        if self.gui.show_rgb_button.checkState():
-            if self.gui.show_edge_button.checkState():
-                if self.gui.show_mask_button.checkState():
+        if self.show_rgb_button.checkState():
+            if self.show_edge_button.checkState():
+                if self.show_mask_button.checkState():
                     return "rgb_edge_mask"
                 else:
                     return "rgb_edge"
-            elif self.gui.show_mask_button.checkState():
+            elif self.show_mask_button.checkState():
                 return "rgb_mask"
             else:
                 return "rgb"
-        if self.gui.show_edge_button.checkState():
+        if self.show_edge_button.checkState():
             return "edge"
-        elif self.gui.show_mask_button.checkState():
+        elif self.show_mask_button.checkState():
             return "mask"
-        elif self.gui.show_opt_flow_button.checkState():
+        elif self.show_opt_flow_button.checkState():
             return "flow"
-        elif self.gui.show_depth_button.checkState():
+        elif self.show_depth_button.checkState():
             return "depth"
 
-        return "none"
+        return "None"
 
     def new_curve(self):
         if self.crv is None:
             return
 
-        self.sketch_curve.write_json("save_crv.json")
+        fname = "save_crv.json"
+        with open(fname, "w") as f:            
+            json.dump(self.sketch_curve.write_json(), f)
         mask_id = f"{self.mask_id_number.slider.maximum()}"
         self.last_index = self.handle_filenames.add_mask_id(self.last_index, mask_id)
 
         # Actually convert the curve
         width_rgb_image = self.crv.image_rgb.shape[1]
         height_rgb_image = self.crv.image_rgb.shape[0]
-        crv_in_image_coords = self.sketch_curve.convert_image(lower_left=self.lower_left, upper_right=self.upper_right, 
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+        crv_in_image_coords = self.sketch_curve.convert_image(lower_left=ll, upper_right=ur, 
                                                               width=width_rgb_image, height=height_rgb_image)
-        self.sketch_curve.write_json("save_crv_in_image.json")
+        fname = "save_crv_in_image.json"
+        with open(fname, "w") as f:            
+            json.dump(self.sketch_curve.write_json(), f)
 
         # Will create a mask image
         self.crv_from_sketch = FitBezierCyl2DSketch.create_from_filenames(self.handle_filenames,
@@ -527,6 +536,7 @@ class SketchCurvesMainWindow(QMainWindow):
         height_window = self.glWidget.height()
 
         # The rectangle of the image in window coordinates
+        self.glWidget.draw_curve_2d.im_size = (width_rgb_image, height_rgb_image)
         self.glWidget.draw_curve_2d.lower_left = [0, 0]
         self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
 
@@ -554,15 +564,15 @@ class SketchCurvesMainWindow(QMainWindow):
                                                   params=params,
                                                   fname_calculated=depth_fname_calculate,
                                                   fname_debug=depth_fname_debug, b_recalc=b_recalc)
+            self.glWidget.draw_curve_3d.make_crv_gl_list([self.fit_crv_3d.crv_3d])
 
     def sketched_curves(self):
         return [self.sketch_curve]
 
     def spline_curves(self):
-        return [self.crv]
-
-    def curves_3d(self):
-        return [self.extract_crv]
+        if self.crv:
+            return [self.crv.bezier_crv_fit_to_edge]
+        return []
 
     def read_images(self):
         if self.in_read_images:
@@ -603,6 +613,7 @@ class SketchCurvesMainWindow(QMainWindow):
         self.set_corners()
 
     def redraw_self(self):
+        self.set_draw_params_from_sliders()
         self.glWidget.update()
         self.repaint()
 
