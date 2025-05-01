@@ -246,6 +246,21 @@ class FileNamesSubDirs:
         ret_index = (index[0], index[1], index[2], len(self.mask_ids[index[0]][index[1]][index[2]]))
         return ret_index
 
+    def get_image_name_no_path(self, index):
+        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
+        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @return just the image name"""
+
+        im_name = ""
+        if self.sub_dirs[index[0]] != "":
+            im_name = im_name + self.sub_dirs[index[0]] + "/"
+
+        im_name = im_name + self.image_names[index[0]][index[1]]
+        if self.image_name != "":
+            im_name = im_name + self.name_seperator + self.image_name
+
+        return im_name
+
     def get_image_name(self, index, b_debug_path=False, b_add_tag=True):
         """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
