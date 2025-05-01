@@ -21,6 +21,9 @@ class BSplineFitEval(dict):
         self.per_pt_distances = None
         self.per_pt_ts = None
         self.per_pt_outlier = None
+        # TODO: For checking for over fitting/shark finning
+        self.fit_midpoints = None
+        self.avg_fit_midpoints = -1.0
 
     def calc_values(self, crv : BSplineCurve, pts_with_ts : PointListWithTs):
         """ Calculate the fit statistics; assumes inlier threshold set

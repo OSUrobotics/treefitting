@@ -66,10 +66,15 @@ class FitBSplineCyl2DSketch:
         for t in np.linspace(0, crv_linear.max_t(), n_pts_start):
             pts_start.append(crv_linear.eval_crv(t))
 
-        start_curve = BSplineCurve(pts_start, degree=self.params["degree"])
-        curve_fit, _, _ = BSplineCurveFit.fit_project_fit(start_curve, PointList(sketch.backbone_pts))
+        pts_fit_to = PointList(sketch.backbone_pts)
+        # Fix if only 2 points
+        if pts_fit_to.n_points() < BSplineCurve._degree_dict[self.params["degree"]] + 1:
+            pts_fit_to = PointList(pts_start)
 
-        curve_final = BSplineCurveFit.fit_adjust_control_pts(curve_fit, PointList(sketch.backbone_pts), fit_params)
+        start_curve = BSplineCurve(pts_start, degree=self.params["degree"])
+        curve_fit, _, _ = BSplineCurveFit.fit_project_fit(start_curve, pts_fit_to)
+
+        curve_final, _, _ = BSplineCurveFit.fit_adjust_control_pts(curve_fit, pts_fit_to, fit_params)
 
         radii_ctrs, radii_radii = sketch.radii()
         ts = []
@@ -77,7 +82,7 @@ class FitBSplineCyl2DSketch:
             ts.append(crv_linear.project_to_curve(r_ctr)[0])
         radii_sorted = [r for _, r in sorted(zip(ts, radii_radii), key=lambda  pair: pair[0])]
 
-        return BSplineCyl(ctrl_pts=curve_final[0].points(), degree=self.params["degree"], radii=radii_sorted)
+        return BSplineCyl(ctrl_pts=curve_final.points(), degree=self.params["degree"], radii=radii_sorted)
 
     def add_sketch(self, dict_sketch : dict, sketch : SketchedCurve):
         """ Add in a sketch. All inputs are in the dictionary.

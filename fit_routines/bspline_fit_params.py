@@ -7,6 +7,7 @@ class BSplineFitParams(dict):
                     "weight ctrl pts": 0.0,   # if non-zero, add weighted control points to fit}
                     "outlier ratio": 0.1,     # percentage of points that are allowed outside of a "good" fit
                     "inlier threshold": 0.1,  # Numerical value; distance at which the point is considered an inlier
+                    "polyline fit": 0.1,      # Look for shark-finning/over fit by looking at distance to polyline through pts
                     "average fit": 0.1}       # Numerical value; average error allowed across all points
 
     def __init__(self, json_string="{}"):

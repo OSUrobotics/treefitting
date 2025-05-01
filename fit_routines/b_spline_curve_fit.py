@@ -203,7 +203,6 @@ class BSplineCurveFit:
             vecs = None
 
         crv_refit, pts_with_ts_refit = BSplineCurveFit.project_ts_fit(crv_fit, pts_with_ts, vecs, params)
-        params["inlier threshold"] = 0.1 * crv_refit.curve_length() / crv_refit.n_points()
         crv_eval = BSplineFitEval(params)
         crv_eval.calc_values(crv_refit, pts_with_ts_refit)
 
@@ -241,15 +240,24 @@ class BSplineCurveFit:
             params = BSplineFitParams()
 
         # Just keep adding points until we meet the threshold
-        pt = pts.points()[0]
+        pt = pts.points()[-1]
         pts_cntrol_hull = PointList([pt for _ in range(0, crv_initial.order())])
         while pts_cntrol_hull.n_points() <= pts.n_points():
+            # Make the curve with the correct number of control points
             crv_initial = BSplineCurve(ctrl_pts=pts_cntrol_hull.points(), degree=crv_initial.degree_name())
+            # Creates t, pt values pairs from pts as a linear set of points
+            #  Fits the curve
+            #  Projects the pts onto the curve to get better t values, then re-fit
             crv, pts_with_ts, eval_crv = BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
             if eval_crv.is_acceptable():
                 return crv, pts_with_ts, eval_crv
-            pts_cntrol_hull.add_point(pt)
+            if pts_cntrol_hull.n_points() < pts.n_points():
+                pts_cntrol_hull.add_point(pt)
+            else:
+                # Not worth adding more control points
+                return crv, pts_with_ts, eval_crv
 
+        # Shouldn't end up here, but if we do, re-do fit
         crv_initial = BSplineCurve(ctrl_pts=pts_cntrol_hull.points(), degree=crv_initial.degree_name())
         return BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
 

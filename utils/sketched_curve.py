@@ -28,6 +28,18 @@ class SketchedCurve:
                 radius = math.sqrt(math.pow(pts[1][0] - pts[0][0], 2) + math.pow(pts[1][1] - pts[0][1], 2)) / 2.0
                 radii_ctrs.append([0.5 * (pts[0][0] + pts[1][0]), 0.5 * (pts[0][1] + pts[1][1])])
                 radii_vs.append(radius)
+
+        if len(radii_vs) < 2:
+            # 3 and 2 pixels
+            radii_vs.append(3)
+            radii_vs.append(2)
+            if len(self.backbone_pts) > 1:
+                # Start and end of curve
+                radii_ctrs.append(self.backbone_pts[0])
+                radii_ctrs.append(self.backbone_pts[-1])
+            else:
+                radii_ctrs.append([0, 0])
+                radii_ctrs.append([1, 1])
         return radii_ctrs, radii_vs
 
     @staticmethod

@@ -431,6 +431,13 @@ class DataAnnotationMainWindow(QMainWindow):
             return crv_list
         return []
 
+    def sketch_vector(self, dx, dy):
+        """ User drew a long vector in the window - pass the vector to the keyframe
+        @param dx - change in x
+        @param dy - change in y"""
+        if self.video_annot is not None:
+            kf_indx = self.image_number.value()
+            self.video_annot.keyframes[kf_indx].pan_vec = [dx, dy]
 
     def resizeEvent(self, event):
         # Really only need to do this on resize

@@ -17,6 +17,8 @@
 #
 
 import numpy as np
+
+from fit_routines.bspline_fit_params import BSplineFitParams
 from utils.sketched_curve import SketchedCurve
 from tree_geometry.b_spline_cyl import BSplineCyl
 from fit_routines.fit_bspline_cyl_sketch import FitBSplineCyl2DSketch
@@ -66,12 +68,12 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
-    def refit(self):
+    def refit(self, fit_params : BSplineFitParams=None):
         fit_sketch = FitBSplineCyl2DSketch()
 
         for mask_indx, _ in enumerate(self.mask_names):
             for indx, (sk, bs) in enumerate(zip(self.sketch_curves[mask_indx], self.bspline_cyls[mask_indx])):
-                self.bspline_cyls[indx] = fit_sketch._sketch_curve_to_bspline_cyl(sk)
+                self.bspline_cyls[mask_indx][indx] = fit_sketch._sketch_curve_to_bspline_cyl(sk, fit_params=fit_params)
 
     def write_json(self):
         """Create a dictionary and return it"""

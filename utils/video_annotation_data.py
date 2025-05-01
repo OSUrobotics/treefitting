@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+from fit_routines.bspline_fit_params import BSplineFitParams
 # Video annotation data format, built off of FileNames
 # Assumptions (video)
 #   Video has been extracted into a sequence of RGB images (see FileNames naming)
@@ -220,25 +220,78 @@ class VideoAnnotationData(FileNames):
         return all_fnames
 
 
-def read_and_rerun():
+def read_and_rerun(annot_name):
     import json
 
     path_start = "/Users/grimmc/"
     # path_start = "/Users/cindygrimm/"
     dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     tree_name = "BP_R1_East_tree2"
-    va_fname = dest_path + tree_name + "/first_tree_annot.json"
+    va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
     with open(va_fname, "r") as f:
         my_dict = json.load(f)
         va = VideoAnnotationData.read_json(my_dict)
 
+    fit_params = BSplineFitParams()
+    fit_params["inlier threshold"] = 6
+    fit_params["average fit"] = 3
+    fit_params["outlier ratio"] = 0.0
     for kf in va.keyframes:
-        kf.refit()
+        kf.refit(fit_params=fit_params)
+
+    va_fname_refit = dest_path + tree_name + "/" + annot_name + "_refit.json"
+    with open(va_fname_refit, "w") as f:
+        json.dump(va.write_json(), f, indent=2)
 
 
+def produce_pts_pix_2_pix(annot_name):
+    import json
+
+    path_start = "/Users/grimmc/"
+    # path_start = "/Users/cindygrimm/"
+    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
+    tree_name = "BP_R1_East_tree2"
+    va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+
+    with open(va_fname, "r") as f:
+        my_dict = json.load(f)
+        va = VideoAnnotationData.read_json(my_dict)
+
+    backbone_spacing = 10
+    radial_spacing = 4
+
+"""
+    tracker = PipsTracker(model_dir=os.path.join(os.path.expanduser("~"), "follow-the-leader-deps", "pips", "pips", "reference_model")
+)
+
+from follow_the_leader.networks.pips_model import PipsTracker
+
+trajs = self.tracker.track_points(targets, images)
+trajs = np.transpose(trajs, (1, 0, 2))  # Point, frame, coordinate
+
+pts_3d = None
+if self.get_param_val("do_3d_point_estimation"):
+    ref_pose = np.linalg.inv(image_info[ref_idx]["pose"])  # base to camera
+    camera_frame_tf_matrices = [(ref_pose @ info["pose"]) for info in image_info]  # camera_idx to base to camera
+    triangulator = PointTriangulator(self.camera, min_points=self.get_param_val("min_points"))
+    pts_3d = triangulator.compute_3d_points(camera_frame_tf_matrices, trajs)
+    mask = np.bitwise_and(pts_3d[:, 2] > 0, pts_3d[:, 2] < z_threshold)
+    reprojs = triangulator.get_reprojs(pts_3d, camera_frame_tf_matrices, trajs)
+    error = np.linalg.norm(trajs - reprojs, axis=2)
+    avg_error = error.mean(axis=1)
+    max_error = error.max(axis=1)
+    # self.get_logger().info('Average pix error:\n')
+    # self.get_logger().info(', '.join('{:.3f}'.format(x) for x in avg_error))
+    # self.get_logger().info('Max pix error:\n')
+    # self.get_logger().info(', '.join('{:.3f}'.format(x) for x in max_error))
+
+trajs = np.transpose(trajs, (1, 0, 2))
+"""
 if __name__ == '__main__':
-    read_and_rerun()
+    read_and_rerun("first_tree_annot")
+    read_and_rerun("first_tree_with_tertiary")
+    read_and_rerun("first_tree_with_tertiary_all")
 
     import json
 

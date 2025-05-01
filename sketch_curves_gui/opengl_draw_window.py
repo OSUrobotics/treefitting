@@ -269,6 +269,12 @@ class OopenGLDrawWindow(QOpenGLWidget):
         # Not a click
         if abs(dx) + abs(dy) > 5:
             print(f"Big {dx} {dy}")
+            if event.modifiers() == Qt.ShiftModifier:
+                if self.gui:
+                    try:
+                        self.gui.sketch_vector(dx, dy)
+                    except AttributeError:
+                        pass
             return
         
         if self.gui:
