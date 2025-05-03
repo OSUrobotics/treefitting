@@ -1,193 +1,282 @@
-import time
+#!/usr/bin/env python3
+import os.path
+
+import rclpy
+from rclpy.time import Time
 import numpy as np
-import saverloader
-from nets.pips2 import Pips
-import utils.improc
-from utils.basic import print_, print_stats
-import torch
-from tensorboardX import SummaryWriter
-import torch.nn.functional as F
-from fire import Fire
-import sys
+from std_msgs.msg import Header
+from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
+from geometry_msgs.msg import Point
+from cv_bridge import CvBridge
+from follow_the_leader.networks.pips_model import PipsTracker
+from follow_the_leader_msgs.msg import (
+    Point2D,
+    TrackedPointGroup,
+    TrackedPointRequest,
+    Tracked3DPointGroup,
+    Tracked3DPointResponse,
+    StateTransition,
+)
+from follow_the_leader_msgs.srv import Query3DPoints
+from collections import defaultdict
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+from rclpy.parameter import Parameter
+from follow_the_leader.utils.ros_utils import TFNode, SharedData, process_list_as_dict
+from threading import Lock
+
 import cv2
-from pathlib import Path
+bridge = CvBridge()
 
 
-from treefitting.video_annotation_data import VideoAnnotationData
+class PointTrackerNoRos():
+    def __init__(self):
+        # State variables
+        self.tracker = PipsTracker(
+            model_dir=os.path.join(os.path.expanduser("~"), "follow-the-leader-deps", "pips", "pips", "reference_model")
+        )
+        self.image_size = (512, 896)
+        self.tracked_pts_2d = None
+        self.tracked_pts_3d = None
+        self.camera_matrices = None
+        self.images = None
 
-def read_mp4(fn):
-    vidcap = cv2.VideoCapture(fn)
-    frames = []
-    while (vidcap.isOpened()):
-        ret, frame = vidcap.read()
-        if ret == False:
-            break
-        frames.append(frame)
-    vidcap.release()
-    return frames
+        return
 
-def read_data(annot_name, kf=0, backbone_spacing = 10, radial_spacing = 4):
-    """get the N images needed for processing the points along with 2D points
-    @param annot_name - annotation name
-    @param kf - which keyframe
-    @return images and points"""
-    import json
+    def flatten_groups(self, grouped_pts):
+        all_pts = []
+        all_names = []
+        for name, points in grouped_pts.items():
+            all_pts.append(points)
+            all_names.extend([name] * len(points))
+        return np.concatenate(all_pts, axis=0), all_names
 
-    path_start = "/Users/grimmc/"
-    # path_start = "/Users/cindygrimm/"
-    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    tree_name = "BP_R1_East_tree2"
-    va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+    def run_point_tracking(self, images_in, pts_2d_in, ref_idx=0):
+        """ Run the point tracking, setting 2D points and 3D points and camera poses
+        @param images_in - a list of 8 images, given as numpy cv2 arrays
+        @param pts_2d_in - a list of n 2d points
+        @ref_idx - which image is to be the center image """
 
-    with open(va_fname, "r") as f:
-        my_dict = json.load(f)
-        va = VideoAnnotationData.read_json(my_dict)
+        # Get images into torch format
+        image_width = images_in[0].shape(1)
+        image_height = images_in[0].shape(0)
+        image_nchannels = images_in[0].shape(2)
+        assert image_nchannels == 3
+        self.images = np.zeros((8, image_height, image_width, image_nchannels)) # S,H,W,3
+        for im_indx, im in enumerate(images_in):
+            im_resize = cv2.resize(im, self.image_size)
+            self.images[im_indx, :, :, :] = im_resize
 
-    full_fname = dest_path + tree_name + "/allfnames.json"
-    with open(full_fname, "r") as f:
-        my_dict = json.load(f)
-        full_list = VideoAnnotationData.read_json(my_dict)
+        rgb_seq = torch.from_numpy(self.images).permute(0,3,1,2).to(torch.float32) # S,3,H,W
+        rgb_seq = F.interpolate(rgb_seq, self.image_size, mode='bilinear').unsqueeze(0) # 1,S,3,H,W
 
-    im_name = va.key_frames[kf].image_name
-    if kf == va.n_keyframes() - 1:
-        im_name_next = im_name
-        im_name_next = va.key_frames[kf-1].image_name
-    else:
-        im_name_next = va.key_frames[kf + 1].image_name
-    images = []
-    b_in_section = False
-    image_size = (512, 896),  # input resolution
-    for img_indx in full_list.loop_all_images():
-        img_name_full = full_list.get_image_name_no_path(img_indx)
-        if img_name_full == im_name:
-            b_in_section = True
-        elif img_name_full == im_name_next:
-            break
-        if b_in_section:
-            im = cv2.imread(full_list.get_image_name(img_indx, b_add_tag=True))
-            im_resize = cv2.resize(im, image_size)
-            images.append(im)
+        self.tracked_pts_2d = np.zeros((len(pts_2d_in), 2))
+        for indx, p in pts_2d_in:
+            self.tracked_pts_2d[indx, :] = p[0]
+            self.tracked_pts_2d[indx, :] = p[1]
 
-    pts_2d = []
-    for crvs in va.keyframes[kf].b_spline_cyl:
-        for crv in crvs:
-            min_along = 2
-            min_across = 1
+        # xy0 = torch.stack([grid_x, grid_y], dim=-1)  # B, N_*N_, 2
 
 
-def run_model(model, rgbs, S_max=128, N=64, iters=16, sw=None):
-    rgbs = rgbs.cuda().float()  # B, S, C, H, W
+        rgbs = np.stack(rgbs, axis=0)  # S,H,W,3
+        rgbs = rgbs[:, :, :, ::-1].copy()  # BGR->RGB
+        rgbs = rgbs[::timestride]
+        S_here, H, W, C = rgbs.shape
+        print('rgbs', rgbs.shape)
 
-    B, S, C, H, W = rgbs.shape
-    assert (B == 1)
+        self.images = np.stack()
+        images = [info["image"] for info in image_info]
+        targets, groups = self.flatten_groups(grouped_pts)
+        trajs = self.tracker.track_points(targets, images)
+        trajs = np.transpose(trajs, (1, 0, 2))  # Point, frame, coordinate
 
-    # pick N points to track; we'll use a uniform grid
-    N_ = np.sqrt(N).round().astype(np.int32)
-    grid_y, grid_x = utils.basic.meshgrid2d(B, N_, N_, stack=False, norm=False, device='cuda')
-    grid_y = 8 + grid_y.reshape(B, -1) / float(N_ - 1) * (H - 16)
-    grid_x = 8 + grid_x.reshape(B, -1) / float(N_ - 1) * (W - 16)
-    xy0 = torch.stack([grid_x, grid_y], dim=-1)  # B, N_*N_, 2
-    _, S, C, H, W = rgbs.shape
+        pts_3d = None
+        if self.do_3d_point_estimation:
+            ref_pose = np.linalg.inv(image_info[ref_idx]["pose"])
+            camera_frame_tf_matrices = [(ref_pose @ info["pose"]) for info in image_info]
+            triangulator = PointTriangulator(self.camera, min_points=self.min_points.value)
+            pts_3d = triangulator.compute_3d_points(camera_frame_tf_matrices, trajs)
+            reprojs = triangulator.get_reprojs(pts_3d, camera_frame_tf_matrices, trajs)
+            error = np.linalg.norm(trajs - reprojs, axis=2)
+            avg_error = error.mean(axis=1)
+            max_error = error.max(axis=1)
+            # print('Average pix error:\n')
+            # print(', '.join('{:.3f}'.format(x) for x in avg_error))
+            # print('Max pix error:\n')
+            # print(', '.join('{:.3f}'.format(x) for x in max_error))
 
-    # zero-vel init
-    trajs_e = xy0.unsqueeze(1).repeat(1, S, 1, 1)
+        trajs = np.transpose(trajs, (1, 0, 2))
 
-    iter_start_time = time.time()
+        frame_id = image_info[ref_idx]["frame_id"]
+        stamp = image_info[ref_idx]["stamp"].to_msg()
 
-    preds, preds_anim, _, _ = model(trajs_e, rgbs, iters=iters, feat_init=None, beautify=True)
-    trajs_e = preds[-1]
+        response = Tracked3DPointResponse(header=Header(frame_id=frame_id, stamp=stamp))
+        if pts_3d is not None:
+            pc = create_cloud_xyz32(Header(frame_id=frame_id, stamp=stamp), points=pts_3d)
+            self.pc_pub.publish(pc)
+            for group, pts_and_errs in self.unflatten_tracked_points(zip(pts_3d, max_error), groups).items():
+                points, errors = zip(*pts_and_errs)
+                response.groups.append(
+                    Tracked3DPointGroup(name=group, points=[Point(x=x, y=y, z=z) for x, y, z in points], errors=errors)
+                )
 
-    iter_time = time.time() - iter_start_time
-    print('inference time: %.2f seconds (%.1f fps)' % (iter_time, S / iter_time))
+        for group, points_2d in self.unflatten_tracked_points(trajs[ref_idx].astype(np.float), groups).items():
+            response.groups_2d.append(TrackedPointGroup(name=group, points=[Point2D(x=x, y=y) for x, y in points_2d]))
 
-    if sw is not None and sw.save_this:
-        rgbs_prep = utils.improc.preprocess_color(rgbs)
-        sw.summ_traj2ds_on_rgbs('outputs/trajs_on_rgbs', trajs_e[0:1], utils.improc.preprocess_color(rgbs[0:1]),
-                                cmap='hot', linewidth=1, show_dots=False)
-    return trajs_e
+        response.image = bridge.cv2_to_imgmsg(image_info[ref_idx]["image"])
+        response.image.header.frame_id = image_info[ref_idx]["frame_id"]
+        response.image.header.stamp = image_info[ref_idx]["stamp"].to_msg()
 
+        return response, trajs, groups
 
-def main(
-        filename='./stock_videos/camel.mp4',
-        S=48,  # seqlen
-        N=1024,  # number of points per clip
-        stride=8,  # spatial stride of the model
-        timestride=1,  # temporal stride of the model
-        iters=16,  # inference steps of the model
-        image_size=(512, 896),  # input resolution
-        max_iters=4,  # number of clips to run
-        shuffle=False,  # dataset shuffling
-        log_freq=1,  # how often to make image summaries
-        log_dir='./logs_demo',
-        init_dir='./reference_model',
-        device_ids=[0],
-):
-    # the idea in this file is to run the model on a demo video,
-    # and return some visualizations
+    def update_tracker(self):
+        if not self.image_queue.is_full:
+            return
 
-    exp_name = 'de00'  # copy from dev repo
+        print("Updating tracker")
+        with self.current_request:
+            response, trajs, groups = self.run_point_tracking(
+                self.image_queue.as_list(), self.current_request, ref_idx=-1
+            )
+            self.tracked_3d_pub.publish(response)
+            self.update_request_from_trajectory(trajs, groups)
+            return response
 
-    print('filename', filename)
-    name = Path(filename).stem
-    print('name', name)
+    def unflatten_tracked_points(self, points, groups):
+        rez = defaultdict(list)
+        for point, group in zip(points, groups):
+            rez[group].append(point)
 
-    rgbs = read_mp4(filename)
-    rgbs = np.stack(rgbs, axis=0)  # S,H,W,3
-    rgbs = rgbs[:, :, :, ::-1].copy()  # BGR->RGB
-    rgbs = rgbs[::timestride]
-    S_here, H, W, C = rgbs.shape
-    print('rgbs', rgbs.shape)
+        return rez
 
-    # autogen a name
-    model_name = "%s_%d_%d_%s" % (name, S, N, exp_name)
-    import datetime
-    model_date = datetime.datetime.now().strftime('%H:%M:%S')
-    model_name = model_name + '_' + model_date
-    print('model_name', model_name)
+    def update_request_from_trajectory(self, trajs, groups):
+        w = self.camera.width
+        h = self.camera.height
+        final_locs = trajs[-1]
+        is_outside = (final_locs[:, 0] < 0) | (final_locs[:, 0] >= w) | (final_locs[:, 1] < 0) | (final_locs[:, 1] >= h)
+        idx_to_stay = np.where(~is_outside)[0]
+        new_req = {}
 
-    log_dir = 'logs_demo'
-    writer_t = SummaryWriter(log_dir + '/' + model_name + '/t', max_queue=10, flush_secs=60)
+        update_locs = trajs[1]
+        for idx in idx_to_stay:
+            group = groups[idx]
+            if group not in new_req:
+                new_req[group] = []
+            new_req[group].append(update_locs[idx])
 
-    global_step = 0
+        self.current_request.clear()
+        for group, points in new_req.items():
+            self.current_request[group] = np.array(points)
+        return
 
-    model = Pips(stride=8).cuda()
-    parameters = list(model.parameters())
-    if init_dir:
-        _ = saverloader.load(init_dir, model)
-    global_step = 0
-    model.eval()
+    def reset(self, *_, **__):
+        self.current_request.clear()
+        self.image_queue.empty()
+        return
 
-    idx = list(range(0, max(S_here - S, 1), S))
-    if max_iters:
-        idx = idx[:max_iters]
+    def debug_tracking(self, images, trajs, reprojs=None, output=None):
+        import cv2
+        from PIL import Image
 
-    for si in idx:
-        global_step += 1
+        final_imgs = []
+        # trajs is point x frame x dim
+        for i, img in enumerate(images):
+            img = img.copy()
+            pts = trajs[:, i]
+            for j, pt in enumerate(pts):
+                img = cv2.circle(img, pt.astype(int), 4, (0, 0, 255), -1)
+                if reprojs is not None and not np.any(np.isnan(reprojs[j, i])):
+                    img = cv2.circle(img, reprojs[j, i].astype(int), 4, (0, 255, 255), -1)
 
-        iter_start_time = time.time()
+            final_imgs.append(img)
+            if output is not None:
+                stamp = self.get_clock().now().seconds_nanoseconds()[0]
+                Image.fromarray(img).save(os.path.join(output, f"{stamp}_{i+1}.png"))
+                print("output image")
 
-        sw_t = utils.improc.Summ_writer(
-            writer=writer_t,
-            global_step=global_step,
-            log_freq=log_freq,
-            fps=16,
-            scalar_freq=int(log_freq / 2),
-            just_gif=True)
-
-        rgb_seq = rgbs[si:si + S]
-        rgb_seq = torch.from_numpy(rgb_seq).permute(0, 3, 1, 2).to(torch.float32)  # S,3,H,W
-        rgb_seq = F.interpolate(rgb_seq, image_size, mode='bilinear').unsqueeze(0)  # 1,S,3,H,W
-
-        with torch.no_grad():
-            trajs_e = run_model(model, rgb_seq, S_max=S, N=N, iters=iters, sw=sw_t)
-
-        iter_time = time.time() - iter_start_time
-
-        print('%s; step %06d/%d; itime %.2f' % (
-            model_name, global_step, max_iters, iter_time))
-
-    writer_t.close()
+        return final_imgs
 
 
-if __name__ == '__main__':
-    Fire(main)
+class PointTriangulator:
+    def __init__(self, camera, min_points=2):
+        self.camera = camera
+        self.min_points = min_points
+        return
+
+    @property
+    def k(self):
+        return self.camera.K
+
+    def run_triangulation(self, pose_matrices, point_traj):
+        """
+        pose_matrices: List of N 4x4 matrices
+        trajs: N x 2 array of point trajectories in typical image XY format
+        """
+
+        D = np.zeros((len(pose_matrices) * 2, 4))
+        for i, (pose_mat, point) in enumerate(zip(pose_matrices, point_traj)):
+            proj_mat = self.k @ np.linalg.inv(pose_mat)[:3]
+            D[2 * i] = proj_mat[2] * point[0] - proj_mat[0]
+            D[2 * i + 1] = proj_mat[2] * point[1] - proj_mat[1]
+
+        _, _, v = np.linalg.svd(D, full_matrices=True)
+        pts_3d = v[-1, :3] / v[-1, 3]
+        return pts_3d
+
+    def compute_3d_points(self, pose_matrices, point_trajs):
+        """
+        pose_matrices: List of N 4x4 matrices
+        trajs: T x N x 2 array of point trajectories in typical image XY format
+        """
+        all_rez = []
+        for traj in point_trajs:
+            interior = (
+                (traj[:, 0] >= 0)
+                & (traj[:, 0] <= self.camera.width)
+                & (traj[:, 1] >= 0)
+                & (traj[:, 1] <= self.camera.height)
+            )
+            traj = traj[interior]
+            if len(traj) < self.min_points:
+                all_rez.append(np.zeros(3))
+            else:
+                all_rez.append(self.run_triangulation(pose_matrices, traj))
+
+        return np.array(all_rez)
+
+    def get_reprojs(self, points_3d, pose_matrices, point_trajs):
+        """
+        points_3d: K x 3 matrix of 3D points
+        pose_matrices: N x 2 array of point trajectories in typical XY format
+        point_traj: K x N x 2 array
+        """
+
+        rez = np.zeros(point_trajs.shape)
+
+        for j, pose_mat in enumerate(pose_matrices):
+            pose_t_base = np.linalg.inv(pose_mat)
+            for i, (pt_3d, traj) in enumerate(zip(points_3d, point_trajs)):
+                if not np.abs(pt_3d).sum():
+                    rez[i, j] = np.nan
+                    continue
+
+                pt_3d_h = np.ones(4)
+                pt_3d_h[:3] = pt_3d
+                pt_3d_t = (pose_t_base @ pt_3d_h)[:3]
+
+                reproj = self.camera.project3dToPixel(pt_3d_t)
+                rez[i, j] = reproj
+
+        return rez
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    executor = MultiThreadedExecutor()
+    node = PointTracker()
+    rclpy.spin(node, executor=executor)
+
+
+if __name__ == "__main__":
+    main()
