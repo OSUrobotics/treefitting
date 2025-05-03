@@ -34,6 +34,8 @@ class KeyFrameData:
         self.bspline_cyls = []
         self.pan_vec = [0, 0]
         self.scale_amount = 1.0
+        self.pts_2d = []
+        self.pts_3d = []
         self.image_matrix = np.identity(3)
         self.camera_matrix = np.identity(4)
 
@@ -83,7 +85,9 @@ class KeyFrameData:
                    "bspline_cyls":  [],
                    "mask_names": self.mask_names,
                    "PanVec": self.pan_vec.copy(),
-        "ScaleAmt": self.scale_amount,
+                   "pts_2d": self.pts_2d,
+                   "pts_3d": self.pts_3d,
+                   "ScaleAmt": self.scale_amount,
         "image_matrix": self.image_matrix.tolist(),
         "camera_matrix": self.camera_matrix.tolist()}
 
@@ -126,6 +130,11 @@ class KeyFrameData:
         key_frame_instance.scale_amount = json_dict["ScaleAmt"]
         key_frame_instance.image_matrix = np.array(json_dict["image_matrix"])
         key_frame_instance.camera_matrix = np.array(json_dict["camera_matrix"])
+        try:
+            key_frame_instance.pts_2d = json_dict["pts_2d"]
+            key_frame_instance.pts_3d = json_dict["pts_3d"]
+        except KeyError:
+            pass
 
         return key_frame_instance
 

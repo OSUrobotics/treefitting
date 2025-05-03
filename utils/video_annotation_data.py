@@ -33,6 +33,7 @@ from fit_routines.bspline_fit_params import BSplineFitParams
 #   Generate a mask image for each trunk/branch
 #
 
+import numpy as np
 from utils.file_names import FileNames
 from utils.keyframe_data import KeyFrameData
 
@@ -49,6 +50,9 @@ class VideoAnnotationData(FileNames):
         self.end_index = -1
 
         self.keyframes = []
+
+    def n_keyframes(self):
+        return len(self.keyframes)
 
     def add_directory(self, name_filter="", start_index=0, end_index=-1, skip_index=1):
         """Assumes all of the images are in a top-level directory (path) - no subdirectories
@@ -245,50 +249,192 @@ def read_and_rerun(annot_name):
         json.dump(va.write_json(), f, indent=2)
 
 
-def produce_pts_pix_2_pix(annot_name):
+def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 4):
+    """get the N images needed for processing the points along with 2D points
+    @param annot_name - annotation name
+    @param kf - which keyframe
+    @return images and points"""
+
+    import json
+    import cv2
+    from draw_routines.image_draw_geom_utils import draw_cross
+
+    path_parts = annot_full_path_name.split("/")
+
+    with open(annot_full_path_name, "r") as f:
+        my_dict = json.load(f)
+        va = VideoAnnotationData.read_json(my_dict)
+
+    full_fname = "/".join(path_parts[:-1]) + "/all_fnames.json"
+    with open(full_fname, "r") as f:
+        my_dict = json.load(f)
+        full_list = FileNames.read_json(my_dict)
+
+    im_name = va.keyframes[kf].image_name
+    if kf == va.n_keyframes() - 1:
+        im_name_next = im_name
+        im_name = va.keyframes[kf-1].image_name
+    else:
+        im_name_next = va.keyframes[kf + 1].image_name
+    images = []
+    b_in_section = False
+    image_size = (896, 512)  # input resolution, H, W
+    scl_image = [1, 1]
+    print(f"Reading images")
+    for img_indx in full_list.loop_images():
+        img_name_full = full_list.get_image_name_no_path(img_indx)
+        if img_name_full == im_name:
+            b_in_section = True
+        if b_in_section:
+            print(f" {full_list.get_image_name(img_indx, b_add_tag=True)}")
+            im = cv2.imread(full_list.get_image_name(img_indx, b_add_tag=True))
+            im_resize = cv2.resize(im, image_size)
+            scl_image[0] = image_size[0] / im.shape[1]
+            scl_image[1] = image_size[1] / im.shape[0]
+            images.append(im_resize)
+        if img_name_full == im_name_next:
+            break
+
+    pts_2d = []
+    for crvs in va.keyframes[kf].bspline_cyls:
+        for crv in crvs:
+            if crv.radius(0.5) < 2:
+                continue
+            crv_len = crv.curve_length() * scl_image[0]
+            crv_width = crv.radius(0.5) * scl_image[0]
+
+            n_spacing = max(int(crv_len / backbone_spacing), 2)
+            n_across = max(int(crv_width / radial_spacing), 1)
+
+            ts = np.linspace(0, crv.max_t(), n_spacing)
+            pts = crv.eval_crv(ts)
+            for perc_across in range(0, n_across // 2):
+                p_across = 1.0 - 0.6 * (2.0 * perc_across / n_across) + 0.2
+                pts = np.vstack((pts, crv.edge_pts(ts, p_across)))
+                pts = np.vstack((pts, crv.edge_pts(ts, -p_across)))
+
+            for pt in pts:
+                pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
+                # Remember image scale is height, width
+
+
+    pts_keep = []
+    im_start = images[0] // 2
+    im_end = images[-1] // 2
+    vec_move = [va.keyframes[kf].pan_vec[0] * scl_image[0], va.keyframes[kf].pan_vec[1] * scl_image[1]]
+    for pt in pts_2d:
+        pt_moved = [pt[0] + vec_move[0], pt[1] + vec_move[1]]
+        if 0 <= pt_moved[0] <= image_size[0]:
+            if 0 <= pt_moved[1] <= image_size[1]:
+                pts_keep.append(pt)
+                draw_cross(im_start, pt, color=[0, 255, 0])
+                draw_cross(im_end, pt_moved, color=[0, 255, 0])
+            else:
+                draw_cross(im_start, pt, color=[255, 0, 0])
+        else:
+            draw_cross(im_start, pt, color=[0, 0, 255])
+
+    step = 10 * backbone_spacing
+    for ix in range(2 * step, image_size[0] - 2 * step, step):
+        for iy in range(2 * step, image_size[1] - 2 * step, step):
+            pts_keep.append([ix, iy])
+            draw_cross(im_start, [ix, iy], color=[255, 255, 0])
+            draw_cross(im_end, [ix + vec_move[0], iy + vec_move[1]], color=[0, 255, 0])
+
+    full_output_name = "/".join(path_parts[:-1]) + "/CalculatedData/pips2/input/"
+
+    cv2.imwrite(full_output_name + "im_start.png", im_start)
+    cv2.imwrite(full_output_name + "im_end.png", im_end)
+    return images, pts_keep
+
+
+def add_2d_tracks(annot_full_path_name, kf, pts_name):
+    """ Add 2d points to the keyframes
+    @param annot_name - name
+    @param pts_name - pts as a list"""
+    import json
+    import cv2
+    from draw_routines.image_draw_geom_utils import draw_cross, draw_line
+
+    path_parts = annot_full_path_name.split("/")
+
+    with open(annot_full_path_name, "r") as f:
+        my_dict = json.load(f)
+        va = VideoAnnotationData.read_json(my_dict)
+
+    im_name = va.get_image_name((kf, 0, 0), b_add_tag=True)
+    if kf == va.n_keyframes() - 1:
+        im_name_next = im_name
+        im_name = va.get_image_name((kf-1, 0, 0), b_add_tag=True)
+    else:
+        im_name_next = va.get_image_name((kf+1, 0, 0), b_add_tag=True)
+
+    im_start = cv2.imread(im_name)
+    im_end = cv2.imread(im_name_next)
+    b_in_section = False
+    image_size = (896, 512)  # input resolution, H, W
+    scl_image = [image_size[0] / im_start.shape[1], image_size[1] / im_start.shape[0]]
+
+    with open(pts_name, "r") as f:
+        pts_2d = json.load(f)
+
+    kf_data = va.keyframes[kf]
+    kf_data.pts_2d = []
+    vx = 0.0
+    vy = 0.0
+    for indx in range(0, len(pts_2d[0])):
+        pt_start = pts_2d[0][indx]
+        pt_end = pts_2d[-1][indx]
+
+        pt_start = [pt_start[0] / scl_image[0], pt_start[1] / scl_image[1]]
+        pt_end = [pt_end[0] / scl_image[0], pt_end[1] / scl_image[1]]
+        vx += pt_end[0] - pt_start[0]
+        vy += pt_end[1] - pt_start[1]
+        kf_data.pts_2d.append(pt_start)
+
+        draw_cross(im_start, pt_start, color=[0, 255, 0])
+        draw_cross(im_end, pt_end, color=[0, 255, 0])
+        draw_line(im_start, pt_start, pt_end, color=[0, 255, 255])
+        draw_line(im_end, pt_start, pt_end, color=[0, 255, 255])
+    kf_data.pan_vec = [vx / len(pts_2d[0]), vy / len(pts_2d[0])]
+
+    full_output_name = "/".join(path_parts[:-1]) + "/CalculatedData/pips2/output/"
+
+    cv2.imwrite(full_output_name + "im_start.png", im_start)
+    cv2.imwrite(full_output_name + "im_end.png", im_end)
+
+    full_output_va_name = "/".join(path_parts[:-1]) + "/CalculatedData/pips2/output/output_va.json"
+
+    with open(full_output_va_name, "w") as f:
+        json.dump(va.write_json(), f, indent=2)
+    return va
+
+
+if __name__ == '__main__':
+    import cv2
     import json
 
     path_start = "/Users/grimmc/"
     # path_start = "/Users/cindygrimm/"
     dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     tree_name = "BP_R1_East_tree2"
+    annot_name = 'first_tree_annot_refit'
     va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
-    with open(va_fname, "r") as f:
-        my_dict = json.load(f)
-        va = VideoAnnotationData.read_json(my_dict)
+    fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
+    add_2d_tracks(va_fname, 0, fname_pts)
 
-    backbone_spacing = 10
-    radial_spacing = 4
+    images, pts = produce_pips2_data(va_fname)
 
-"""
-    tracker = PipsTracker(model_dir=os.path.join(os.path.expanduser("~"), "follow-the-leader-deps", "pips", "pips", "reference_model")
-)
+    for indx, im in enumerate(images):
+        fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
+        cv2.imwrite(fname, im)
 
-from follow_the_leader.networks.pips_model import PipsTracker
+    fname = dest_path + tree_name + "/CalculatedData/pips2/input/pts" + "" + ".json"
+    with open(fname, "w") as f:
+        json.dump(pts, f, indent=2)
 
-trajs = self.tracker.track_points(targets, images)
-trajs = np.transpose(trajs, (1, 0, 2))  # Point, frame, coordinate
 
-pts_3d = None
-if self.get_param_val("do_3d_point_estimation"):
-    ref_pose = np.linalg.inv(image_info[ref_idx]["pose"])  # base to camera
-    camera_frame_tf_matrices = [(ref_pose @ info["pose"]) for info in image_info]  # camera_idx to base to camera
-    triangulator = PointTriangulator(self.camera, min_points=self.get_param_val("min_points"))
-    pts_3d = triangulator.compute_3d_points(camera_frame_tf_matrices, trajs)
-    mask = np.bitwise_and(pts_3d[:, 2] > 0, pts_3d[:, 2] < z_threshold)
-    reprojs = triangulator.get_reprojs(pts_3d, camera_frame_tf_matrices, trajs)
-    error = np.linalg.norm(trajs - reprojs, axis=2)
-    avg_error = error.mean(axis=1)
-    max_error = error.max(axis=1)
-    # self.get_logger().info('Average pix error:\n')
-    # self.get_logger().info(', '.join('{:.3f}'.format(x) for x in avg_error))
-    # self.get_logger().info('Max pix error:\n')
-    # self.get_logger().info(', '.join('{:.3f}'.format(x) for x in max_error))
-
-trajs = np.transpose(trajs, (1, 0, 2))
-"""
-if __name__ == '__main__':
     read_and_rerun("first_tree_annot")
     read_and_rerun("first_tree_with_tertiary")
     read_and_rerun("first_tree_with_tertiary_all")
