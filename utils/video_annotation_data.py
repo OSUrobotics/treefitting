@@ -249,7 +249,7 @@ def read_and_rerun(annot_name):
         json.dump(va.write_json(), f, indent=2)
 
 
-def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 4):
+def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 4, grid_spacing = 30):
     """get the N images needed for processing the points along with 2D points
     @param annot_name - annotation name
     @param kf - which keyframe
@@ -308,8 +308,11 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
 
             ts = np.linspace(0, crv.max_t(), n_spacing)
             pts = crv.eval_crv(ts)
+            across_min = 0.3
+            across_max = 0.7
             for perc_across in range(0, n_across // 2):
-                p_across = 1.0 - 0.6 * (2.0 * perc_across / n_across) + 0.2
+                p = (perc_across + 0.5) / (n_across * 0.5)
+                p_across = across_min + p * (across_max - across_min)
                 pts = np.vstack((pts, crv.edge_pts(ts, p_across)))
                 pts = np.vstack((pts, crv.edge_pts(ts, -p_across)))
 
@@ -334,7 +337,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
         else:
             draw_cross(im_start, pt, color=[0, 0, 255])
 
-    step = 10 * backbone_spacing
+    step = grid_spacing
     for ix in range(2 * step, image_size[0] - 2 * step, step):
         for iy in range(2 * step, image_size[1] - 2 * step, step):
             pts_keep.append([ix, iy])
@@ -421,10 +424,7 @@ if __name__ == '__main__':
     annot_name = 'first_tree_annot_refit'
     va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
-    fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
-    add_2d_tracks(va_fname, 0, fname_pts)
-
-    images, pts = produce_pips2_data(va_fname)
+    images, pts = produce_pips2_data(va_fname, grid_spacing=80)
 
     for indx, im in enumerate(images):
         fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
@@ -434,6 +434,9 @@ if __name__ == '__main__':
     with open(fname, "w") as f:
         json.dump(pts, f, indent=2)
 
+
+    fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
+    add_2d_tracks(va_fname, 0, fname_pts)
 
     read_and_rerun("first_tree_annot")
     read_and_rerun("first_tree_with_tertiary")
