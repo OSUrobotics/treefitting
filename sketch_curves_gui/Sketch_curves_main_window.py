@@ -20,6 +20,7 @@ from Image_based.fit_bezier_cyl_2d_sketch import FitBezierCyl2DSketch
 from Image_based.fit_bezier_cyl_3d_depth import FitBezierCyl3dDepth
 
 from utils.sketched_curve import SketchedCurve
+from utils.video_annotation_data import VideoAnnotationData
 
 class SketchCurvesMainWindow(QMainWindow):
     def __init__(self):
@@ -69,8 +70,8 @@ class SketchCurvesMainWindow(QMainWindow):
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
         #self.path_name = QLineEdit("/Users/grimmc/PycharmProjects/treefitting/Image_based/data/")
-        self.path_name = QLineEdit("/Users/cindygrimm/VSCode/treefitting/Image_based/data/")
-        self.file_name = QLineEdit("forcindy_fnames.json")
+        self.path_name = QLineEdit("/Users/cindygrimm/PyCharmProjects/data/EnvyTree/BP_R1_East_tree2/")
+        self.file_name = QLineEdit("video_annot.json")
         # self.path_name = QLineEdit("/Users/grimmc/VSCode/BlueBerryData/bush_9_west_2/")
         # self.file_name = QLineEdit("bush_9_west_2_fnames.json")
         self.sub_dir_number = SliderIntDisplay("Sub dir", 0, 10, 0)
@@ -418,7 +419,10 @@ class SketchCurvesMainWindow(QMainWindow):
         if exists(fname):
             with open(fname, "r") as f:
                 my_dict = json.load(f)
-                self.handle_filenames = FileNames.read_json(my_dict)
+                if my_dict["Name"] == 'Video_annotation_data':
+                    self.handle_filenames = VideoAnnotationData.read_json(my_dict)
+                elif my_dict["Name"] == 'FileNamesSubDirs':
+                    self.handle_filenames = FileNames.read_json(my_dict)
                 self.reset_file_menus()
                 self.read_images()
                 self.reset_params_menus()

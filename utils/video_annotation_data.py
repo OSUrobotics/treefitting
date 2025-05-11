@@ -417,8 +417,8 @@ if __name__ == '__main__':
     import cv2
     import json
 
-    path_start = "/Users/grimmc/"
-    # path_start = "/Users/cindygrimm/"
+    # path_start = "/Users/grimmc/"
+    path_start = "/Users/cindygrimm/"
     dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     tree_name = "BP_R1_East_tree2"
     annot_name = 'first_tree_annot_refit'
@@ -444,8 +444,8 @@ if __name__ == '__main__':
 
     import json
 
-    path_start = "/Users/grimmc/"
-    # path_start = "/Users/cindygrimm/"
+    # path_start = "/Users/grimmc/"
+    path_start = "/Users/cindygrimm/"
     # box_path = "Library/CloudStorage/Box-Box/"
     box_path = "MyBox/"
     src_box_path = path_start + box_path
@@ -453,7 +453,7 @@ if __name__ == '__main__':
     src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
     src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2/"
     tree_name = "BP_R1_East_tree2"
-    # fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
+    fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
 
     va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
 
