@@ -62,10 +62,10 @@ class DataAnnotationMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        src_drive = "/Users/grimmc/PycharmProjects/data/"
-        #src_drive = "/Users/cindygrimm/PycharmProjects/data/"
-        self.path_name = QLineEdit(src_drive + "EnvyTree/BP_R1_East_tree2/")
-        self.file_name = QLineEdit("video_annot.json")
+        #src_drive = "/Users/grimmc/PycharmProjects/data/"
+        src_drive = "/Users/cindygrimm/PycharmProjects/"
+        self.path_name = QLineEdit(src_drive + "data/")
+        self.file_name = QLineEdit("CindyEnvyPhone_video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
