@@ -278,8 +278,9 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
         im_name_next = va.keyframes[kf + 1].image_name
     images = []
     b_in_section = False
-    image_size = (896, 512)  # input resolution, H, W
+    image_size = (960, 540)  # input resolution, H, W
     scl_image = [1, 1]
+    shift_image = [0, 0]
     print(f"Reading images")
     for img_indx in full_list.loop_images():
         img_name_full = full_list.get_image_name_no_path(img_indx)
@@ -288,9 +289,11 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
         if b_in_section:
             print(f" {full_list.get_image_name(img_indx, b_add_tag=True)}")
             im = cv2.imread(full_list.get_image_name(img_indx, b_add_tag=True))
-            im_resize = cv2.resize(im, image_size)
-            scl_image[0] = image_size[0] / im.shape[1]
-            scl_image[1] = image_size[1] / im.shape[0]
+            #im_resize = cv2.resize(im, image_size)
+            shift_image = [(im.shape[1] - image_size[0]) // 2, (im.shape[0] - image_size[1]) // 2 ]
+            im_resize = im[shift_image[0]:shift_image[0] + image_size[1], shift_image[1]:shift_image[1] + image_size[0], :]
+            #scl_image[0] = image_size[0] / im.shape[1]
+            #scl_image[1] = image_size[1] / im.shape[0]
             images.append(im_resize)
         if img_name_full == im_name_next:
             break
@@ -317,7 +320,8 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
                 pts = np.vstack((pts, crv.edge_pts(ts, -p_across)))
 
             for pt in pts:
-                pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
+                #pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
+                pts_2d.append([pt[0] - shift_image[0], pt[1] - shift_image[1]])
                 # Remember image scale is height, width
 
 
@@ -375,8 +379,10 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
     im_start = cv2.imread(im_name)
     im_end = cv2.imread(im_name_next)
     b_in_section = False
-    image_size = (896, 512)  # input resolution, H, W
-    scl_image = [image_size[0] / im_start.shape[1], image_size[1] / im_start.shape[0]]
+    image_size = (960, 540)  # input resolution, H, W
+    shift_image = [(im_start.shape[1] - image_size[0]) // 2, (im_start.shape[0] - image_size[1]) // 2]
+    #scl_image = [image_size[0] / im_start.shape[1], image_size[1] / im_start.shape[0]]
+    scl_image = [1, 1]
 
     with open(pts_name, "r") as f:
         pts_2d = json.load(f)
@@ -389,6 +395,10 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
         pt_start = pts_2d[0][indx]
         pt_end = pts_2d[-1][indx]
 
+        pt_start[0] += shift_image[0]
+        pt_start[1] += shift_image[1]
+        pt_end[0] += shift_image[0]
+        pt_end[1] += shift_image[1]
         pt_start = [pt_start[0] / scl_image[0], pt_start[1] / scl_image[1]]
         pt_end = [pt_end[0] / scl_image[0], pt_end[1] / scl_image[1]]
         vx += pt_end[0] - pt_start[0]
@@ -421,7 +431,7 @@ if __name__ == '__main__':
     path_start = "/Users/cindygrimm/"
     dest_path = path_start + "PycharmProjects/data/EnvyTree/"
     tree_name = "BP_R1_East_tree2"
-    annot_name = 'first_tree_annot_refit'
+    annot_name = 'first_tree_annot'
     va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
     images, pts = produce_pips2_data(va_fname, grid_spacing=80)
