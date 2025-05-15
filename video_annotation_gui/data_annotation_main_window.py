@@ -65,7 +65,8 @@ class DataAnnotationMainWindow(QMainWindow):
         src_drive = "/Users/grimmc/PycharmProjects/data/"
         #src_drive = "/Users/cindygrimm/PycharmProjects/data/"
         self.path_name = QLineEdit(src_drive + "EnvyTree/BP_R1_East_tree2/")
-        self.file_name = QLineEdit("video_annot.json")
+        self.path_name = QLineEdit(src_drive + "/")
+        self.file_name = QLineEdit("CindyEnvyPhone_video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
