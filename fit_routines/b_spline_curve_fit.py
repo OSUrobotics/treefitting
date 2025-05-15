@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import numpy as np
+from sipbuild.generator.parser.rules import p_convert_to_subclass_code
 
 from tree_geometry.b_spline_curve import BSplineCurve
 from fit_routines.bspline_fit_params import BSplineFitParams
 from tree_geometry.point_lists import PointListWithTs, PointList
 from eval_routines.bspline_fit_eval import BSplineFitEval
-
+from tree_geometry.control_hull import ControlHull
 
 class BSplineCurveFit:
     def __init__(self,
@@ -241,7 +242,9 @@ class BSplineCurveFit:
 
         # Just keep adding points until we meet the threshold
         pt = pts.points()[-1]
-        pts_cntrol_hull = PointList([pt for _ in range(0, crv_initial.order())])
+        pts_cntrol_hull = ControlHull([pt for _ in range(0, crv_initial.order())])
+        len_sketch = ControlHull(pts.points()).hull_length()
+        crv_best_pts = crv_initial.points()
         while pts_cntrol_hull.n_points() <= pts.n_points():
             # Make the curve with the correct number of control points
             crv_initial = BSplineCurve(ctrl_pts=pts_cntrol_hull.points(), degree=crv_initial.degree_name())
@@ -249,9 +252,22 @@ class BSplineCurveFit:
             #  Fits the curve
             #  Projects the pts onto the curve to get better t values, then re-fit
             crv, pts_with_ts, eval_crv = BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
+            len_curve = crv.curve_length()
+
+            if len_sketch > 1.5 * len_curve:
+                # Shark-finned - return last curve
+                crv_initial = BSplineCurve(ctrl_pts=crv_best_pts, degree=crv_initial.degree_name())
+                # Creates t, pt values pairs from pts as a linear set of points
+                #  Fits the curve
+                #  Projects the pts onto the curve to get better t values, then re-fit
+                crv, pts_with_ts, eval_crv = BSplineCurveFit.fit_project_fit(crv_initial, pts, params)
+                return crv, pts_with_ts, eval_crv
+
             if eval_crv.is_acceptable():
                 return crv, pts_with_ts, eval_crv
+
             if pts_cntrol_hull.n_points() < pts.n_points():
+                crv_best_pts = crv_initial.points()
                 pts_cntrol_hull.add_point(pt)
             else:
                 # Not worth adding more control points

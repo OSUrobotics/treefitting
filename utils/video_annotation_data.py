@@ -238,8 +238,8 @@ def read_and_rerun(annot_name):
         va = VideoAnnotationData.read_json(my_dict)
 
     fit_params = BSplineFitParams()
-    fit_params["inlier threshold"] = 6
-    fit_params["average fit"] = 3
+    fit_params["inlier threshold"] = 8
+    fit_params["average fit"] = 4
     fit_params["outlier ratio"] = 0.0
     for kf in va.keyframes:
         kf.refit(fit_params=fit_params)
@@ -427,12 +427,16 @@ if __name__ == '__main__':
     import cv2
     import json
 
-    # path_start = "/Users/grimmc/"
-    path_start = "/Users/cindygrimm/"
-    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    tree_name = "BP_R1_East_tree2"
+    path_start = "/Users/grimmc/"
+    # path_start = "/Users/cindygrimm/"
+    # dest_path = path_start + "PycharmProjects/data/EnvyTree/"
+    dest_path = path_start + "PycharmProjects/data/"
+    #tree_name = "BP_R1_East_tree2"
+    tree_name = "CindyEnvyPhone"
     annot_name = 'first_tree_annot'
     va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+
+    read_and_rerun("first_tree_annot")
 
     images, pts = produce_pips2_data(va_fname, grid_spacing=80)
 
