@@ -68,6 +68,10 @@ class FileNamesSubDirs:
         """Make directories/filenames
         @param path: the top level path
         @param img_type: the .png or .jpg or whatever"""
+        if path:
+            if path[-1] != '/':
+                path = path + '/'
+
         self.path = path
         self.path_debug = path + "DebugImages/"
         self.path_calculated = path + "CalculatedData/"
