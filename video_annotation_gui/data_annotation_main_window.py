@@ -11,6 +11,7 @@ import cv2
 from MySliders import SliderIntDisplay, SliderFloatDisplay
 from sketch_curves_gui.opengl_draw_window import OopenGLDrawWindow
 from utils.video_annotation_data import VideoAnnotationData
+from utils.file_names_sub_dirs import FileNamesSubDirs
 
 from utils.sketched_curve import SketchedCurve
 
@@ -62,19 +63,10 @@ class DataAnnotationMainWindow(QMainWindow):
         path_names_layout = QGridLayout()
         path_names_layout.setColumnMinimumWidth(0, 40)
         path_names_layout.setColumnMinimumWidth(1, 200)
-        src_drive = "/Users/grimmc/PycharmProjects/data/"
-        #src_drive = "/Users/cindygrimm/PycharmProjects/data/"
-        self.path_name = QLineEdit(src_drive + "EnvyTree/BP_R1_East_tree2/")
-        self.path_name = QLineEdit(src_drive + "/")
-        src_drive = "/Users/grimmc/PycharmProjects/data/"
-        #src_drive = "/Users/cindygrimm/PycharmProjects/data/"
-        self.path_name = QLineEdit(src_drive + "EnvyTree/BP_R1_East_tree2/")
-        self.path_name = QLineEdit(src_drive + "/")
-        self.file_name = QLineEdit("CindyEnvyPhone_video_annot.json")
-        #src_drive = "/Users/grimmc/PycharmProjects/data/"
-        src_drive = "/Users/cindygrimm/PycharmProjects/"
-        self.path_name = QLineEdit(src_drive + "data/")
-        self.file_name = QLineEdit("CindyEnvyPhone_video_annot.json")
+        src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
+        tree_name = "bush_8_west"
+        self.path_name = QLineEdit(src_drive + tree_name + "/")
+        self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
@@ -374,7 +366,7 @@ class DataAnnotationMainWindow(QMainWindow):
             return
 
         if self.video_annot is not None:
-            print("Read images frame {self.}")
+            print(f"Read images frame {self.path}")
 
             if self.last_image_index == self.image_number.value():
                 self.set_draw_params_from_sliders()

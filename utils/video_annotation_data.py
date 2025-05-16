@@ -35,6 +35,7 @@ from fit_routines.bspline_fit_params import BSplineFitParams
 
 import numpy as np
 from utils.file_names import FileNames
+from utils.file_names_sub_dirs import FileNamesSubDirs
 from utils.keyframe_data import KeyFrameData
 
 
@@ -69,6 +70,7 @@ class VideoAnnotationData(FileNames):
         self.mask_ids = [[]]
         # This function does the hard work
         image_names = self._find_files(self.path, name_filter=name_filter)
+        print(f"Path {self.path} found {len(image_names)} files filter {name_filter}")
 
         self.start_index = start_index
         self.end_index = end_index
@@ -223,6 +225,61 @@ class VideoAnnotationData(FileNames):
             json.dump(all_fnames.write_json(), f, indent=2)
         return all_fnames
 
+    @staticmethod
+    def read_blueberry(src_path, dest_path, bush_name, b_get_box_files = True):
+        """ Read in one of the bleuberry data sets that has already been extracted from the mkv file
+        @param src_path : Complete box drive director
+        @param dest_path : Where to put all the files on your harddrive
+        @param bush_name : Shortcut name to use for the bush,
+        @param b_get_box_files : set to True to do the box copy"""
+        from os.path import exists
+        from os import mkdir
+        from glob import glob
+        from shutil import copyfile
+        import json
+
+        all_fnames = FileNames(path=dest_path, img_type="jpg")
+        if b_get_box_files:
+            if not exists(dest_path):
+                mkdir(dest_path)
+            dest_path = dest_path + bush_name
+            if not exists(dest_path):
+                mkdir(dest_path)
+
+            search_path = f"{src_path}{bush_name}/color/*.jpg"
+            print(f"Search path {search_path}")
+            fnames = glob(search_path)
+            for n in fnames:
+                # Get rid of the path
+                im_name = str.split(n, "/")[-1]
+                im_num = FileNamesSubDirs.alphanumeric_key(im_name)
+                dest_im_name = dest_path + f"/rgb_{im_num:05d}.jpg"
+                if not exists(dest_im_name):
+                    print(f"copying {n} {dest_im_name}")
+                    copyfile(n, dest_im_name)
+
+                depth_im = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.jpg"
+                depth_data = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.csv"
+                dest_depth_name = dest_path + f"/depth_{im_num:05d}.jpg"
+                dest_depth_data_name = dest_path + f"/depth_{im_num:05d}.csv"
+                if exists(depth_im):
+                        if not exists(dest_depth_name):
+                            print(f"copying {depth_im} {dest_depth_name}")
+                            copyfile(depth_im, dest_depth_name)
+                if exists(depth_data) and not exists(dest_depth_data_name):
+                    print(f"copying {depth_data} {dest_depth_data_name}")
+                    copyfile(depth_im, dest_depth_data_name)
+        else:
+            dest_path = dest_path + bush_name + "/"
+
+        all_fnames.mask_names = ["cane", "branch"]
+        all_fnames.add_directory(name_filter="")
+        fname_write = dest_path + "/all_fnames.json"
+        all_fnames.image_name = ""
+        with open(fname_write, "w") as f:
+            json.dump(all_fnames.write_json(), f, indent=2)
+        return all_fnames
+
 
 def read_and_rerun(annot_name):
     import json
@@ -249,7 +306,7 @@ def read_and_rerun(annot_name):
         json.dump(va.write_json(), f, indent=2)
 
 
-def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 4, grid_spacing = 30):
+def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_spacing=4, grid_spacing=30):
     """get the N images needed for processing the points along with 2D points
     @param annot_name - annotation name
     @param kf - which keyframe
@@ -270,12 +327,20 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
         my_dict = json.load(f)
         full_list = FileNames.read_json(my_dict)
 
+    info = {"KeyFrame":kf,
+            "BackboneSpacing":backbone_spacing,
+            "RadialSpacing":radial_spacing,
+            "GridSpacing":grid_spacing}
+
     im_name = va.keyframes[kf].image_name
     if kf == va.n_keyframes() - 1:
         im_name_next = im_name
         im_name = va.keyframes[kf-1].image_name
     else:
         im_name_next = va.keyframes[kf + 1].image_name
+
+    info["ImageName"] = im_name
+    info["ImageNameNext"] = im_name_next
     images = []
     b_in_section = False
     image_size = (960, 540)  # input resolution, H, W
@@ -296,11 +361,17 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
             #scl_image[1] = image_size[1] / im.shape[0]
             images.append(im_resize)
         if img_name_full == im_name_next:
+            info["ImageNext"] = img_indx
             break
+    info["x_shift"] = shift_image[1]
+    info["y_shift"] = shift_image[0]
+    info["x_scale"] = scl_image[1]
+    info["y_scale"] = scl_image[0]
 
     pts_2d = []
     for crvs in va.keyframes[kf].bspline_cyls:
         for crv in crvs:
+            # Probably too small to track
             if crv.radius(0.5) < 2:
                 continue
             crv_len = crv.curve_length() * scl_image[0]
@@ -309,8 +380,12 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
             n_spacing = max(int(crv_len / backbone_spacing), 2)
             n_across = max(int(crv_width / radial_spacing), 1)
 
+            # Points along the branch
             ts = np.linspace(0, crv.max_t(), n_spacing)
+            # Points along the centerline
             pts = crv.eval_crv(ts)
+
+            # Points moving out from the center (for fat branches)
             across_min = 0.3
             across_max = 0.7
             for perc_across in range(0, n_across // 2):
@@ -323,7 +398,6 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
                 #pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
                 pts_2d.append([pt[0] - shift_image[0], pt[1] - shift_image[1]])
                 # Remember image scale is height, width
-
 
     pts_keep = []
     im_start = images[0] // 2
@@ -352,6 +426,10 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
 
     cv2.imwrite(full_output_name + "im_start.png", im_start)
     cv2.imwrite(full_output_name + "im_end.png", im_end)
+
+    with open("full_output_name" + "info.json", "w") as f:
+        json.dumps(info, f)
+
     return images, pts_keep
 
 
@@ -426,63 +504,99 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
 if __name__ == '__main__':
     import cv2
     import json
+    from os.path import exists
+    from os import mkdir
 
-    path_start = "/Users/grimmc/"
-    # path_start = "/Users/cindygrimm/"
-    # dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    dest_path = path_start + "PycharmProjects/data/"
-    #tree_name = "BP_R1_East_tree2"
+    path_start = FileNamesSubDirs.get_path()
+    dest_path = path_start + "PyCharmProjects/data/"
+    box_path = "Library/CloudStorage/Box-Box/"
+    if not exists(path_start + box_path):
+        box_path = "MyBox/"
+    src_box_path = path_start + box_path
+
     tree_name = "CindyEnvyPhone"
-    annot_name = 'first_tree_annot'
-    va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
-    read_and_rerun("first_tree_annot")
+    b_copy_tree = False
+    b_copy_blueberry = True
+    b_make_pips = False
+    b_add_tracks = False
+    b_redo_fit = False
 
-    images, pts = produce_pips2_data(va_fname, grid_spacing=80)
+    if b_copy_tree:
+        dest_path = path_start + "data/EnvyTree/"
+        src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
+        src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2/"
+        tree_name = "BP_R1_East_tree2"
+        fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name,
+                                           b_get_box_files=False)
 
-    for indx, im in enumerate(images):
-        fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
-        cv2.imwrite(fname, im)
+        va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
 
-    fname = dest_path + tree_name + "/CalculatedData/pips2/input/pts" + "" + ".json"
-    with open(fname, "w") as f:
-        json.dump(pts, f, indent=2)
+        va.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
+        va.add_directory(name_filter="rgb", start_index=0, end_index=115, skip_index=10)
+        va.image_name = ""
 
+        va_fname = dest_path + tree_name + "/video_annot.json"
+        with open(va_fname, "w") as f:
+            my_dict = va.write_json()
+            json.dump(my_dict, f, indent=2)
 
-    fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
-    add_2d_tracks(va_fname, 0, fname_pts)
+        with open(va_fname, "r") as f:
+            my_dict = json.load(f)
+            va_back = VideoAnnotationData.read_json(my_dict)
 
-    read_and_rerun("first_tree_annot")
-    read_and_rerun("first_tree_with_tertiary")
-    read_and_rerun("first_tree_with_tertiary_all")
+    if b_copy_blueberry:
+        src_path = src_box_path + "Robotic pruning and thinning/Datasets/2024/Blueberry March/"
+        bush_name = "bush_8_west"
+        full_fn = VideoAnnotationData.read_blueberry(src_path=src_path, dest_path=dest_path, bush_name=bush_name, b_get_box_files=False)
+
+        va = VideoAnnotationData(dest_path + bush_name + "/", img_type="jpg")
+
+        va.mask_names = full_fn.mask_names
+        va.add_directory(name_filter="rgb", start_index=0, end_index=-1, skip_index=32)
+        va.image_name = ""
+
+        va_fname = dest_path + bush_name + "/video_annot.json"
+        with open(va_fname, "w") as f:
+            my_dict = va.write_json()
+            json.dump(my_dict, f, indent=2)
+
+        with open(va_fname, "r") as f:
+            my_dict = json.load(f)
+            va_back = VideoAnnotationData.read_json(my_dict)
+
+    if b_make_pips:
+        annot_name = 'first_tree_annot'
+        va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+        with open(va_fname, "r") as f:
+            my_dict = json.load(f)
+            va = VideoAnnotationData.read_json(my_dict)
+        dir_pips = dest_path + tree_name + "/CalculatedData/pips2"
+        if not exists(dir_pips):
+            mkdir(dir_pips)
+            if not exists(dir_pips + "/input"):
+                mkdir(dir_pips + "/input")
+            if not exists(dir_pips + "/output"):
+                mkdir(dir_pips + "/output")
+
+        images, pts = produce_pips2_data(annot_full_path_name=va, kf=0)
+        for indx, im in enumerate(images):
+            fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
+            cv2.imwrite(fname, im)
+
+        fname = dest_path + tree_name + "/CalculatedData/pips2/input/pts" + "" + ".json"
+        with open(fname, "w") as f:
+            json.dump(pts, f, indent=2)
+
+    if b_redo_fit:
+        read_and_rerun("first_tree_annot")
+        read_and_rerun("first_tree_annot")
+        read_and_rerun("first_tree_with_tertiary")
+        read_and_rerun("first_tree_with_tertiary_all")
+
+    if b_add_tracks:
+        fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
+        add_2d_tracks(va_fname, 0, fname_pts)
 
     import json
-
-    # path_start = "/Users/grimmc/"
-    path_start = "/Users/cindygrimm/"
-    # box_path = "Library/CloudStorage/Box-Box/"
-    box_path = "MyBox/"
-    src_box_path = path_start + box_path
-    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
-    src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2/"
-    tree_name = "BP_R1_East_tree2"
-    fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name, b_get_box_files=False)
-
-    va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
-
-    va.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
-    va.add_directory(name_filter="rgb", start_index=0, end_index=115, skip_index=10)
-    va.image_name = ""
-
-    va_fname = dest_path + tree_name + "/video_annot.json"
-    with open(va_fname, "w") as f:
-        my_dict = va.write_json()
-        json.dump(my_dict, f, indent=2)
-
-    with open(va_fname, "r") as f:
-        my_dict = json.load(f)
-        va_back = VideoAnnotationData.read_json(my_dict)
-
-
 

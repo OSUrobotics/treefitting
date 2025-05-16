@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import os
 # File name handling
 # Assumptions (directories)
 #   Path is the path to the top of the directory
@@ -51,11 +51,25 @@
 from glob import glob
 import json
 from os.path import exists, isdir
-from os import mkdir
+from os import mkdir, getcwd
 from shutil import copyfile
 
 
 class FileNamesSubDirs:
+    @staticmethod
+    def get_path():
+        """ return the path up to the home directory"""
+        path_to_here = os.getcwd()
+        name_split = path_to_here.split("/")
+        assert "pycharm" in name_split[3].lower()
+        return "/" + name_split[1] + "/" + name_split[2] + "/"
+
+    @staticmethod
+    def fix_path(fname):
+        """ Replace the first 3 dirs with current working directory"""
+        name_split = fname.split("/")
+        return FileNamesSubDirs.get_path() + "/".join(name_split[3:])
+
     @staticmethod
     def alphanumeric_key(key):
         numbers = ''.join(filter(str.isdigit, key))
@@ -95,7 +109,7 @@ class FileNamesSubDirs:
         self.edge_flow_name = "edgeOF"   # Tag for edge image made from optical flow
         self.flow_name = "flow"          # Tag for optical flow images
         self.depth_name = "depth"        # Tag for depth images
-        self.depth_suffix = "obj"        # What file ending the depth images have (stored as an array of numbers_
+        self.depth_suffix = "csv"        # What file ending the depth images have (stored as an array of numbers_
 
         # For if all the images are, eg, RGB.jpg
         self.image_tag = "." + img_type
@@ -124,14 +138,9 @@ class FileNamesSubDirs:
             im_name = str.split(n, "/")[-1]
             # image name no .xxx extension
             im_name_no_extension = im_name[0:-len(self.image_tag)]
-            if len(self.name_seperator) > 0:
-                im_name_split = str.split(im_name_no_extension, self.name_seperator)[0]
-            else:
-                im_name_split = im_name_no_extension
 
             # Just in case duplicates - shouldn't really happen
-            if im_name_split not in ret_names:
-                ret_names.append(im_name_split)
+            ret_names.append(im_name)
 
         ret_names.sort(key=FileNamesSubDirs.alphanumeric_key)
         return ret_names
@@ -442,6 +451,9 @@ class FileNamesSubDirs:
         for k, v in json_dict["data"].items():
             setattr(file_names_sub_instance, k, v)
 
+        file_names_sub_instance.path = FileNamesSubDirs.fix_path(file_names_sub_instance.path)
+        file_names_sub_instance.path_debug = FileNamesSubDirs.fix_path(file_names_sub_instance.path_debug)
+        file_names_sub_instance.path_calculated = FileNamesSubDirs.fix_path(file_names_sub_instance.path_calculated)
         return file_names_sub_instance
 
     def create_edge_images(self, b_use_optical_flow=False):
