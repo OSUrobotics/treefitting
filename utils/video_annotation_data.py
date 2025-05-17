@@ -516,11 +516,20 @@ if __name__ == '__main__':
 
     tree_name = "CindyEnvyPhone"
 
+    b_make_edge_images = True
     b_copy_tree = False
-    b_copy_blueberry = True
+    b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
     b_redo_fit = False
+
+    if b_make_edge_images:
+        tree_name = "bush_8_west"
+        va_name = dest_path + tree_name + "/video_annot.json"
+        with open(va_name, "r") as f:
+            my_dict = json.load(f)
+            va = VideoAnnotationData.read_json(my_dict)
+            va.create_edge_images()
 
     if b_copy_tree:
         dest_path = path_start + "data/EnvyTree/"

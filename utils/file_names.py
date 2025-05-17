@@ -37,7 +37,7 @@ class FileNames(FileNamesSubDirs):
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
-        index_subdir = (0, index[0], index[1], index[2])
+        index_subdir = (0, index[0], index[1], 0)
         return super().get_image_name(index=index_subdir, b_debug_path=b_debug_path, b_add_tag=b_add_tag)
 
     def get_edge_name(self, index, b_optical_flow=False, b_add_tag=True):
@@ -47,7 +47,7 @@ class FileNames(FileNamesSubDirs):
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
-        index_subdir = (0, index[0], index[1], index[2])
+        index_subdir = (0, index[0], index[1], 0)
         return super().get_edge_name(index=index_subdir, b_optical_flow=b_optical_flow, b_add_tag=b_add_tag)
 
     def get_flow_image_name(self, index, b_add_tag=True):
@@ -56,7 +56,7 @@ class FileNames(FileNamesSubDirs):
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
-        index_subdir = (0, index[0], index[1], index[2])
+        index_subdir = (0, index[0], index[1], 0)
         return super().get_flow_image_name(index=index_subdir, b_add_tag=b_add_tag)
 
     def get_depth_image_name(self, index, b_add_tag=True):
@@ -65,7 +65,7 @@ class FileNames(FileNamesSubDirs):
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
-        index_subdir = (0, index[0], index[1], index[2])
+        index_subdir = (0, index[0], index[1], 0)
         return super().get_depth_image_name(index=index_subdir, b_add_tag=b_add_tag)
 
     def get_depth_data_name(self, index, b_add_tag=True):
@@ -74,7 +74,7 @@ class FileNames(FileNamesSubDirs):
         @param b_add_tag - add the csv tag, y/n
         @return full data file name with path"""
 
-        index_subdir = (0, index[0], index[1], index[2])
+        index_subdir = (0, index[0], index[1], 0)
         return super().get_depth_data_name(index=index_subdir, b_add_tag=b_add_tag)
 
     def _get_mask_name(self, index, b_add_tag):
@@ -101,7 +101,7 @@ class FileNames(FileNamesSubDirs):
         """ a generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
-        for j, _ in enumerate(self.image_names[i]):
+        for j, _ in enumerate(self.image_names[0]):
             yield 0, j
 
     def loop_masks(self, mask_type=""):
@@ -109,7 +109,7 @@ class FileNames(FileNamesSubDirs):
         The index can be passed to get_mask_name to get the actual mask name
         @param mask_type: Optional parameter; if set, return only masks of the given name (eg trunk)
         @return a tuple that can be used to get the mask name"""
-        for j, _ in enumerate(self.image_names[i]):
+        for j, _ in enumerate(self.image_names[0]):
             for k, mask_name in enumerate(self.mask_names):
                 if mask_type == "" or mask_type == mask_name:
                     for m, _ in enumerate(self.mask_ids[0][j][k]):
