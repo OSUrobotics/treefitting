@@ -238,7 +238,6 @@ class VideoAnnotationData(FileNames):
         from shutil import copyfile
         import json
 
-        all_fnames = FileNames(path=dest_path, img_type="jpg")
         if b_get_box_files:
             if not exists(dest_path):
                 mkdir(dest_path)
@@ -253,7 +252,7 @@ class VideoAnnotationData(FileNames):
                 # Get rid of the path
                 im_name = str.split(n, "/")[-1]
                 im_num = FileNamesSubDirs.alphanumeric_key(im_name)
-                dest_im_name = dest_path + f"/rgb_{im_num:05d}.jpg"
+                dest_im_name = dest_path + f"/rgb{im_num:05d}.jpg"
                 if not exists(dest_im_name):
                     print(f"copying {n} {dest_im_name}")
                     copyfile(n, dest_im_name)
@@ -272,8 +271,9 @@ class VideoAnnotationData(FileNames):
         else:
             dest_path = dest_path + bush_name + "/"
 
+        all_fnames = FileNames(path=dest_path, img_type="jpg")
         all_fnames.mask_names = ["cane", "branch"]
-        all_fnames.add_directory(name_filter="")
+        all_fnames.add_directory(name_filter="rgb")
         fname_write = dest_path + "/all_fnames.json"
         all_fnames.image_name = ""
         with open(fname_write, "w") as f:

@@ -139,8 +139,7 @@ class FileNamesSubDirs:
             # image name no .xxx extension
             im_name_no_extension = im_name[0:-len(self.image_tag)]
 
-            # Just in case duplicates - shouldn't really happen
-            ret_names.append(im_name)
+            ret_names.append(im_name_no_extension)
 
         ret_names.sort(key=FileNamesSubDirs.alphanumeric_key)
         return ret_names

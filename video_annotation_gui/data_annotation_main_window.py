@@ -366,7 +366,7 @@ class DataAnnotationMainWindow(QMainWindow):
             return
 
         if self.video_annot is not None:
-            print(f"Read images frame {self.path}")
+            print(f"Read images from {self.video_annot.path}")
 
             if self.last_image_index == self.image_number.value():
                 self.set_draw_params_from_sliders()
