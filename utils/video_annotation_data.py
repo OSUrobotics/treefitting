@@ -249,7 +249,7 @@ def read_and_rerun(annot_name):
         json.dump(va.write_json(), f, indent=2)
 
 
-def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 4, grid_spacing = 30):
+def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_spacing = 6, grid_spacing = 30):
     """get the N images needed for processing the points along with 2D points
     @param annot_name - annotation name
     @param kf - which keyframe
@@ -282,6 +282,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
     scl_image = [1, 1]
     shift_image = [0, 0]
     print(f"Reading images")
+    b_found_end = False
     for img_indx in full_list.loop_images():
         img_name_full = full_list.get_image_name_no_path(img_indx)
         if img_name_full == im_name:
@@ -296,6 +297,8 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
             #scl_image[1] = image_size[1] / im.shape[0]
             images.append(im_resize)
         if img_name_full == im_name_next:
+            b_found_end = True
+        if len(images) == 8:
             break
 
     pts_2d = []
@@ -311,7 +314,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
 
             ts = np.linspace(0, crv.max_t(), n_spacing)
             pts = crv.eval_crv(ts)
-            across_min = 0.3
+            across_min = 0.1
             across_max = 0.7
             for perc_across in range(0, n_across // 2):
                 p = (perc_across + 0.5) / (n_across * 0.5)
@@ -321,7 +324,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing = 8, radial_
 
             for pt in pts:
                 #pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
-                pts_2d.append([pt[0] - shift_image[0], pt[1] - shift_image[1]])
+                pts_2d.append([pt[0] - shift_image[1], pt[1] - shift_image[0]])
                 # Remember image scale is height, width
 
 
@@ -395,10 +398,10 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
         pt_start = pts_2d[0][indx]
         pt_end = pts_2d[-1][indx]
 
-        pt_start[0] += shift_image[0]
-        pt_start[1] += shift_image[1]
-        pt_end[0] += shift_image[0]
-        pt_end[1] += shift_image[1]
+        pt_start[0] += shift_image[1]
+        pt_start[1] += shift_image[0]
+        pt_end[0] += shift_image[1]
+        pt_end[1] += shift_image[0]
         pt_start = [pt_start[0] / scl_image[0], pt_start[1] / scl_image[1]]
         pt_end = [pt_end[0] / scl_image[0], pt_end[1] / scl_image[1]]
         vx += pt_end[0] - pt_start[0]
@@ -429,12 +432,13 @@ if __name__ == '__main__':
 
     # path_start = "/Users/grimmc/"
     path_start = "/Users/cindygrimm/"
-    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    tree_name = "BP_R1_East_tree2"
+    dest_path = path_start + "PycharmProjects/data/"
+    # tree_name = "BP_R1_East_tree2"
+    tree_name = "CindyEnvyPhone"
     annot_name = 'first_tree_annot'
     va_fname = dest_path + tree_name + "/" + annot_name + ".json"
 
-    images, pts = produce_pips2_data(va_fname, grid_spacing=80)
+    images, pts = produce_pips2_data(va_fname, grid_spacing=20)
 
     for indx, im in enumerate(images):
         fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
