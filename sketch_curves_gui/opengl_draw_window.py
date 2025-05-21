@@ -28,6 +28,8 @@ class OopenGLDrawWindow(QOpenGLWidget):
         self.draw_curve_2d = DrawCurve2D()
         self.draw_curve_3d = DrawCurve3D()
 
+        self.draw_sketch_curve = True
+
         self.object = 0
         self.up_down = 0
         self.turntable = 0
@@ -226,6 +228,9 @@ class OopenGLDrawWindow(QOpenGLWidget):
                 self.draw_curve_2d.draw_edge_rects(crv)
                 self.draw_curve_2d.draw_profile_curves(crv)
 
+        if self.gui:
+            self.draw_curve_2d.draw_points(q_wind=self, pts=self.gui.get_key_points())
+
         GL.glShadeModel(GL.GL_FLAT)
         GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
         GL.glEnable(GL.GL_DEPTH_TEST)
@@ -278,15 +283,20 @@ class OopenGLDrawWindow(QOpenGLWidget):
             return
         
         if self.gui:
-            sc = self.gui.sketch_curve
+            if self.draw_sketch_curve:
+                sc = self.gui.sketch_curve
 
-            if event.modifiers() == Qt.ShiftModifier:
-                sc.add_crossbar_point(event.x(), event.y())
-            elif event.modifiers() == Qt.ControlModifier:
-                sc.remove_point(event.x(), event.y())
+                if event.modifiers() == Qt.ShiftModifier:
+                    sc.add_crossbar_point(event.x(), event.y())
+                elif event.modifiers() == Qt.ControlModifier:
+                    sc.remove_point(event.x(), event.y())
+                else:
+                    sc.add_backbone_point(event.x(), event.y())
             else:
-                sc.add_backbone_point(event.x(), event.y())
-
+                try:
+                    self.gui.key_point(event.x(), event.y())
+                except AttributeError:
+                    pass
         self.update()
 
     def normalize_angle(self, angle):

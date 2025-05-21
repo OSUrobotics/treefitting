@@ -30,79 +30,12 @@ class FileNames(FileNamesSubDirs):
         new_index_subdr = super().add_mask_id(index=index_subdir, mask_id=mask_id)
         return new_index_subdr[1:]
 
-    def get_image_name(self, index, b_debug_path=False, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_debug_path - use debug path y/n
-        @param b_add_tag - add the image tag, y/n
-        @return full image name with path"""
-
-        index_subdir = (0, index[0], index[1], 0)
-        return super().get_image_name(index=index_subdir, b_debug_path=b_debug_path, b_add_tag=b_add_tag)
-
-    def get_edge_name(self, index, b_optical_flow=False, b_add_tag=True):
-        """ Get the edge image name corresponding to the index given by (subdirectory index, image index, -)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_optical_flow True if add OF to edge name
-        @param b_add_tag - add the image tag, y/n
-        @return full image name with path"""
-
-        index_subdir = (0, index[0], index[1], 0)
-        return super().get_edge_name(index=index_subdir, b_optical_flow=b_optical_flow, b_add_tag=b_add_tag)
-
-    def get_flow_image_name(self, index, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_add_tag - add the image tag, y/n
-        @return full image name with path"""
-
-        index_subdir = (0, index[0], index[1], 0)
-        return super().get_flow_image_name(index=index_subdir, b_add_tag=b_add_tag)
-
-    def get_depth_image_name(self, index, b_add_tag=True):
-        """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_add_tag - add the image tag, y/n
-        @return full image name with path"""
-
-        index_subdir = (0, index[0], index[1], 0)
-        return super().get_depth_image_name(index=index_subdir, b_add_tag=b_add_tag)
-
-    def get_depth_data_name(self, index, b_add_tag=True):
-        """ Get the depth csv file name corresponding to the index given by (subdirectory index, image index, -)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_add_tag - add the csv tag, y/n
-        @return full data file name with path"""
-
-        index_subdir = (0, index[0], index[1], 0)
-        return super().get_depth_data_name(index=index_subdir, b_add_tag=b_add_tag)
-
-    def _get_mask_name(self, index, b_add_tag):
-        """ Get JUST the mask name corresponding to the index (no directory)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_add_tag - add the image tag, y/n
-        @return just the mask name """
-
-        index_subdir = (0, index[0], index[1], index[2])
-        return super()._get_mask_name(index=index_subdir, b_add_tag=b_add_tag)
-
-    def get_mask_name(self, index, b_debug_path=False, b_calculate_path=False, b_add_tag=True):
-        """ Get the mask name with path corresponding to the index given by (subdirectory index, image index, mask name, mask id)
-        @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
-        @param b_debug_path Use debug path y/n
-        @param b_calcualte_path Use calculate path y/n [only pick one of these two]
-        @param b_add_tag - add the image tag, y/n
-        @return full mask name with path"""
-
-        index_subdir = (0, index[0], index[1], index[2])
-        return super().get_mask_name(index=index_subdir, b_debug_path=b_debug_path, b_calculate_path=b_calculate_path, b_add_tag=b_add_tag)
-
     def loop_images(self):
         """ a generator that loops over all of the images and generates an index for each
         The index can be passed to get_image_name to get the actual image name
         @return a tuple that can be used to get the image name"""
         for j, _ in enumerate(self.image_names[0]):
-            yield 0, j
+            yield 0, j, 0, 0
 
     def loop_masks(self, mask_type=""):
         """ a generator that loops over all of the masks and generates an index for each

@@ -49,6 +49,8 @@ class DataAnnotationMainWindow(QMainWindow):
         self.in_reset_file_menus = False
         self.in_read_images = False
         self.sketch_curve = SketchedCurve()
+        self.key_points = [[]]
+        self.depth_key_points = [[]]
         if exists("save_crv.json"):
             with open("save_crv.json", "r") as f:
                 import json
@@ -148,6 +150,10 @@ class DataAnnotationMainWindow(QMainWindow):
         self.show_rgb_button.clicked.connect(self.redraw_self)
         self.show_overlay_button = QCheckBox('Overlay next')
         self.show_overlay_button.clicked.connect(self.redraw_self)
+        self.show_depth_button = QCheckBox('Show depth')
+        self.show_depth_button.clicked.connect(self.redraw_self)
+        self.show_edge_button = QCheckBox('Show edge')
+        self.show_edge_button.clicked.connect(self.redraw_self)
 
         self.show_backbone_button = QCheckBox('Show backbone')
         self.show_backbone_button.setCheckState(2)
@@ -157,6 +163,8 @@ class DataAnnotationMainWindow(QMainWindow):
         self.show_sketch_crv_button.setCheckState(2)
 
         shows_layout.addWidget(self.show_rgb_button)
+        shows_layout.addWidget(self.show_edge_button)
+        shows_layout.addWidget(self.show_depth_button)
         shows_layout.addWidget(self.show_overlay_button)
         shows_layout.addWidget(self.show_backbone_button)
         shows_layout.addWidget(self.show_sketch_crv_button)
@@ -165,14 +173,24 @@ class DataAnnotationMainWindow(QMainWindow):
 
         # Drawing
         drawing_states = QGroupBox('Drawing states         ')
-        drawing_states_layout = QVBoxLayout()
-        self.draw_backbone_button = QPushButton('New curve')
-        self.draw_backbone_button.clicked.connect(self.new_curve)
+        drawing_states_layout = QGridLayout()
+        self.new_sketch_button = QPushButton('New curve')
+        self.new_sketch_button.clicked.connect(self.new_curve)
+        self.draw_kp_button = QPushButton('Done kp')
+        self.draw_kp_button.clicked.connect(self.done_keypoints)
         clear_drawings_button = QPushButton('Clear drawings')
         clear_drawings_button.clicked.connect(self.clear_drawings)
+        self.do_sketch_curve_draw = QCheckBox('Draw backbone')
+        self.do_sketch_curve_draw.setCheckState(2)
+        self.do_sketch_curve_draw.clicked.connect(self.redraw_self)
+        self.do_keypoints_draw = QCheckBox('Draw keypoints')
+        self.do_keypoints_draw.clicked.connect(self.redraw_self)
 
-        drawing_states_layout.addWidget(self.draw_backbone_button)
+        drawing_states_layout.addWidget(self.new_sketch_button)
+        drawing_states_layout.addWidget(self.draw_kp_button)
         drawing_states_layout.addWidget(clear_drawings_button)
+        drawing_states_layout.addWidget(self.do_sketch_curve_draw)
+        drawing_states_layout.addWidget(self.do_keypoints_draw)
 
         drawing_states.setLayout(drawing_states_layout)
 
@@ -276,6 +294,8 @@ class DataAnnotationMainWindow(QMainWindow):
         self.last_image_index = -1
         self.read_images()
         self.set_draw_params_from_sliders()
+        self.key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
+        self.key_depth_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
 
     def set_draw_params_from_sliders(self):
         """ Set all the draw drawing parameters from the sliders"""
@@ -284,8 +304,14 @@ class DataAnnotationMainWindow(QMainWindow):
         if self.show_rgb_button.isChecked():
             if self.show_overlay_button.isChecked():
                 self.glWidget.draw_images.draw_tex = "rgb_edge_rgb_next"
+            elif self.show_edge_button.isChecked():
+                self.glWidget.draw_images.draw_tex = "rgb_edge"
             else:
                 self.glWidget.draw_images.draw_tex = "rgb"
+        elif self.show_edge_button.isChecked():
+            self.glWidget.draw_images.draw_tex = "edge"
+        elif self.show_depth_button.isChecked():
+            self.glWidget.draw_images.draw_tex = "depth"
 
         # 2D Drawing
         self.glWidget.draw_curve_2d.show_backbone = self.show_backbone_button.isChecked()
@@ -301,7 +327,7 @@ class DataAnnotationMainWindow(QMainWindow):
 
         if self.video_annot is not None:
             # Pull out the image name
-            img_name = self.video_annot.get_image_name(index=(self.image_number.value(), 0, 0))
+            img_name = self.video_annot.get_image_name(index=(0, self.image_number.value(), 0, 0))
             img_name_split = img_name.split("/")
             indx_mask = self.mask_number.value()
             if indx_mask >= 0 and indx_mask < len(self.video_annot.mask_names):
@@ -316,6 +342,8 @@ class DataAnnotationMainWindow(QMainWindow):
             else:
                 self.image_name.setText(img_name)
 
+        self.glWidget.draw_sketch_curve = self.do_sketch_curve_draw.isChecked()
+
     def reset_view(self):
         self.turntable.set_value(0.0)
         self.up_down.set_value(0.0)
@@ -326,7 +354,15 @@ class DataAnnotationMainWindow(QMainWindow):
         return QSizePolicy.Fixed
 
     def clear_drawings(self):
-        self.sketch_curve.clear()
+        if self.do_sketch_curve_draw.isChecked():
+            self.sketch_curve.clear()
+        else:
+            frame_n = self.image_number.value()
+            if frame_n < self.video_annot.n_keyframes():
+                if self.show_rgb_button.isChecked():
+                    self.key_points[frame_n] = []
+                elif self.show_depth_button.isChecked():
+                    self.key_depth_points[frame_n] = []
         self.redraw_self()
 
     def new_curve(self):
@@ -361,6 +397,32 @@ class DataAnnotationMainWindow(QMainWindow):
         self.sketch_curve.clear()
         self.redraw_self()
 
+    def done_keypoints(self):
+        if not self.show_depth_button.isChecked():
+            width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+            height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+            ll = self.glWidget.draw_curve_2d.lower_left
+            ur = self.glWidget.draw_curve_2d.upper_right
+            frame_n = self.image_number.value()
+            if frame_n < self.video_annot.n_keyframes()-1:
+                kp1 = self.key_points[frame_n]
+                kp2 = self.key_points[frame_n+1]
+
+                if len(kp1) != len(kp2) or len(kp1) < 1:
+                    print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
+                else:
+                    vec = [0, 0]
+                    for k1, k2 in zip(kp1, kp2):
+                        pt_in_image1 = self.sketch_curve.convert_pt(k1, lower_left=ll, upper_right=ur,
+                                                                    width=width_rgb_image, height=height_rgb_image)
+                        pt_in_image2 = self.sketch_curve.convert_pt(k2, lower_left=ll, upper_right=ur,
+                                                                    width=width_rgb_image, height=height_rgb_image)
+                        vec[0] = pt_in_image2[0] - pt_in_image1[0]
+                        vec[1] = pt_in_image2[1] - pt_in_image1[1]
+                    vec[0] /= len(kp1)
+                    vec[1] /= len(kp1)
+                    self.video_annot.keyframes[frame_n].pan_vec = vec
+
     def read_images(self):
         if self.in_read_images:
             return
@@ -376,11 +438,12 @@ class DataAnnotationMainWindow(QMainWindow):
                 self.last_image_index = self.image_number.value()
 
             self.image_names = {}
-            indx = (self.image_number.value(), 0, 0)
+            indx = (0, self.image_number.value(), 0, 0)
             self.image_names["rgb"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
             self.image_names["edge"] = self.video_annot.get_edge_name(index=indx, b_add_tag=True)
+            self.image_names["depth"] = self.video_annot.get_depth_image_name(index=indx, b_add_tag=True)
             if indx[0] + 1 < len(self.video_annot.image_names[0]):
-                index_next = (self.image_number.value()+1, 0, 0)
+                index_next = (0, self.image_number.value()+1, 0, 0)
                 self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_edge_name(index=index_next, b_add_tag=True)
             else:
                 # Get a copy of this image
@@ -413,6 +476,7 @@ class DataAnnotationMainWindow(QMainWindow):
 
             self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
                                                    edge_image=self.images["edge"],
+                                                   depth_image=self.images["depth"],
                                                    next_rgb_image=self.images["rgb_edge_rgb_next"])
             self.redraw_self()
         self.in_read_images = False
@@ -439,6 +503,24 @@ class DataAnnotationMainWindow(QMainWindow):
         if self.video_annot is not None:
             kf_indx = self.image_number.value()
             self.video_annot.keyframes[kf_indx].pan_vec = [dx, dy]
+
+    def key_point(self, x, y):
+        """ User clicks in window - keep click point
+        @param x - change in x
+        @param y - change in y"""
+        if self.video_annot is not None:
+            kf_indx = self.image_number.value()
+            if self.show_rgb_button.isChecked():
+                self.key_points[kf_indx].append([x, y])
+            else:
+                self.key_depth_points[kf_indx].append([x, y])
+
+    def get_key_points(self):
+        n_frame = int(self.image_number.value())
+        if self.show_rgb_button.isChecked():
+            return self.key_points[n_frame]
+        else:
+            return self.key_depth_points[n_frame]
 
     def resizeEvent(self, event):
         # Really only need to do this on resize

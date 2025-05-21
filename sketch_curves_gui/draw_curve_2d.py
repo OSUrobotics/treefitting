@@ -241,6 +241,19 @@ class DrawCurve2D():
             qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
         qp.end()
 
+    def draw_points(self, q_wind, pts):
+        qp = QPainter()
+        qp.begin(q_wind)
+        pen_cross = QPen(Qt.green, 3, Qt.SolidLine)
+        brush = QBrush(Qt.CrossPattern)
+        qp.setPen(pen_cross)
+        qp.setBrush(brush)
+
+        for pt in pts:
+            qp.drawLine(int(pt[0] - 5), int(pt[1]), int(pt[0] + 5), int(pt[1]))
+            qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
+        qp.end()
+
 
 if __name__ == '__main__':
     # THIS DOES NOT WORK - use Sketch_curvs_main_window

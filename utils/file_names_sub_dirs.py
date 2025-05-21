@@ -263,6 +263,8 @@ class FileNamesSubDirs:
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @return just the image name"""
 
+        assert len(index) == 4
+
         im_name = ""
         if self.sub_dirs[index[0]] != "":
             im_name = im_name + self.sub_dirs[index[0]] + "/"
@@ -279,6 +281,8 @@ class FileNamesSubDirs:
         @param b_debug_path - use debug path y/n
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
+
+        assert len(index) == 4
 
         if b_debug_path:
             im_name = self.path_debug
@@ -302,6 +306,8 @@ class FileNamesSubDirs:
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
+        assert len(index) == 4
+
         im_name = self.path_calculated
         im_name = im_name + self.sub_dirs[index[0]] + "/"
         im_name = im_name + self.image_names[index[0]][index[1]] + self.name_seperator + "edge"
@@ -318,6 +324,8 @@ class FileNamesSubDirs:
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
+        assert len(index) == 4
+
         im_name = self.path_calculated
         if len(self.sub_dirs[index[0]]) > 0:
             im_name = im_name + self.sub_dirs[index[0]] + "/"
@@ -332,6 +340,8 @@ class FileNamesSubDirs:
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
+
+        assert len(index) == 4
 
         im_name = self.path
         if len(self.sub_dirs[index[0]]) > 0:
@@ -348,6 +358,8 @@ class FileNamesSubDirs:
         @param b_add_tag - add the csv tag, y/n
         @return full data file name with path"""
 
+        assert len(index) == 4
+
         f_name = self.path
         if len(self.sub_dirs[index[0]]) > 0:
             f_name = f_name + self.sub_dirs[index[0]] + "/"
@@ -362,6 +374,8 @@ class FileNamesSubDirs:
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_add_tag - add the image tag, y/n
         @return just the mask name """
+        assert len(index) == 4
+
         image_name = self.image_names[index[0]][index[1]]
         mask_name = self.mask_names[index[2]]
 
@@ -384,6 +398,8 @@ class FileNamesSubDirs:
         @param b_calcualte_path Use calculate path y/n [only pick one of these two]
         @param b_add_tag - add the image tag, y/n
         @return full mask name with path"""
+        assert len(index) == 4
+
         if b_debug_path:
             im_name = self.path_debug
         elif b_calculate_path:
@@ -401,7 +417,7 @@ class FileNamesSubDirs:
         @return a tuple that can be used to get the image name"""
         for i, _ in enumerate(self.sub_dirs):
             for j, _ in enumerate(self.image_names[i]):
-                yield i, j
+                yield i, j, 0, 0
 
     def loop_masks(self, mask_type=""):
         """ a generator that loops over all of the masks and generates an index for each
@@ -463,9 +479,10 @@ class FileNamesSubDirs:
         from os.path import exists
         for im_indx in self.loop_images():
             # Read in the RGB or optical flow image
-            fname_opt_flow = self.get_flow_image_name(im_indx, b_add_tag=True)
-            fname_edge = self.get_edge_name(im_indx, b_add_tag=True)
-            fname_rgb = self.get_image_name(im_indx, b_add_tag=True)
+            im_index_full = (im_indx[0], im_indx[1], 0, 0)
+            fname_opt_flow = self.get_flow_image_name(im_index_full, b_add_tag=True)
+            fname_edge = self.get_edge_name(im_index_full, b_add_tag=True)
+            fname_rgb = self.get_image_name(im_index_full, b_add_tag=True)
             if exists(fname_edge):
                 continue
             im = None

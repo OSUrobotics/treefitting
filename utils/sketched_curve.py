@@ -18,6 +18,9 @@ class SketchedCurve:
         self.backbone_pts = []
         self.cross_bars = []
 
+    def n_points(self):
+        return len(self.backbone_pts)
+
     def radii(self):
         """ Convert the crossbars to radii and return a list
         @return a list"""

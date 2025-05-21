@@ -109,9 +109,10 @@ class VideoAnnotationData(FileNames):
         @param sketch - the sketch
         @return index for new sketch"""
 
-        mask_id = len(self.mask_ids[0][image_index[0]][image_index[1]])
-        ret_indx = super().add_mask_id(image_index, mask_id)
-        self.keyframes[image_index[0]].add_sketch(image_index[1], sketch)
+        if sketch.n_points() > 2:
+            mask_id = len(self.mask_ids[0][image_index[0]][image_index[1]])
+            ret_indx = super().add_mask_id(image_index, mask_id)
+            self.keyframes[image_index[0]].add_sketch(image_index[1], sketch)
 
     def replace_sketch(self, image_index, mask_index, id_index, sketch):
         """ Add another mask id to this image/mask pair
@@ -259,8 +260,8 @@ class VideoAnnotationData(FileNames):
 
                 depth_im = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.jpg"
                 depth_data = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.csv"
-                dest_depth_name = dest_path + f"/depth_{im_num:05d}.jpg"
-                dest_depth_data_name = dest_path + f"/depth_{im_num:05d}.csv"
+                dest_depth_name = dest_path + f"/rgb_{im_num:05d}_depth.jpg"
+                dest_depth_data_name = dest_path + f"/rgb_{im_num:05d}_depth.csv"
                 if exists(depth_im):
                         if not exists(dest_depth_name):
                             print(f"copying {depth_im} {dest_depth_name}")
@@ -504,7 +505,7 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
 if __name__ == '__main__':
     import cv2
     import json
-    from os.path import exists
+    from os.path import exists, join
     from os import mkdir
 
     path_start = FileNamesSubDirs.get_path()
@@ -516,12 +517,26 @@ if __name__ == '__main__':
 
     tree_name = "CindyEnvyPhone"
 
-    b_make_edge_images = True
+    b_rename_files = True
+    b_make_edge_images = False
     b_copy_tree = False
     b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
     b_redo_fit = False
+
+    if b_rename_files:
+        import glob
+        from shutil import copyfile
+
+        tree_name = "bush_8_west"
+        images = glob.glob(dest_path + tree_name + '/depth*.*')
+        for im in images:
+            print(f"Im {im}")
+            im_name = im.split("/")[-1]
+            im_change = im[0:-len(im_name)] + "rgb_" + im_name[6:11] + "_depth" + im_name[-4:]
+            print(f"  {im_name} {im_change}")
+            copyfile(im, im_change)
 
     if b_make_edge_images:
         tree_name = "bush_8_west"
