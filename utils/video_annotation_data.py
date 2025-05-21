@@ -296,8 +296,8 @@ def read_and_rerun(annot_name):
         va = VideoAnnotationData.read_json(my_dict)
 
     fit_params = BSplineFitParams()
-    fit_params["inlier threshold"] = 8
-    fit_params["average fit"] = 4
+    fit_params["inlier threshold"] = 6
+    fit_params["average fit"] = 3
     fit_params["outlier ratio"] = 0.0
     for kf in va.keyframes:
         kf.refit(fit_params=fit_params)
@@ -348,6 +348,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_sp
     scl_image = [1, 1]
     shift_image = [0, 0]
     print(f"Reading images")
+    b_found_end = False
     for img_indx in full_list.loop_images():
         img_name_full = full_list.get_image_name_no_path(img_indx)
         if img_name_full == im_name:
@@ -362,6 +363,8 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_sp
             #scl_image[1] = image_size[1] / im.shape[0]
             images.append(im_resize)
         if img_name_full == im_name_next:
+            b_found_end = True
+        if len(images) == 8:
             info["ImageNext"] = img_indx
             break
     info["x_shift"] = shift_image[1]
@@ -385,6 +388,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_sp
             ts = np.linspace(0, crv.max_t(), n_spacing)
             # Points along the centerline
             pts = crv.eval_crv(ts)
+            across_min = 0.1
 
             # Points moving out from the center (for fat branches)
             across_min = 0.3
@@ -397,7 +401,7 @@ def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_sp
 
             for pt in pts:
                 #pts_2d.append([pt[0] * scl_image[0], pt[1] * scl_image[1]])
-                pts_2d.append([pt[0] - shift_image[0], pt[1] - shift_image[1]])
+                pts_2d.append([pt[0] - shift_image[1], pt[1] - shift_image[0]])
                 # Remember image scale is height, width
 
     pts_keep = []
@@ -474,10 +478,10 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
         pt_start = pts_2d[0][indx]
         pt_end = pts_2d[-1][indx]
 
-        pt_start[0] += shift_image[0]
-        pt_start[1] += shift_image[1]
-        pt_end[0] += shift_image[0]
-        pt_end[1] += shift_image[1]
+        pt_start[0] += shift_image[1]
+        pt_start[1] += shift_image[0]
+        pt_end[0] += shift_image[1]
+        pt_end[1] += shift_image[0]
         pt_start = [pt_start[0] / scl_image[0], pt_start[1] / scl_image[1]]
         pt_end = [pt_end[0] / scl_image[0], pt_end[1] / scl_image[1]]
         vx += pt_end[0] - pt_start[0]
