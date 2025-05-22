@@ -179,7 +179,7 @@ class BSplineCylImage(BSplineCyl):
         """ Set the pixels corresponding to the axis to grey, going from dark grey to white
         @im numpy array as image"""
         n_pts_quad = 6
-        pts = self.eval_crv(np.linspace(0, 1, n_pts_quad))
+        pts = self.eval_crv(np.linspace(0, self.max_t(), n_pts_quad * self.n_points()))
         col_start = 125
         col_div = 120 // (n_pts_quad - 1)
         for p1, p2 in zip(pts[0:-1], pts[1:]):

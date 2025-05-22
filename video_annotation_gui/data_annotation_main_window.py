@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from os.path import exists
+import json
+import numpy as np
 
 # Get OpenGL
 from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
@@ -51,11 +53,20 @@ class DataAnnotationMainWindow(QMainWindow):
         self.sketch_curve = SketchedCurve()
         self.key_points = [[]]
         self.depth_key_points = [[]]
+        self.scale_x_depth = 1.0
+        self.scale_y_depth = 1.0
         if exists("save_crv.json"):
             with open("save_crv.json", "r") as f:
-                import json
                 my_dict = json.load(f)
                 self.sketch_curve = SketchedCurve.read_json(my_dict)
+        if exists("key_points.json"):
+            with open("key_points.json", "r") as f:
+                my_dict = json.load(f)
+                self.key_points = my_dict
+        if exists("depth_key_points.json"):
+            with open("depth_key_points.json", "r") as f:
+                my_dict = json.load(f)
+                self.depth_key_points = my_dict
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -285,7 +296,6 @@ class DataAnnotationMainWindow(QMainWindow):
         return (self.sub_dir_number.value(), self.image_number.value(), self.mask_number.value(), self.mask_id_number.value())
 
     def read_file_names(self):
-        import json
         fname = self.path_name.text() + self.file_name.text()
         with open(fname, 'r') as f:
             my_data = json.load(f)
@@ -294,8 +304,9 @@ class DataAnnotationMainWindow(QMainWindow):
         self.last_image_index = -1
         self.read_images()
         self.set_draw_params_from_sliders()
-        self.key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
-        self.key_depth_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
+        if len(self.key_points) != self.video_annot.n_keyframes():
+            self.key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
+            self.depth_key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
 
     def set_draw_params_from_sliders(self):
         """ Set all the draw drawing parameters from the sliders"""
@@ -362,11 +373,10 @@ class DataAnnotationMainWindow(QMainWindow):
                 if self.show_rgb_button.isChecked():
                     self.key_points[frame_n] = []
                 elif self.show_depth_button.isChecked():
-                    self.key_depth_points[frame_n] = []
+                    self.depth_key_points[frame_n] = []
         self.redraw_self()
 
     def new_curve(self):
-        import json
         if self.video_annot is None:
             return
         
@@ -397,13 +407,95 @@ class DataAnnotationMainWindow(QMainWindow):
         self.sketch_curve.clear()
         self.redraw_self()
 
+    def _find_transform(self, pts1, pts2, b_do_depth=False):
+        """ Find the translate, scale, rotate that takes pts1 to pts2
+        Kabash algorithm
+         Note: Convert to image coordinates first
+        :param pts1 - from points
+        :param pts2 - to points
+        :param b_do_depth - doing depth, so re-scale points to depth as well
+        :return translate, rotate, scale"""
+        from scipy.spatial.transform import Rotation as R
+        import utils.matrix_routines_2d as mt
+        from PIL import Image
+        from draw_routines.image_draw_geom_utils import draw_cross
+
+        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+
+        n_pts = len(pts1)
+        pts_in_image1 = np.ones((3, n_pts))
+        pts_in_image2 = np.ones((3, n_pts))
+        for ps_out, ps_in in zip((pts_in_image1, pts_in_image2), (pts1, pts2)):
+            for pi, p_in in enumerate(ps_in):
+                pt_in_image = self.sketch_curve.convert_pt(p_in, lower_left=ll, upper_right=ur,
+                                                           width=width_rgb_image, height=height_rgb_image)
+                ps_out[:2, pi] = pt_in_image
+
+        rgb_image = np.array(Image.open(self.video_annot.get_image_name((0, 0, 0, 0)))).astype(np.uint8)
+        depth_image = np.array(Image.open(self.video_annot.get_depth_image_name((0, 0, 0, 0)))).astype(np.uint8)
+        if b_do_depth:
+            pts_in_image2[0, :] = pts_in_image2[0, :] * self.scale_x_depth
+            #pts_in_image2[1, :] = (rgb_image.shape[1] - pts_in_image2[1, :] - 1) * self.scale_y_depth
+            pts_in_image2[1, :] = pts_in_image2[1, :] * self.scale_y_depth
+
+        for indx in range(0, n_pts):
+            draw_cross(im=rgb_image, p=[pts_in_image1[0:2, indx]], color=[255, 255, 255], thickness=2, length=4)
+            draw_cross(im=depth_image, p=[pts_in_image2[0:2, indx]], color=[255, 255, 255], thickness=2, length=4)
+
+        rgb_write = Image.fromarray(rgb_image)
+        rgb_name = self.video_annot.get_image_name((0, 0, 0, 0), b_debug_path=self.video_annot.path_debug)
+        rgb_write.save(rgb_name)
+
+        depth_write = Image.fromarray(depth_image)
+        depth_name = self.video_annot.get_depth_image_name((0, 0, 0, 0), b_debug_path=self.video_annot.path_debug)
+        depth_write.save(depth_name)
+
+
+        pt_center1 = np.mean(pts_in_image1, axis=1)
+        pt_center2 = np.mean(pts_in_image2, axis=1)
+        # Move center from center1 to center 2
+        vec_t = pt_center2 - pt_center1
+        vec_t = [vec_t[0], vec_t[1]]
+        mat_t2 = mt.make_translation_matrix(pt_center2[0], pt_center2[1])
+        mat_tinv2 = mt.make_translation_matrix(-pt_center2[0], -pt_center2[1])
+        mat_tinv1 = mt.make_translation_matrix(-pt_center1[0], -pt_center1[1])
+
+        pts_in_image1_centered = mat_tinv1 @ pts_in_image1
+        pts_in_image2_centered = mat_tinv2 @ pts_in_image2
+
+        # Rotate the points from 1 to 2
+        rot, _ = R.align_vectors(pts_in_image1_centered.T, pts_in_image2_centered.T)
+        angs = rot.as_euler('XYZ')
+        mat_rot = mt.make_rotation_matrix(angs[2])
+        if b_do_depth:
+            # No rotation in the depth image
+            mat_rot = np.identity(3)
+
+        pts_in_image1_rotated = mat_rot @ pts_in_image1_centered
+        scl = [1, 1]
+        save_scls = np.zeros((n_pts, 1))
+        for indxs in range(0, 2):
+            for indxp in range(0, n_pts):
+                save_scls[indxp] = pts_in_image2_centered[indxs, indxp] / pts_in_image1_rotated[indxs, indxp]
+            scl[indxs] = save_scls.mean()
+
+        mat_scl = mt.make_scale_matrix(scl[0], scl[1])
+
+        # mat = mat_t1 @ mat_scl @ mat_rot @ mat_tinv2
+        mat = mat_t2 @ mat_scl @ mat_rot @ mat_tinv1
+
+        pts_aligned = mat @ pts_in_image2
+        print(f" {pts_in_image1}")
+        print(f" {pts_aligned}")
+
+        return vec_t, angs[2], scl, mat
+
     def done_keypoints(self):
+        frame_n = self.image_number.value()
         if not self.show_depth_button.isChecked():
-            width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
-            height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
-            ll = self.glWidget.draw_curve_2d.lower_left
-            ur = self.glWidget.draw_curve_2d.upper_right
-            frame_n = self.image_number.value()
             if frame_n < self.video_annot.n_keyframes()-1:
                 kp1 = self.key_points[frame_n]
                 kp2 = self.key_points[frame_n+1]
@@ -411,17 +503,18 @@ class DataAnnotationMainWindow(QMainWindow):
                 if len(kp1) != len(kp2) or len(kp1) < 1:
                     print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
                 else:
-                    vec = [0, 0]
-                    for k1, k2 in zip(kp1, kp2):
-                        pt_in_image1 = self.sketch_curve.convert_pt(k1, lower_left=ll, upper_right=ur,
-                                                                    width=width_rgb_image, height=height_rgb_image)
-                        pt_in_image2 = self.sketch_curve.convert_pt(k2, lower_left=ll, upper_right=ur,
-                                                                    width=width_rgb_image, height=height_rgb_image)
-                        vec[0] = pt_in_image2[0] - pt_in_image1[0]
-                        vec[1] = pt_in_image2[1] - pt_in_image1[1]
-                    vec[0] /= len(kp1)
-                    vec[1] /= len(kp1)
-                    self.video_annot.keyframes[frame_n].pan_vec = vec
+                    vec_t, ang, scl, _ = self._find_transform(kp1, kp2)
+                    self.video_annot.keyframes[frame_n].pan_vec = vec_t
+
+        else:
+            if frame_n < self.video_annot.n_keyframes():
+                kp1 = self.key_points[frame_n]
+                kp2 = self.depth_key_points[frame_n]
+                if len(kp1) != len(kp2) or len(kp1) < 1:
+                    print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
+                else:
+                    _, _, _, mat = self._find_transform(kp1, kp2, b_do_depth=True)
+                    self.video_annot.keyframes[frame_n].image_matrix = mat
 
     def read_images(self):
         if self.in_read_images:
@@ -474,6 +567,12 @@ class DataAnnotationMainWindow(QMainWindow):
 
                 self.glWidget.resize(w, h)
 
+                if self.images["depth"] is not None:
+                    width_depth_image = self.images["depth"].shape[1]
+                    height_depth_image = self.images["depth"].shape[0]
+                    self.scale_x_depth = width_depth_image / width_rgb_image
+                    self.scale_y_depth = height_depth_image / height_rgb_image
+
             self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
                                                    edge_image=self.images["edge"],
                                                    depth_image=self.images["depth"],
@@ -492,7 +591,11 @@ class DataAnnotationMainWindow(QMainWindow):
                 kf = self.video_annot.keyframes[image_indx]
                 for cyl_type in kf.bspline_cyls:
                     for crv in cyl_type:
-                        crv_list.append(crv)
+                        if not self.show_depth_button.isChecked():
+                            crv_list.append(crv)
+                        else:
+                            depth_crv = crv.transform(kf.image_matrix)
+                            crv_list.append(depth_crv)
             return crv_list
         return []
 
@@ -512,15 +615,23 @@ class DataAnnotationMainWindow(QMainWindow):
             kf_indx = self.image_number.value()
             if self.show_rgb_button.isChecked():
                 self.key_points[kf_indx].append([x, y])
+                with open("key_points.json", "w") as f:
+                    json.dump(self.key_points, f, indent = 2)
             else:
-                self.key_depth_points[kf_indx].append([x, y])
+                self.depth_key_points[kf_indx].append([x, y])
+                with open("depth_key_points.json", "w") as f:
+                    json.dump(self.depth_key_points, f, indent = 2)
 
     def get_key_points(self):
         n_frame = int(self.image_number.value())
         if self.show_rgb_button.isChecked():
             return self.key_points[n_frame]
         else:
-            return self.key_depth_points[n_frame]
+            return self.depth_key_points[n_frame]
+
+    def get_vector(self):
+        n_frame = int(self.image_number.value())
+        return self.video_annot.keyframes[n_frame].pan_vec
 
     def resizeEvent(self, event):
         # Really only need to do this on resize

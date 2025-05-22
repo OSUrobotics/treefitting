@@ -36,6 +36,30 @@ class DrawCurve2D():
         pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
         return pts
 
+    def draw_vector(self, vec):
+        """ Draw a vector centered on the screen
+        @param vec - vector in image coords"""
+
+        pts = np.zeros((2, 2))
+        for indx in range(0, 2):
+            pts[0, indx] = self.im_size[indx] / 2.0
+            pts[1, indx] = pts[0, indx] + vec[indx]
+
+        pts_c = self.convert_pts(pts)
+
+        GL.glDisable(GL.GL_LIGHTING)
+        GL.glLineWidth(4)
+        GL.glColor3d(1, 1, 1)
+        GL.glBegin(GL.GL_LINES)
+        GL.glVertex2d(pts_c[0, 0], pts_c[0, 1])
+        GL.glVertex2d(pts_c[1, 0], pts_c[1, 1])
+
+        for x_off in [-0.01, 0.01]:
+            for y_off in [-0.01, 0.01]:
+                GL.glVertex2d(pts_c[0, 0], pts_c[0, 1])
+                GL.glVertex2d(pts_c[0, 0] + x_off, pts_c[1, 1] + y_off)
+        GL.glEnd()
+
     def draw_backbone(self, crv):
         """ Draw a Bezier or bspline curve
         @param crv one of the two curve types"""

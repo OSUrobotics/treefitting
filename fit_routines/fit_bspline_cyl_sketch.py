@@ -48,7 +48,7 @@ class FitBSplineCyl2DSketch:
         if "perc_fuzzy_mask" not in self.params:
             self.params["perc_fuzzy_mask"] = 0.2
         if "degree" not in self.params:
-            self.params["degree"] = "quadratic"
+            self.params["degree"] = "cubic"
 
         if params:
             for k in params:

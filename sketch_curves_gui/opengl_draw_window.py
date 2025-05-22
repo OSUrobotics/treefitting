@@ -218,6 +218,10 @@ class OopenGLDrawWindow(QOpenGLWidget):
         self.set_2d_projection()
         self.draw_images.draw_image()
 
+        GL.glShadeModel(GL.GL_FLAT)
+        GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glDisable(GL.GL_TEXTURE_2D)
         for crv in self.gui.sketched_curves():
             if crv is not None:
                 self.draw_curve_2d.draw_sketch(q_wind=self, sketched_curve=crv)
@@ -229,12 +233,15 @@ class OopenGLDrawWindow(QOpenGLWidget):
                 self.draw_curve_2d.draw_profile_curves(crv)
 
         if self.gui:
-            self.draw_curve_2d.draw_points(q_wind=self, pts=self.gui.get_key_points())
+            try:
+                self.draw_curve_2d.draw_points(q_wind=self, pts=self.gui.get_key_points())
+            except AttributeError:
+                pass
+            try:
+                self.draw_curve_2d.draw_vector(self.gui.get_vector())
+            except AttributeError:
+                pass
 
-        GL.glShadeModel(GL.GL_FLAT)
-        GL.glClear(GL.GL_DEPTH_BUFFER_BIT)
-        GL.glEnable(GL.GL_DEPTH_TEST)
-        GL.glDisable(GL.GL_TEXTURE_2D)
         self.draw_camera_frame_3d()
         self.draw_curve_3d.draw()
 

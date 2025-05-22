@@ -40,6 +40,11 @@ class BSplineCyl(BSplineCurve):
         # Quadratic, 1d curve
         self.radii_crv = BSplineCurve(radii_pts, "quadratic")
 
+    def copy(self):
+        bsp = BSplineCyl(self.points(), degree=self.degree_name(), radii=self.radii_crv.points())
+        bsp.radii_crv = BSplineCurve(self.radii_crv.points())
+        return bsp
+
     def reverse_direction(self):
         """ Reverse the direction of the curve"""
         self.radii_crv.reverse_direction()
@@ -144,6 +149,23 @@ class BSplineCyl(BSplineCurve):
         for d in range(0, vec.shape[1]):
             vec[:, d] = radius.transpose() * vec[:, d]
         return pt + vec
+
+    def transform(self, mat):
+        """ Multiply the control points by the matrix and adjust radius, returns transformed curve"""
+
+        pts = np.ones((3, self.n_points()))
+        pts[0:2, :] = self.points_as_ndarray().T
+        pts_new = mat @ pts
+
+        vec_diag = np.ones((3, 1))
+        vec_diag[2] = 0.0
+        vec_scl_diag = mat @ vec_diag
+        scl = np.linalg.norm(vec_scl_diag) / np.linalg.norm(vec_diag)
+
+        radii_new = scl * self.radii_crv.points_as_ndarray()
+        ret_crv = BSplineCyl(pts_new[0:2, :].T, self.degree_name(), radii=self.radii_crv.points())
+        ret_crv.radii_crv.set_points(radii_new)
+        return ret_crv
 
     def write_json(self):
         """Create a dictionary and return it"""

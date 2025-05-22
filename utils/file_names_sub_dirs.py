@@ -335,15 +335,20 @@ class FileNamesSubDirs:
 
         return im_name
 
-    def get_depth_image_name(self, index, b_add_tag=True):
+    def get_depth_image_name(self, index, b_debug_path=False, b_add_tag=True):
         """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
+        @param b_debut_path - which path to use
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
         assert len(index) == 4
 
-        im_name = self.path
+        if b_debug_path:
+            im_name = self.path_debug
+        else:
+            im_name = self.path
+
         if len(self.sub_dirs[index[0]]) > 0:
             im_name = im_name + self.sub_dirs[index[0]] + "/"
         im_name = im_name + self.image_names[index[0]][index[1]] + self.name_seperator + "depth"

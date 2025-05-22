@@ -34,6 +34,7 @@ class KeyFrameData:
         self.bspline_cyls = []
         self.pan_vec = [0, 0]
         self.scale_amount = 1.0
+        self.rot_amount = 1.0
         self.pts_2d = []
         self.pts_3d = []
         self.image_matrix = np.identity(3)
@@ -70,6 +71,12 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
+    def get_bsplinecyl_in_depth_image(self, mask_index, mask_id_index):
+        """ Get the bspline cyl corresponding to the mask, id, and convert it to the depth image coordinates"""
+
+        crv = self.get_bsplinecyl(mask_index, mask_id_index)
+        return crv.transform(self.image_matrix)
+
     def refit(self, fit_params : BSplineFitParams=None):
         fit_sketch = FitBSplineCyl2DSketch()
 
@@ -88,7 +95,8 @@ class KeyFrameData:
                    "pts_2d": self.pts_2d,
                    "pts_3d": self.pts_3d,
                    "ScaleAmt": self.scale_amount,
-        "image_matrix": self.image_matrix.tolist(),
+                   "RotAmt": self.rot_amount,
+                   "image_matrix": self.image_matrix.tolist(),
         "camera_matrix": self.camera_matrix.tolist()}
 
         for lst1, lst2 in zip(self.sketch_curves, self.bspline_cyls):
@@ -133,6 +141,10 @@ class KeyFrameData:
         try:
             key_frame_instance.pts_2d = json_dict["pts_2d"]
             key_frame_instance.pts_3d = json_dict["pts_3d"]
+        except KeyError:
+            pass
+        try:
+            key_frame_instance.rot_amount = json_dict["RotAmt"]
         except KeyError:
             pass
 
