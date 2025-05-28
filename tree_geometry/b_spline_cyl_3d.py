@@ -11,11 +11,11 @@ from tree_geometry.b_spline_cyl import BSplineCyl
 
 # Code for creating 3d meshes from bspline cylinders
 class BSplineCyl3d(BSplineCyl):
-    def __init__(self, ctrl_pts: Union[list[np.ndarray], np.ndarray], degree: str = "quadratic",
+    def __init__(self, ctrl_pts: Union[list[np.ndarray], np.ndarray], degree: str = "cubic",
                  radii: Union[float, list[float]] = 1.0) -> None:
         """BSpline with radii initialization
         :param ctrl_pts: control points, list of numpy array points of desired dimension
-        :param degree: degree of spline, defaults to "quadratic"
+        :param degree: degree of spline, defaults to "cubic"
         :param radii: radii, either a single radii value for the whole curve or a list of radii values
         """
         super().__init__(ctrl_pts=ctrl_pts, degree=degree, radii=radii)

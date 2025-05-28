@@ -316,14 +316,12 @@ class VideoAnnotationData(FileNames):
         return all_fnames
 
 
-def read_and_rerun(annot_name):
+def read_and_rerun(dir_name, annot_name):
     import json
 
-    path_start = "/Users/grimmc/"
-    # path_start = "/Users/cindygrimm/"
-    dest_path = path_start + "PycharmProjects/data/EnvyTree/"
-    tree_name = "BP_R1_East_tree2"
-    va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+    path_start = FileNamesSubDirs.get_path()
+    dest_path = path_start + "PycharmProjects/data/" + dir_name + "/"
+    va_fname = dest_path + annot_name + ".json"
 
     with open(va_fname, "r") as f:
         my_dict = json.load(f)
@@ -333,12 +331,15 @@ def read_and_rerun(annot_name):
     fit_params["inlier threshold"] = 6
     fit_params["average fit"] = 3
     fit_params["outlier ratio"] = 0.0
+    fit_params["degree"] = "cubic"
     for kf in va.keyframes:
         kf.refit(fit_params=fit_params)
 
-    va_fname_refit = dest_path + tree_name + "/" + annot_name + "_refit.json"
+    va_fname_refit = dest_path + "/" + annot_name + "_refit.json"
     with open(va_fname_refit, "w") as f:
         json.dump(va.write_json(), f, indent=2)
+    # Draw debug images
+    va.crvs_in_depth_image()
 
 
 def produce_pips2_data(annot_full_path_name, kf=0, backbone_spacing=8, radial_spacing=4, grid_spacing=30):
@@ -555,14 +556,14 @@ if __name__ == '__main__':
 
     tree_name = "CindyEnvyPhone"
 
-    b_draw_debug = True
+    b_draw_debug = False
     b_rename_files = False
     b_make_edge_images = False
     b_copy_tree = False
     b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
-    b_redo_fit = False
+    b_redo_fit = True
 
     if b_draw_debug:
         tree_name = "bush_8_west"
@@ -660,10 +661,7 @@ if __name__ == '__main__':
             json.dump(pts, f, indent=2)
 
     if b_redo_fit:
-        read_and_rerun("first_tree_annot")
-        read_and_rerun("first_tree_annot")
-        read_and_rerun("first_tree_with_tertiary")
-        read_and_rerun("first_tree_with_tertiary_all")
+        read_and_rerun("bush_8_west", "video_annot_cane")
 
     if b_add_tracks:
         fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
