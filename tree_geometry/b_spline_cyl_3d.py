@@ -62,6 +62,7 @@ class BSplineCyl3d(BSplineCyl):
         self.vertex_locs = np.zeros((n_total, self.n_around, 3))
         self.vertex_normals = np.zeros((n_total, self.n_around, 3))
 
+        # TODO fix frenet frame twist
         for it, t in enumerate(np.linspace(0, self.max_t(), n_total)):
             mat = self.frenet_frame(t)
             radii = self.radius(t)
@@ -78,10 +79,22 @@ class BSplineCyl3d(BSplineCyl):
                 self.vertex_locs[it, itheta, :] = pt_on_crv[0:3].transpose()
                 self.vertex_normals[it, itheta, :] = norm_on_srf[0:3].transpose()
 
+    def write_json(self):
+        """Create a dictionary and return it"""
+        my_dict = {"Name": "BSplineCyl3d",
+                   "n_along_per": self.n_along_per,
+                   "n_around": self.n_around,
+                   "crv": super().write_json()}
+
+        return my_dict
+
     def write_mesh(self, fname):
         """Write out an obj file with the appropriate geometry
         Assumes make_mesh has been called
         @param fname - file name (should end in .obj"""
+
+        if self.vertex_locs == None:
+            self.make_mesh()
 
         with open(fname, "w") as fp:
             fp.write(f"# Branch\n")

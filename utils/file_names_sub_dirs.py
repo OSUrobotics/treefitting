@@ -117,6 +117,12 @@ class FileNamesSubDirs:
         self.mask_tag = self.image_tag
         self.mask_id_separator = self.name_seperator  # Could be _ set in add masks
 
+    def n_masks(self):
+        return len(self.mask_names)
+
+    def n_mask_ids(self, subdir=0, image=0, mask=0):
+        return len(self.mask_ids[subdir][image][mask])
+
     def _find_files(self, path, name_filter=""):
         """ Find all of the image files in the given directory
         Make sure self.image_tag is set as well as self.name_separator (assumes "_")
@@ -388,7 +394,7 @@ class FileNamesSubDirs:
         if len(self.mask_ids[index[0]][index[1]][index[2]]) <= index[3]:
             mask_id = ""
         else:
-            mask_id = self.mask_ids[index[0]][index[1]][index[2]][index[3]]
+            mask_id = f"{self.mask_ids[index[0]][index[1]][index[2]][index[3]]}"
 
         mask_name_full = image_name + self.name_seperator + mask_name + self.mask_id_separator + mask_id
 

@@ -624,10 +624,13 @@ class DataAnnotationMainWindow(QMainWindow):
 
     def get_key_points(self):
         n_frame = int(self.image_number.value())
-        if self.show_rgb_button.isChecked():
-            return self.key_points[n_frame]
-        else:
-            return self.depth_key_points[n_frame]
+        try:
+            if self.show_rgb_button.isChecked():
+                return self.key_points[n_frame]
+            else:
+                return self.depth_key_points[n_frame]
+        except IndexError:
+            return []
 
     def get_vector(self):
         n_frame = int(self.image_number.value())

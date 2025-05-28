@@ -23,7 +23,7 @@ class BSplineCurveFit:
         if params is None:
             self.params = BSplineFitParams()
         else:
-            self.params = deepcopy(params)
+            self.params = params
 
         if crv_start is not None:
             self.crv_start = BSplineCurve(crv_start.points())

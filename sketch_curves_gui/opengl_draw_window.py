@@ -6,13 +6,10 @@ from sketch_curves_gui.draw_curve_3d import DrawCurve3D
 
 import numpy as np
 from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
-from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
-                             QWidget)
-from PyQt5.QtGui import QPainter, QBrush, QPen, QFont, QColor
+from PyQt5.QtWidgets import (QOpenGLWidget)
 import OpenGL.GL as GL
 
-from bezier_cyl_3d_with_detail import BezierCyl3DWithDetail
-from Image_based.camera_projections import frame_at_z_near
+from utils.camera_projections import frame_at_z_near
 
 
 class OopenGLDrawWindow(QOpenGLWidget):

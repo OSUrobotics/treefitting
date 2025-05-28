@@ -347,10 +347,11 @@ class BSplineCylImage(BSplineCyl):
                                         col_solid=(255, 255, 255),
                                         step_size=step_size,
                                         perc_width=1.0)
-        self.draw_boundary_rects_filled(im_mask, b_solid=True,
-                                        col_solid=(128, 128, 128),
-                                        step_size=step_size,
-                                        perc_width=perc_fuzzy)
+        if perc_fuzzy > 0.0:
+            self.draw_boundary_rects_filled(im_mask, b_solid=True,
+                                            col_solid=(128, 128, 128),
+                                            step_size=step_size,
+                                            perc_width=perc_fuzzy)
 
 
 if __name__ == '__main__':

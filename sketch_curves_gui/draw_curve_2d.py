@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
-from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QOpenGLWidget, QSlider,
-                             QWidget)
-from PyQt5.QtGui import QPainter, QBrush, QPen, QFont, QColor
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPainter, QBrush, QPen
 import OpenGL.GL as GL
-
-from Image_based.camera_projections import frame_at_z_near
 
 import numpy as np
 

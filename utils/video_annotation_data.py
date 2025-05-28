@@ -131,8 +131,8 @@ class VideoAnnotationData(FileNames):
 
     def crvs_in_depth_image(self):
         """ A debugging tool - for each keyframe, output a debug depth image with the curves drawn on top"""
-        from PIL import Image, ImageFilter
-        from Image_based.b_spline_image import BSplineCylImage
+        from PIL import Image
+        from draw_routines.b_spline_image import BSplineCylImage
         import utils.matrix_routines_2d as mt
 
         for kf_indx, kf in enumerate(self.keyframes):
@@ -544,7 +544,7 @@ def add_2d_tracks(annot_full_path_name, kf, pts_name):
 if __name__ == '__main__':
     import cv2
     import json
-    from os.path import exists, join
+    from os.path import exists
     from os import mkdir
 
     path_start = FileNamesSubDirs.get_path()

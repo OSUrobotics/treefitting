@@ -9,7 +9,10 @@ class BSplineFitParams(dict):
                     "inlier threshold": 0.1,  # Numerical value; distance at which the point is considered an inlier
                     "polyline fit": 0.1,      # Look for shark-finning/over fit by looking at distance to polyline through pts
                     "average fit": 0.1,       # Numerical value; average error allowed across all points
-                    "degree": "cubic"}        # degree of curve
+                    "degree": "cubic",        # degree of curve
+                    "perc_width_depth": 0.1,  # percentage of curve cylinder to use in depth calc, between 0.1 and 0.8
+                    "perc_along_depth": 0.1,  # take median of pixels from a perc of curve, should be 0.1 to 0.3
+                    }
 
     def __init__(self, json_string="{}"):
         super().__init__(self)
@@ -50,5 +53,5 @@ class BSplineFitParams(dict):
         result = cls.__new__(cls)
         memo[id(self)] = result
         for k, v in self.__dict__.items():
-            setattr(result, k, deepcopy(v, memo))
+            setattr(result, k, v)
         return result
