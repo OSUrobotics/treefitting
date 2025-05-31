@@ -27,6 +27,19 @@ def from_image_to_box(params, pt_uv):
     pt_xy[1] *= -1
     return pt_xy
 
+
+def from_box_to_image(params, pt_xy):
+    """Convert a point in -1, 1 x -1, 1 to width, height
+    @params - has image size
+    @params pt_xy_in_bx - the point in -1, 1
+    @return pt_uv in widthxheight"""
+    im_size = params["image_size"]
+    pt_xy_flip_y = [pt_xy[0], pt_xy[1]]
+    pt_uv = [im_size[i] * (pt_xy_flip_y[i] + 1.0) / 2.0 for i in range(0, 2)]
+
+    return pt_uv
+
+
 def frame_at_z_near(params):
     """ return left, right, bottom, top for the frame at the near plane
     params has information about the camera
@@ -46,7 +59,7 @@ def frame_at_z_near(params):
     return [-frame_width, frame_width, -frame_height, frame_height]
 
 
-def frustrum_matrix(params):
+def frustrum_matrix(params: dict):
     """ params has information about the camera
     @param params - z_near, z_far, image_size as 2x1 array, camera_width_angle in degrees
     @return 4x4 projection matrix"""
@@ -72,6 +85,27 @@ def frustrum_matrix(params):
     mat[3, 2] = -1.0
 
     return mat
+
+
+def from_xyz_to_box(params: dict, pt_xyz: np.array):
+    """ Project the point and do the divide
+    @param params - camera parameters
+    @param pt_xyz - numpy array 4x1
+    @return point in box -1,1 x -1,1 and 3D depth"""
+    pt_xyz_proj = frustrum_matrix(params) @ pt_xyz
+    depth = pt_xyz_proj[2]
+    pt_xy_box = [pt_xyz_proj[indx] / pt_xyz_proj[3] for indx in range(0, 2)]
+
+    return pt_xy_box, depth
+
+
+def from_xyz_to_image(params: dict, pt_xyz: np.array):
+    """ Project the point, do the divide and convert to image point
+    @param params - camera parameters
+    @param pt_xyz - numpy array 4x1
+    @return point in W, H and 3D depth"""
+    pt_xy_box, depth = from_xyz_to_box(params, pt_xyz)
+    return from_box_to_image(params, pt_xy_box), depth
 
 
 if __name__ == '__main__':

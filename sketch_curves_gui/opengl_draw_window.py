@@ -231,7 +231,9 @@ class OopenGLDrawWindow(QOpenGLWidget):
 
         if self.gui:
             try:
-                self.draw_curve_2d.draw_points(q_wind=self, pts=self.gui.get_key_points())
+                pts_and_colors = self.gui.get_key_points()
+                for pts, cols in pts_and_colors:
+                    self.draw_curve_2d.draw_points(q_wind=self, pts=pts, col=cols)
             except AttributeError:
                 pass
             try:

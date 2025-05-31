@@ -5,7 +5,10 @@ import json
 import numpy as np
 
 # Get OpenGL
-from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem
+from PyQt5.QtWidgets import QMainWindow, QCheckBox, QGroupBox, QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, \
+    QSpacerItem, QRadioButton
+from PyQt5.QtCore import Qt
+
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdit, QTextEdit, QSizePolicy
 import cv2
@@ -51,22 +54,12 @@ class DataAnnotationMainWindow(QMainWindow):
         self.in_reset_file_menus = False
         self.in_read_images = False
         self.sketch_curve = SketchedCurve()
-        self.key_points = [[]]
-        self.depth_key_points = [[]]
         self.scale_x_depth = 1.0
         self.scale_y_depth = 1.0
         if exists("save_crv.json"):
             with open("save_crv.json", "r") as f:
                 my_dict = json.load(f)
                 self.sketch_curve = SketchedCurve.read_json(my_dict)
-        if exists("key_points.json"):
-            with open("key_points.json", "r") as f:
-                my_dict = json.load(f)
-                self.key_points = my_dict
-        if exists("depth_key_points.json"):
-            with open("depth_key_points.json", "r") as f:
-                my_dict = json.load(f)
-                self.depth_key_points = my_dict
 
     # Set up the left set of sliders/buttons (read/write, camera)
     def _init_left_layout_(self):
@@ -185,23 +178,31 @@ class DataAnnotationMainWindow(QMainWindow):
         # Drawing
         drawing_states = QGroupBox('Drawing states         ')
         drawing_states_layout = QGridLayout()
-        self.new_sketch_button = QPushButton('New curve')
-        self.new_sketch_button.clicked.connect(self.new_curve)
-        self.draw_kp_button = QPushButton('Done kp')
-        self.draw_kp_button.clicked.connect(self.done_keypoints)
+        new_sketch_button = QPushButton('New curve')
+        new_sketch_button.clicked.connect(self.new_curve)
+        done_kp_button = QPushButton('Done kp')
+        done_kp_button.clicked.connect(self.done_keypoints)
         clear_drawings_button = QPushButton('Clear drawings')
         clear_drawings_button.clicked.connect(self.clear_drawings)
-        self.do_sketch_curve_draw = QCheckBox('Draw backbone')
-        self.do_sketch_curve_draw.setCheckState(2)
-        self.do_sketch_curve_draw.clicked.connect(self.redraw_self)
-        self.do_keypoints_draw = QCheckBox('Draw keypoints')
-        self.do_keypoints_draw.clicked.connect(self.redraw_self)
 
-        drawing_states_layout.addWidget(self.new_sketch_button)
-        drawing_states_layout.addWidget(self.draw_kp_button)
-        drawing_states_layout.addWidget(clear_drawings_button)
+        self.do_sketch_curve_draw = QRadioButton('Draw backbone')
+        self.do_sketch_curve_draw.clicked.connect(self.on_draw_toggled)
+        self.do_keypoints_start_draw = QRadioButton('Draw start keypoints')
+        self.do_keypoints_start_draw.clicked.connect(self.on_draw_toggled)
+        self.do_keypoints_end_draw = QRadioButton('Draw end keypoints')
+        self.do_keypoints_end_draw.clicked.connect(self.on_draw_toggled)
+        self.do_keypoints_depth_draw = QRadioButton('Draw depth keypoints')
+        self.do_keypoints_depth_draw.clicked.connect(self.on_draw_toggled)
+        self.do_sketch_curve_draw.setChecked(1)
+
         drawing_states_layout.addWidget(self.do_sketch_curve_draw)
-        drawing_states_layout.addWidget(self.do_keypoints_draw)
+        drawing_states_layout.addWidget(self.do_keypoints_start_draw)
+        drawing_states_layout.addWidget(self.do_keypoints_end_draw)
+        drawing_states_layout.addWidget(self.do_keypoints_depth_draw)
+
+        drawing_states_layout.addWidget(new_sketch_button)
+        drawing_states_layout.addWidget(done_kp_button)
+        drawing_states_layout.addWidget(clear_drawings_button)
 
         drawing_states.setLayout(drawing_states_layout)
 
@@ -304,9 +305,9 @@ class DataAnnotationMainWindow(QMainWindow):
         self.last_image_index = -1
         self.read_images()
         self.set_draw_params_from_sliders()
-        if len(self.key_points) != self.video_annot.n_keyframes():
-            self.key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
-            self.depth_key_points = [[] for _ in range(0, self.video_annot.n_keyframes())]
+
+    def on_draw_toggled(self):
+        self.redraw_self()
 
     def set_draw_params_from_sliders(self):
         """ Set all the draw drawing parameters from the sliders"""
@@ -368,12 +369,23 @@ class DataAnnotationMainWindow(QMainWindow):
         if self.do_sketch_curve_draw.isChecked():
             self.sketch_curve.clear()
         else:
-            frame_n = self.image_number.value()
-            if frame_n < self.video_annot.n_keyframes():
+            if self.video_annot is None:
+                return
+
+            kf_indx = self.image_number.value()
+            if kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+                return
+
+            kf = self.video_annot.keyframes[kf_indx]
+            if self.do_keypoints_start_draw.isChecked():
+                kf.pts_2d_of_start = []
+            if self.do_keypoints_end_draw.isChecked():
+                kf.pts_2d_of_end = []
+            if self.do_keypoints_depth_draw.isChecked():
                 if self.show_rgb_button.isChecked():
-                    self.key_points[frame_n] = []
+                    self.kf.pts_2d_rgb_depth = []
                 elif self.show_depth_button.isChecked():
-                    self.depth_key_points[frame_n] = []
+                    self.pts_2d_depth = []
         self.redraw_self()
 
     def new_curve(self):
@@ -453,7 +465,6 @@ class DataAnnotationMainWindow(QMainWindow):
         depth_name = self.video_annot.get_depth_image_name((0, 0, 0, 0), b_debug_path=self.video_annot.path_debug)
         depth_write.save(depth_name)
 
-
         pt_center1 = np.mean(pts_in_image1, axis=1)
         pt_center2 = np.mean(pts_in_image2, axis=1)
         # Move center from center1 to center 2
@@ -494,27 +505,42 @@ class DataAnnotationMainWindow(QMainWindow):
         return vec_t, angs[2], scl, mat
 
     def done_keypoints(self):
-        frame_n = self.image_number.value()
-        if not self.show_depth_button.isChecked():
-            if frame_n < self.video_annot.n_keyframes()-1:
-                kp1 = self.key_points[frame_n]
-                kp2 = self.key_points[frame_n+1]
+        if self.video_annot is None:
+            return
 
+        fname = "save_video_annot.json"
+        with open(fname, "w") as f:
+            json.dump(self.video_annot.write_json(), f, indent=2)
+
+        kf_indx = self.image_number.value()
+        if kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+            return
+
+        kf = self.video_annot.keyframes[kf_indx]
+        if self.do_keypoints_start_draw.isChecked():
+            if kf_indx < self.video_annot.n_keyframes()-1:
+                print(f"Optical flow keypoints")
+                kf_next = self.video_annot.keyframes[kf_indx + 1]
+
+                kp1 = kf.pts_2d_of_start
+                kp2 = kf_next.pts_2d_of_end
                 if len(kp1) != len(kp2) or len(kp1) < 1:
                     print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
                 else:
                     vec_t, ang, scl, _ = self._find_transform(kp1, kp2)
-                    self.video_annot.keyframes[frame_n].pan_vec = vec_t
+                    kf.pan_vec = vec_t
+                    kf.scale_amount = scl
+                    kf.rot_amount = ang
 
-        else:
-            if frame_n < self.video_annot.n_keyframes():
-                kp1 = self.key_points[frame_n]
-                kp2 = self.depth_key_points[frame_n]
-                if len(kp1) != len(kp2) or len(kp1) < 1:
-                    print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
-                else:
-                    _, _, _, mat = self._find_transform(kp1, kp2, b_do_depth=True)
-                    self.video_annot.keyframes[frame_n].image_matrix = mat
+        elif self.do_keypoints_depth_draw.isChecked():
+            print(f"Depth keypoints")
+            kp1 = kf.pts_2d_rgb_depth
+            kp2 = kf.pts_2d_depth
+            if len(kp1) != len(kp2) or len(kp1) < 1:
+                print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
+            else:
+                _, _, _, mat = self._find_transform(kp1, kp2, b_do_depth=True)
+                kf.image_matrix = mat
 
     def read_images(self):
         if self.in_read_images:
@@ -577,6 +603,7 @@ class DataAnnotationMainWindow(QMainWindow):
                                                    edge_image=self.images["edge"],
                                                    depth_image=self.images["depth"],
                                                    next_rgb_image=self.images["rgb_edge_rgb_next"])
+
             self.redraw_self()
         self.in_read_images = False
 
@@ -609,28 +636,58 @@ class DataAnnotationMainWindow(QMainWindow):
 
     def key_point(self, x, y):
         """ User clicks in window - keep click point
-        @param x - change in x
-        @param y - change in y"""
-        if self.video_annot is not None:
-            kf_indx = self.image_number.value()
+        @param x - x
+        @param y - y"""
+        if self.video_annot is None:
+            return
+
+        kf_indx = self.image_number.value()
+        if kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+            return
+
+        kf = self.video_annot.keyframes[kf_indx]
+
+        if self.do_keypoints_end_draw.isChecked():
+            kf.pts_2d_of_end.append([x, y])
+
+        if self.do_keypoints_start_draw.isChecked():
+            kf.pts_2d_of_start.append([x, y])
+
+        if self.do_keypoints_depth_draw.isChecked():
             if self.show_rgb_button.isChecked():
-                self.key_points[kf_indx].append([x, y])
-                with open("key_points.json", "w") as f:
-                    json.dump(self.key_points, f, indent = 2)
+                kf.pts_2d_rgb_depth.append([x, y])
             else:
-                self.depth_key_points[kf_indx].append([x, y])
-                with open("depth_key_points.json", "w") as f:
-                    json.dump(self.depth_key_points, f, indent = 2)
+                kf.pts_2d_depth.append([x, y])
 
     def get_key_points(self):
-        n_frame = int(self.image_number.value())
-        try:
-            if self.show_rgb_button.isChecked():
-                return self.key_points[n_frame]
-            else:
-                return self.depth_key_points[n_frame]
-        except IndexError:
+        if self.video_annot is None:
             return []
+
+        kf_indx = self.image_number.value()
+        if kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+            return []
+
+        kf = self.video_annot.keyframes[kf_indx]
+
+        pts_and_colors = []
+        if self.do_keypoints_start_draw.isChecked():
+            pts_and_colors.append((kf.pts_2d_of_start, Qt.white))
+            if kf_indx+1 < self.video_annot.n_keyframes():
+                kf_next = self.video_annot.keyframes[kf_indx + 1]
+                pts_and_colors.append((kf_next.pts_2d_of_end, Qt.yellow))
+        if self.do_keypoints_end_draw.isChecked():
+            pts_and_colors.append((kf.pts_2d_of_end, Qt.yellow))
+            if 0 <= kf_indx-1 < self.video_annot.n_keyframes():
+                kf_prev = self.video_annot.keyframes[kf_indx - 1]
+                pts_and_colors.append((kf_prev.pts_2d_of_start, Qt.white))
+        if self.do_keypoints_depth_draw.isChecked():
+            if self.show_rgb_button.isChecked():
+                pts_and_colors.append((kf.pts_2d_rgb_depth, Qt.blue))
+                pts_and_colors.append((kf.depth_pts_in_rgb(), Qt.green))
+            else:
+                pts_and_colors.append((kf.pts_2d_depth, Qt.green))
+                pts_and_colors.append((kf.rgb_pts_in_depth(), Qt.blue))
+        return pts_and_colors
 
     def get_vector(self):
         n_frame = int(self.image_number.value())

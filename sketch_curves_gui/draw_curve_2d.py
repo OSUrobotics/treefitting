@@ -261,10 +261,10 @@ class DrawCurve2D():
             qp.drawLine(int(pt[0]), int(pt[1] - 5), int(pt[0]), int(pt[1] + 5))
         qp.end()
 
-    def draw_points(self, q_wind, pts):
+    def draw_points(self, q_wind, pts, col=Qt.green):
         qp = QPainter()
         qp.begin(q_wind)
-        pen_cross = QPen(Qt.green, 3, Qt.SolidLine)
+        pen_cross = QPen(col, 3, Qt.SolidLine)
         brush = QBrush(Qt.CrossPattern)
         qp.setPen(pen_cross)
         qp.setBrush(brush)

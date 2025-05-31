@@ -140,7 +140,7 @@ class VideoAnnotationData(FileNames):
             depth_image = np.array(Image.open(self.get_depth_image_name((0, kf_indx, 0, 0)))).astype(np.uint8)
             mat_trans1 = mt.make_translation_matrix(-rgb_image.shape[1]/2, -rgb_image.shape[0]/2)
             mat_trans2 = mt.make_translation_matrix(depth_image.shape[1]/2, depth_image.shape[0]/2)
-            mat_scl = mt.make_scale_matrix(depth_image.shape[1] /  rgb_image.shape[1], depth_image.shape[0] / rgb_image.shape[0])
+            mat_scl = mt.make_scale_matrix(depth_image.shape[1] / rgb_image.shape[1], depth_image.shape[0] / rgb_image.shape[0])
             mat = mat_trans2 @ mat_scl @ mat_trans1
             # kf.image_matrix = mat
             for mi in range(0, len(kf.bspline_cyls)):
@@ -149,11 +149,11 @@ class VideoAnnotationData(FileNames):
                     depth_crv = kf.get_bsplinecyl_in_depth_image(mi, m_id)
 
                     crv_image = BSplineCylImage(crv.points(), crv.degree_name(), crv.radii_crv.points())
-                    crv_image.draw_curve(rgb_image)
+                    #crv_image.draw_curve(rgb_image)
                     crv_image.draw_boundary(rgb_image)
 
                     crv_image_depth = BSplineCylImage(depth_crv.points(), depth_crv.degree_name(), depth_crv.radii_crv.points())
-                    crv_image_depth.draw_curve(depth_image)
+                    # crv_image_depth.draw_curve(depth_image)
                     crv_image_depth.draw_boundary(depth_image)
             rgb_write = Image.fromarray(rgb_image)
             rgb_name = self.get_image_name((0, kf_indx, 0, 0), b_debug_path=self.path_debug)
@@ -162,6 +162,13 @@ class VideoAnnotationData(FileNames):
             depth_write = Image.fromarray(depth_image)
             depth_name = self.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=self.path_debug)
             depth_write.save(depth_name)
+
+            depth_edge = self.get_edge_name((0, kf_indx, 0, 0), b_depth=True, b_add_tag=True)
+            if exists(depth_edge):
+                #mat_inv = kf.image_matrix.inverse()
+                im_depth_edge = np.array(Image.open(self.get_image_name((0, kf_indx, 0, 0)))).astype(np.uint8)
+
+
 
     def check_names(self):
         """ Run through all the image/mask names and make sure they exist
@@ -556,14 +563,14 @@ if __name__ == '__main__':
 
     tree_name = "CindyEnvyPhone"
 
-    b_draw_debug = False
+    b_draw_debug = True
     b_rename_files = False
     b_make_edge_images = False
     b_copy_tree = False
     b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
-    b_redo_fit = True
+    b_redo_fit = False
 
     if b_draw_debug:
         tree_name = "bush_8_west"

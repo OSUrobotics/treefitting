@@ -305,10 +305,13 @@ class FileNamesSubDirs:
 
         return im_name
 
-    def get_edge_name(self, index, b_optical_flow=False, b_add_tag=True):
+    def get_edge_name(self, index, b_rgb=False, b_optical_flow=False, b_depth=False, b_add_tag=True):
         """ Get the edge image name corresponding to the index given by (subdirectory index, image index, -)
+        Note: Only one of b_rgb, r_optical_flow, b_depth should be true....
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_optical_flow True if add OF to edge name
+        @param b_rgb True if add RGB to edge name
+        @param b_bepth True if add _dpth to edge name
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
@@ -319,6 +322,11 @@ class FileNamesSubDirs:
         im_name = im_name + self.image_names[index[0]][index[1]] + self.name_seperator + "edge"
         if b_optical_flow:
             im_name = im_name + self.name_seperator + "OF"
+        elif b_depth:
+            im_name = im_name + self.name_seperator + "DPTH"
+        elif b_rgb:
+            im_name = im_name + self.name_seperator + "RGB"
+
         if b_add_tag:
             im_name = im_name + self.image_tag
 
@@ -491,171 +499,47 @@ class FileNamesSubDirs:
         for im_indx in self.loop_images():
             # Read in the RGB or optical flow image
             im_index_full = (im_indx[0], im_indx[1], 0, 0)
-            fname_opt_flow = self.get_flow_image_name(im_index_full, b_add_tag=True)
-            fname_edge = self.get_edge_name(im_index_full, b_add_tag=True)
+            fname_edge_rgb = self.get_edge_name(im_index_full, b_rgb=True, b_add_tag=True)
+            fname_edge_flow = self.get_edge_name(im_index_full, b_optical_flow=True, b_add_tag=True)
+            fname_edge_depth = self.get_edge_name(im_index_full, b_depth=True, b_add_tag=True)
             fname_rgb = self.get_image_name(im_index_full, b_add_tag=True)
-            if exists(fname_edge):
-                continue
-            im = None
-            if b_use_optical_flow and exists(fname_opt_flow):
-                im = cv2.imread(fname_opt_flow)
-            elif exists(fname_rgb):
+            fname_opt_flow = self.get_flow_image_name(im_index_full, b_add_tag=True)
+            fname_depth = self.get_depth_data_name(im_index_full, b_add_tag=True)
+            if not exists(fname_edge_rgb) and exists(fname_rgb):
                 im = cv2.imread(fname_rgb)
-            else:
-                continue
+                # Now calculate the edge image
+                im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+                image_edge = cv2.Canny(im_gray, 100, 250, apertureSize=3)
+                cv2.imwrite(fname_edge_rgb, image_edge)
 
-            # Now calculate the edge image
-            im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-            image_edge = cv2.Canny(im_gray, 50, 150, apertureSize=3)
-            cv2.imwrite(fname_edge, image_edge)
+            if not exists(fname_edge_flow) and exists(fname_opt_flow):
+                im = cv2.imread(fname_opt_flow)
+                # Now calculate the edge image
+                im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+                image_edge = cv2.Canny(im_gray, 1, 10, apertureSize=3)
+                cv2.imwrite(fname_edge_flow, image_edge)
 
-
-def example_pull_with_skip(n_skip=10, image_tag="jpg"):
-
-    # Where to put the newly organized data
-    dest_path_base = "/Users/grimmc/VSCode/BlueberryData/"
-
-    # Where the data directory is
-    src_path_base = "/Users/grimmc/Downloads/"
-
-    data_set_name = "bush_9_west_2"
-
-    dest_path = dest_path_base + data_set_name + "/"
-    src_path = src_path_base + data_set_name + "/"
-
-    if not exists(dest_path_base):
-        mkdir(dest_path_base)
-
-    if not exists(dest_path):
-        mkdir(dest_path)
-
-    search_path = f"{src_path}/color/*." + image_tag
-    fnames = glob(search_path)
-    if fnames is None:
-        raise ValueError(f"No files in directory {search_path}")
-
-    file_numbers = []
-    for i_f, nf in enumerate(fnames):
-        im_name = nf.split("/")[-1]
-        im_no_extention = im_name.split(".")[0]
-        im_number = im_no_extention.split("_")[-1]
-        file_numbers.append(int(im_number))
-
-    file_numbers.sort()
-
-    for i_f in file_numbers[::n_skip]:
-        # The number on the file
-        col_im_name_number = str(i_f)
-        if len(col_im_name_number) == 1:
-            col_im_name_number = "00" + col_im_name_number
-        elif len(col_im_name_number) == 2:
-            col_im_name_number = "0" + col_im_name_number
-        elif len(col_im_name_number) == 3:
-            col_im_name_number = col_im_name_number
-        else:
-            raise ValueError("Argh, you really have more than 999 files????")
-
-        
-        # RGB image copy
-        col_im_name = src_path + "color/color_raw_" + str(i_f) + "." + image_tag
-        dest_name = dest_path + col_im_name_number + "_rgb." + image_tag
-        copyfile(src=col_im_name, dst=dest_name)
-
-        # Depth copy (image)
-        depth_im_name = src_path + "depth/depth_raw_" + str(i_f) + "." + image_tag
-        dest_depth_im_name = dest_path + col_im_name_number + "_depth." + image_tag
-        copyfile(src=depth_im_name, dst=dest_depth_im_name)
-
-        # Depth copy (csv)
-        depth_name = src_path + "depth/depth_raw_" + str(i_f) + "." + "csv"
-        dest_depth_name = dest_path + col_im_name_number + "_depth.csv"
-        copyfile(src=depth_name, dst=dest_depth_name)
-
-    all_files = FileNamesSubDirs(path=dest_path, img_type=image_tag)
-    all_files.mask_names = ["cane"]
-    all_files.add_directory(name_filter="rgb")
-
-    fname_write = dest_path + "/" + data_set_name + "_fnames.json"
-    with (open(fname_write, 'w') as f):
-        json.dump(all_files.write_json(), f, indent=2)
-
-    return all_files, fname_write
+            if not exists(fname_edge_depth) and exists(fname_depth):
+                im = cv2.imread(fname_depth)
+                im_gray = im[:, :, 2].squeeze()
+                # Now calculate the edge image
+                #im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+                image_edge = cv2.Canny(im_gray, 100, 300, apertureSize=3)
+                cv2.imwrite(fname_edge_depth, image_edge)
 
 
 if __name__ == '__main__':
 
-    all_files, fname = example_pull_with_skip()
+    import argparse
 
-    """ Example envy 
-    from shutil import copyfile
-    b_get_box_files = True
-    if b_get_box_files:
-        dest_path = "/Users/cindygrimm/VSCode/data/EnvyTree/"
-        if not exists(dest_path):
-            mkdir(dest_path)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path', default="PycharmProjects/data/bush_8_west/", type=str, help="where to grab images from")
+    parser.add_argument('--filenames', default="all_fnames.json", type=str, help="which file fnames to check")
 
-        tree_search_path = f"/Users/cindygrimm/MyBox/Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
-        for (root, dirs, files) in walk(tree_search_path, topdown=True):
-            follow_path_name = root[len(tree_search_path):]
-            path_pieces = str.split(follow_path_name, "/")
-            if "depth" in path_pieces[-1]:
-                continue
-            sub_dir_name = "_".join(path_pieces[0:-1])
-            count = 0
-            files.sort()
-            n_skip = 10   #max(1, len(files) // 10)
-            for nf, ff in enumerate(files):
-                if ff[-4:] == ".png" and nf % n_skip == 0:
-                    if not exists(dest_path + "/" + sub_dir_name):
-                        mkdir(dest_path + "/" + sub_dir_name)
-                    copyfile(root + "/" + ff, dest_path + "/" + sub_dir_name + "/" + ff)
-                    print(f"{ff}")
+    args = parser.parse_args()
 
-    path_bpd_envy = "/Users/cindygrimm/PyCharmProjects/treefitting/Image_based/data/EnvyTree/"
-    all_files_envy = FileNames(path_bpd_envy, img_type="png")
-    all_files_envy.mask_names = ["trunk", "sidebranch", "tertiary"]
-    all_files_envy.add_sub_directories()
-    all_files_envy.write_filenames(path_bpd_envy + "envy_fnames.json")
-    """
-
-    # Example bb
-    """
-    path_bpd = "./data/blueberries/"
-    all_files = FileNames(path_bpd, img_type="jpg")
-    all_files.add_directory(name_filter="rgb", name_separator="_")
-    all_files.add_mask_images(["all"])
-    all_files.write_filenames("./data/blueberries_fnames.json")
-    """
-
-    # Example 2
-    """
-    b_do_mask = False
-    fname_for_json_file = "../Image_based/data/forcindy_bspline.json"
-    path_bpd = "../Image_based/data/forcindy/"
-    all_files = FileNames(path=path_bpd, img_type="png")
-    all_files.mask_names = ["vertical", "side"]
-    # Filename is, eg, 0.png
-    all_files.add_directory()
-    all_files.write_filenames(fname_for_json_file)
-    all_files.check_names()
-
-    for ind_img in all_files.loop_images():
-        print(f"{all_files.get_image_name(index=ind_img, b_add_tag=True)}")
-
-    for ind_msk in all_files.loop_masks("trunk"):
-        print(f"{all_files.get_mask_name(index=ind_msk, )}")
-    """
-
-    # Example 1
-    """
-    path_trunk_seg = "./data/trunk_segmentations/"
-    all_files_trunk = HandleFileNames(path_trunk_seg)
-    all_files_trunk.image_tag = "_img.png"
-    all_files_trunk.add_sub_directories(dir_name_filter="row", im_name_separator="_")
-    all_files_trunk.add_mask_images(["mask"])
-    all_files_trunk.write_filenames("./data/trunk_segmentation_names.json")
-    all_files_trunk.check_names()
-    """
+    path_start = FileNamesSubDirs.get_path()
+    fname = path_start + args.path + args.filenames
 
     f_check = FileNamesSubDirs("")
     with open(fname, 'r') as f:

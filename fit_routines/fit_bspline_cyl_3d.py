@@ -14,7 +14,7 @@ from os.path import exists
 from utils.file_names import FileNames
 from tree_geometry.b_spline_cyl import BSplineCyl
 from tree_geometry.b_spline_cyl_3d import BSplineCyl3d
-from utils.camera_projections import frustrum_matrix, from_image_to_box, set_default_params
+from utils.camera_projections import frustrum_matrix, from_image_to_box, set_default_params, from_box_to_image
 from fit_routines.bspline_fit_params import BSplineFitParams
 from draw_routines.b_spline_image import BSplineCylImage
 from fit_routines.b_spline_curve_fit import BSplineCurveFit
@@ -93,16 +93,19 @@ class FitBSplineCyl3dDepth:
 
         # TODO: I have foreground and background swapped...
         # Assuming some pixels are in the background, should have a sharp "jump" to pixels in the foreground
+        # Assume most of the foreground pixels (close) are correct
         ret_stats["best_split"] = []
-        depth_clip = depth_sort[int(0.2 * depth_sort.size)]
+        depth_clip = 0.8 * np.median(depth_sort) + 0.2 * np.max(depth_sort)
+        print(f"Median {np.median(depth_sort)} min {np.min(depth_sort)} max {np.max(depth_sort)}")
+        print(f" 1/3 {depth_sort[int(depth_sort.size / 3.0)]}  2/3 {depth_sort[int(2.0 * depth_sort.size / 3.0)]}")
         for w in [50, 70, 100, 120]:
             score = (depth_sort.size // 2, 0, w)
             for k in range(w+1, depth_sort.size - (w+1)):
                 if depth_sort[k+w] - depth_sort[k-w] > score[1]:
                     score = (k, depth_sort[k+w] - depth_sort[k-w], w)
-            print(f"Score {score}")
             ret_stats["best_split"].append(score)
-            depth_clip += depth_sort[int(score[0] + w * 0.5)]
+            depth_clip += depth_sort[int(score[0] + w)]
+            print(f"Score {score} {depth_sort[int(score[0] + w)]}")
         depth_clip /= 5.0
         ret_stats["depth_clip"] = depth_clip
 
@@ -111,7 +114,7 @@ class FitBSplineCyl3dDepth:
 
         im_mask_depth = np.zeros(im_mask.shape)
         im_mask_depth[im_mask > 0] = self.depth_data[im_mask > 0]
-        im_mask_depth[im_mask_depth < depth_clip] = 0.0
+        im_mask_depth[im_mask_depth > depth_clip] = 0.0
         im_mask_depth_rgb = np.uint8(255.0 * im_mask_depth / ret_stats["max_value"])
         cv2.imwrite("fit3d_depth_mask.png", im_mask_depth_rgb)
         ret_stats["ts"] = []
@@ -124,6 +127,9 @@ class FitBSplineCyl3dDepth:
             max_x = int(np.max(r[:, 0]))
             min_y = int(np.min(r[:, 1]))
             max_y = int(np.max(r[:, 1]))
+            if min_x < 0 or min_y < 0 or max_x > im_mask_depth.shape[1] or max_y > im_mask_depth.shape[0]:
+                continue
+
             seg_depth = im_mask_depth[min_y:max_y, min_x:max_x]
 
             max_depth = np.max(seg_depth)
@@ -146,7 +152,7 @@ class FitBSplineCyl3dDepth:
 
         return ret_stats
 
-    def _curve_from_stats(self, stats_depth):
+    def _curve_from_stats(self, stats_depth, rgb_image:np.array=None):
         """
         From the raw stats, create a set of evenly-spaced t values
         @param stats_depth: The stats from full_depth_stats
@@ -208,6 +214,9 @@ class FitBSplineCyl3dDepth:
             # Check result
             pts.append(pt_in_space[0:3])
             radii.append(radius)
+
+            if rgb_image:
+                pt_back_image = from_box_to_image(pt_in_space)
 
         return ts_pts, pts, radii
 

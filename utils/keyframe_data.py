@@ -35,8 +35,10 @@ class KeyFrameData:
         self.pan_vec = [0, 0]
         self.scale_amount = 1.0
         self.rot_amount = 1.0
-        self.pts_2d = []
-        self.pts_3d = []
+        self.pts_2d_of_start = []
+        self.pts_2d_of_end = []
+        self.pts_2d_depth = []
+        self.pts_2d_rgb_depth = []
         self.image_matrix = np.identity(3)
         self.camera_matrix = np.identity(4)
 
@@ -71,6 +73,29 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
+    def depth_pts_in_rgb(self):
+        pt = np.ones((3, 1))
+        pts_ret = []
+
+        mat_back = np.linalg.inv(self.image_matrix)
+        for p in self.pts_2d_depth:
+            pt[0] = p[0]
+            pt[1] = p[1]
+            pt_map = mat_back @ pt
+            pts_ret.append([pt_map[0], pt_map[1]])
+        return pts_ret
+
+    def rgb_pts_in_depth(self):
+        pt = np.ones((3, 1))
+        pts_ret = []
+
+        for p in self.pts_2d_depth:
+            pt[0] = p[0]
+            pt[1] = p[1]
+            pt_map = self.image_matrix @ pt
+            pts_ret.append([pt_map[0], pt_map[1]])
+        return pts_ret
+
     def get_bsplinecyl_in_depth_image(self, mask_index, mask_id_index):
         """ Get the bspline cyl corresponding to the mask, id, and convert it to the depth image coordinates"""
 
@@ -92,12 +117,14 @@ class KeyFrameData:
                    "bspline_cyls":  [],
                    "mask_names": self.mask_names,
                    "PanVec": self.pan_vec.copy(),
-                   "pts_2d": self.pts_2d,
-                   "pts_3d": self.pts_3d,
+                   "pts_2d_of_start": self.pts_2d_of_start,
+                   "pts_2d_of_end": self.pts_2d_of_end,
+                   "pts_2d_depth": self.pts_2d_depth,
+                   "pts_2d_rgb_depth": self.pts_2d_rgb_depth,
                    "ScaleAmt": self.scale_amount,
                    "RotAmt": self.rot_amount,
                    "image_matrix": self.image_matrix.tolist(),
-        "camera_matrix": self.camera_matrix.tolist()}
+                   "camera_matrix": self.camera_matrix.tolist()}
 
         for lst1, lst2 in zip(self.sketch_curves, self.bspline_cyls):
             my_dict["sketch_curves"].append([])
@@ -138,9 +165,13 @@ class KeyFrameData:
         key_frame_instance.scale_amount = json_dict["ScaleAmt"]
         key_frame_instance.image_matrix = np.array(json_dict["image_matrix"])
         key_frame_instance.camera_matrix = np.array(json_dict["camera_matrix"])
+
+        # Other oddball ones
         try:
-            key_frame_instance.pts_2d = json_dict["pts_2d"]
-            key_frame_instance.pts_3d = json_dict["pts_3d"]
+            key_frame_instance.pts_2d_of_start = json_dict["pts_2d_of_start"]
+            key_frame_instance.pts_2d_of_end = json_dict["pts_2d_of_end"]
+            key_frame_instance.pts_2d_rgb_depth = json_dict["pts_2d_rgb_depth"]
+            key_frame_instance.pts_2d_depth = json_dict["pts_2d_depth"]
         except KeyError:
             pass
         try:
