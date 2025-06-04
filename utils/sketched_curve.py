@@ -66,6 +66,19 @@ class SketchedCurve:
             y = height - 1
         return x, y
 
+    @staticmethod
+    def convert_pt_back(pt, lower_left, upper_right, width, height):
+        """ Convert the image point to the drawing point
+        @param pt x,y point as a list
+        @param lower_left - lower left point of the image in the window
+        @param upper_right - upper right point of the image in the window
+        @param width - width of image
+        @param height - height of image
+        @returns pt in image coordinates"""
+        x = int((pt[0] / width) * (upper_right[0] - lower_left[0]) + lower_left[0])
+        y = int((pt[1] / height) * (upper_right[1] - lower_left[1]) + lower_left[1])
+        return x, y
+
     def convert_image(self, lower_left, upper_right, width, height):
         """ Make a copy of self with points in image coordinates, not screen
         @param lower_left - lower left point of the image in the window

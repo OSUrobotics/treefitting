@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from draw_routines.image_draw_geom_utils import draw_cross
 from fit_routines.bspline_fit_params import BSplineFitParams
 # Video annotation data format, built off of FileNames
 # Assumptions (video)
@@ -37,6 +38,7 @@ import numpy as np
 from utils.file_names import FileNames
 from utils.file_names_sub_dirs import FileNamesSubDirs
 from utils.keyframe_data import KeyFrameData
+from os.path import exists
 
 
 class VideoAnnotationData(FileNames):
@@ -142,7 +144,7 @@ class VideoAnnotationData(FileNames):
             mat_trans2 = mt.make_translation_matrix(depth_image.shape[1]/2, depth_image.shape[0]/2)
             mat_scl = mt.make_scale_matrix(depth_image.shape[1] / rgb_image.shape[1], depth_image.shape[0] / rgb_image.shape[0])
             mat = mat_trans2 @ mat_scl @ mat_trans1
-            # kf.image_matrix = mat
+            # kf.rgb_to_depth_matrix = mat
             for mi in range(0, len(kf.bspline_cyls)):
                 for m_id in range(0, len(kf.bspline_cyls[mi])):
                     crv = kf.get_bsplinecyl(mi, m_id)
@@ -155,6 +157,30 @@ class VideoAnnotationData(FileNames):
                     crv_image_depth = BSplineCylImage(depth_crv.points(), depth_crv.degree_name(), depth_crv.radii_crv.points())
                     # crv_image_depth.draw_curve(depth_image)
                     crv_image_depth.draw_boundary(depth_image)
+
+            for pt in kf.pts_2d_rgb_depth:
+                draw_cross(rgb_image, pt, (255, 255, 120), thickness=2, length=6)
+            for pt in kf.depth_pts_in_rgb():
+                draw_cross(rgb_image, pt, (155, 255, 220), thickness=2, length=6)
+
+            pt_depth_corner = np.ones((3, 1))
+            mat_depth_to_rgb = np.linalg.inv(kf.rgb_to_depth_matrix)
+            mat_check = kf.rgb_to_depth_matrix @ mat_depth_to_rgb
+            for x in (10, depth_image.shape[1] // 2, depth_image.shape[1] - 10):
+                pt_depth_corner[0, 0] = x
+                for y in (10, depth_image.shape[0] // 2, depth_image.shape[0] - 10):
+                    pt_depth_corner[1, 0] = y
+                    pt_rgb_corner =  mat_depth_to_rgb @ pt_depth_corner
+
+                    print(f"x, y {x}, {y}  {pt_rgb_corner[0]}, {pt_rgb_corner[1]}")
+                    draw_cross(rgb_image, pt_rgb_corner[0:2, 0], (155, 255, 10), thickness=2, length=8)
+                    draw_cross(depth_image, (x, y), (155, 255, 10), thickness=2, length=8)
+
+            for pt in kf.pts_2d_depth:
+                draw_cross(depth_image, pt, (55, 155, 120), thickness=2, length=6)
+            for pt in kf.rgb_pts_in_depth():
+                draw_cross(depth_image, pt, (255, 55, 220), thickness=2, length=6)
+
             rgb_write = Image.fromarray(rgb_image)
             rgb_name = self.get_image_name((0, kf_indx, 0, 0), b_debug_path=self.path_debug)
             rgb_write.save(rgb_name)
@@ -165,15 +191,13 @@ class VideoAnnotationData(FileNames):
 
             depth_edge = self.get_edge_name((0, kf_indx, 0, 0), b_depth=True, b_add_tag=True)
             if exists(depth_edge):
-                #mat_inv = kf.image_matrix.inverse()
+                #mat_inv = kf.rgb_to_depth_matrix.inverse()
                 im_depth_edge = np.array(Image.open(self.get_image_name((0, kf_indx, 0, 0)))).astype(np.uint8)
-
 
 
     def check_names(self):
         """ Run through all the image/mask names and make sure they exist
             Also check that keyframes data is consistent"""
-        from os.path import exists
         for ind in self.loop_images():
             im_name = self.get_image_name(index=ind, b_add_tag=True)
             if not exists(im_name):

@@ -14,7 +14,9 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QLabel, QLineEdi
 import cv2
 
 from MySliders import SliderIntDisplay, SliderFloatDisplay
+from draw_routines.image_draw_geom_utils import draw_line_seg
 from sketch_curves_gui.opengl_draw_window import OopenGLDrawWindow
+from tree_geometry.line_segs import LineSeg2D
 from utils.video_annotation_data import VideoAnnotationData
 from utils.file_names_sub_dirs import FileNamesSubDirs
 
@@ -54,8 +56,8 @@ class DataAnnotationMainWindow(QMainWindow):
         self.in_reset_file_menus = False
         self.in_read_images = False
         self.sketch_curve = SketchedCurve()
-        self.scale_x_depth = 1.0
-        self.scale_y_depth = 1.0
+        self.x_rgb_to_depth = 1.0
+        self.y_rgb_to_depth = 1.0
         if exists("save_crv.json"):
             with open("save_crv.json", "r") as f:
                 my_dict = json.load(f)
@@ -383,9 +385,9 @@ class DataAnnotationMainWindow(QMainWindow):
                 kf.pts_2d_of_end = []
             if self.do_keypoints_depth_draw.isChecked():
                 if self.show_rgb_button.isChecked():
-                    self.kf.pts_2d_rgb_depth = []
+                    kf.pts_2d_rgb_depth = []
                 elif self.show_depth_button.isChecked():
-                    self.pts_2d_depth = []
+                    kf.pts_2d_depth = []
         self.redraw_self()
 
     def new_curve(self):
@@ -419,6 +421,44 @@ class DataAnnotationMainWindow(QMainWindow):
         self.sketch_curve.clear()
         self.redraw_self()
 
+    def _convert_pt_to_image_coords(self, pt_in, b_do_depth=False):
+        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+
+        # Convert pt from the QT window to the RGB image size
+        x, y = self.sketch_curve.convert_pt(pt_in, lower_left=ll, upper_right=ur,
+                                            width=width_rgb_image, height=height_rgb_image)
+        pt_out = [x, y]
+        if b_do_depth:
+            # Converting from rgb image to depth - need to scale from rgb to depth
+            pt_out[0] *= self.x_rgb_to_depth
+            pt_out[1] *= self.y_rgb_to_depth
+
+        return pt_out
+
+    def _convert_pt_from_image_coords(self, pt_in, b_do_depth=False):
+        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+
+        pt_out = [0, 0]
+        if b_do_depth:
+            # Go from depth to rgb image size
+            pt_out[0] = pt_in[0] / self.x_rgb_to_depth
+            pt_out[1] = pt_in[1] / self.y_rgb_to_depth
+        else:
+            pt_out[0] = pt_in[0]
+            pt_out[1] = pt_in[1]
+
+        # Convert from rgb to qt wincow
+        pt_out = self.sketch_curve.convert_pt_back(pt_in, lower_left=ll, upper_right=ur,
+                                                   width=width_rgb_image, height=height_rgb_image)
+        # Converting from rgb image to depth - need to scale to the rgb window size
+        return pt_out
+
     def _find_transform(self, pts1, pts2, b_do_depth=False):
         """ Find the translate, scale, rotate that takes pts1 to pts2
         Kabash algorithm
@@ -432,38 +472,38 @@ class DataAnnotationMainWindow(QMainWindow):
         from PIL import Image
         from draw_routines.image_draw_geom_utils import draw_cross
 
-        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
-        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
-        ll = self.glWidget.draw_curve_2d.lower_left
-        ur = self.glWidget.draw_curve_2d.upper_right
-
         n_pts = len(pts1)
+        # Convert all of the points from the QT window to the RGB image size
         pts_in_image1 = np.ones((3, n_pts))
         pts_in_image2 = np.ones((3, n_pts))
         for ps_out, ps_in in zip((pts_in_image1, pts_in_image2), (pts1, pts2)):
-            for pi, p_in in enumerate(ps_in):
-                pt_in_image = self.sketch_curve.convert_pt(p_in, lower_left=ll, upper_right=ur,
-                                                           width=width_rgb_image, height=height_rgb_image)
-                ps_out[:2, pi] = pt_in_image
+            for pi, pt_in in enumerate(ps_in):
+                ps_out[:2, pi] = pt_in
 
-        rgb_image = np.array(Image.open(self.video_annot.get_image_name((0, 0, 0, 0)))).astype(np.uint8)
-        depth_image = np.array(Image.open(self.video_annot.get_depth_image_name((0, 0, 0, 0)))).astype(np.uint8)
+        # RGB image for the current frame
+        kf_indx = self.image_number.value()
+        rgb_image = np.array(Image.open(self.video_annot.get_image_name((0, kf_indx, 0, 0)))).astype(np.uint8)
         if b_do_depth:
-            pts_in_image2[0, :] = pts_in_image2[0, :] * self.scale_x_depth
-            #pts_in_image2[1, :] = (rgb_image.shape[1] - pts_in_image2[1, :] - 1) * self.scale_y_depth
-            pts_in_image2[1, :] = pts_in_image2[1, :] * self.scale_y_depth
+            # Depth image for the current frame
+            to_image = np.array(Image.open(self.video_annot.get_depth_image_name((0, kf_indx, 0, 0)))).astype(np.uint8)
+        else:
+            to_image = np.array(Image.open(self.video_annot.get_image_name((0, kf_indx + 1, 0, 0)))).astype(np.uint8)
 
+        # Draw the points in the image for debug purposes
         for indx in range(0, n_pts):
-            draw_cross(im=rgb_image, p=[pts_in_image1[0:2, indx]], color=[255, 255, 255], thickness=2, length=4)
-            draw_cross(im=depth_image, p=[pts_in_image2[0:2, indx]], color=[255, 255, 255], thickness=2, length=4)
+            draw_cross(im=rgb_image, p=[pts_in_image1[0:2, indx]], color=[255, 255, 255], thickness=2, length=6)
+            draw_cross(im=to_image, p=[pts_in_image2[0:2, indx]], color=[155, 155, 255], thickness=2, length=6)
 
         rgb_write = Image.fromarray(rgb_image)
-        rgb_name = self.video_annot.get_image_name((0, 0, 0, 0), b_debug_path=self.video_annot.path_debug)
+        rgb_name = self.video_annot.get_image_name((0, kf_indx, 0, 0), b_debug_path=self.video_annot.path_debug)
         rgb_write.save(rgb_name)
 
-        depth_write = Image.fromarray(depth_image)
-        depth_name = self.video_annot.get_depth_image_name((0, 0, 0, 0), b_debug_path=self.video_annot.path_debug)
-        depth_write.save(depth_name)
+        img_to_write = Image.fromarray(to_image)
+        if b_do_depth:
+            to_write_name = self.video_annot.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=self.video_annot.path_debug)
+        else:
+            to_write_name = self.video_annot.get_image_name((0, kf_indx + 1, 0, 0), b_debug_path=self.video_annot.path_debug)
+        img_to_write.save(to_write_name)
 
         pt_center1 = np.mean(pts_in_image1, axis=1)
         pt_center2 = np.mean(pts_in_image2, axis=1)
@@ -474,6 +514,7 @@ class DataAnnotationMainWindow(QMainWindow):
         mat_tinv2 = mt.make_translation_matrix(-pt_center2[0], -pt_center2[1])
         mat_tinv1 = mt.make_translation_matrix(-pt_center1[0], -pt_center1[1])
 
+        # points centered around 0,0
         pts_in_image1_centered = mat_tinv1 @ pts_in_image1
         pts_in_image2_centered = mat_tinv2 @ pts_in_image2
 
@@ -495,12 +536,25 @@ class DataAnnotationMainWindow(QMainWindow):
 
         mat_scl = mt.make_scale_matrix(scl[0], scl[1])
 
-        # mat = mat_t1 @ mat_scl @ mat_rot @ mat_tinv2
+        # mat to take points in image 1 to image 2 = mat_t1 @ mat_scl @ mat_rot @ mat_tinv2
         mat = mat_t2 @ mat_scl @ mat_rot @ mat_tinv1
 
-        pts_aligned = mat @ pts_in_image2
-        print(f" {pts_in_image1}")
-        print(f" {pts_aligned}")
+        pts_aligned = mat @ pts_in_image1
+        pts_aligned_rev = np.linalg.inv(mat) @ pts_in_image2
+        for indx in range(0, n_pts):
+            p_from = pts_aligned[0:2, indx]
+            p_to = pts_in_image2[0:2, indx]
+            line = LineSeg2D(p_from, p_to)
+            draw_cross(im=to_image, p=[pts_aligned[0:2, indx]], color=[25, 150, 25], thickness=2, length=4)
+            draw_line_seg(to_image, line, color=(100, 100, 255), thickness=2)
+
+            line2 = LineSeg2D(pts_aligned_rev[0:2, indx], pts_in_image1[0:2, indx])
+            draw_cross(im=rgb_image, p=[pts_aligned_rev[0:2, indx]], color=[25, 150, 25], thickness=2, length=4)
+            draw_line_seg(rgb_image, line2, color=(100, 100, 255), thickness=2)
+
+        draw_cross(im=to_image, p=[to_image.shape[1] // 2, to_image.shape[0] // 2], color=[255, 10, 20], thickness=2, length=8)
+        Image.fromarray(to_image).save(to_write_name)
+        Image.fromarray(rgb_image).save(rgb_name)
 
         return vec_t, angs[2], scl, mat
 
@@ -540,7 +594,8 @@ class DataAnnotationMainWindow(QMainWindow):
                 print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
             else:
                 _, _, _, mat = self._find_transform(kp1, kp2, b_do_depth=True)
-                kf.image_matrix = mat
+                kf.rgb_to_depth_matrix = mat
+        self.video_annot.crvs_in_depth_image()
 
     def read_images(self):
         if self.in_read_images:
@@ -596,8 +651,8 @@ class DataAnnotationMainWindow(QMainWindow):
                 if self.images["depth"] is not None:
                     width_depth_image = self.images["depth"].shape[1]
                     height_depth_image = self.images["depth"].shape[0]
-                    self.scale_x_depth = width_depth_image / width_rgb_image
-                    self.scale_y_depth = height_depth_image / height_rgb_image
+                    self.x_rgb_to_depth = width_depth_image / width_rgb_image
+                    self.y_rgb_to_depth = height_depth_image / height_rgb_image
 
             self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
                                                    edge_image=self.images["edge"],
@@ -621,7 +676,7 @@ class DataAnnotationMainWindow(QMainWindow):
                         if not self.show_depth_button.isChecked():
                             crv_list.append(crv)
                         else:
-                            depth_crv = crv.transform(kf.image_matrix)
+                            depth_crv = crv.transform(kf.rgb_to_depth_matrix)
                             crv_list.append(depth_crv)
             return crv_list
         return []
@@ -648,16 +703,16 @@ class DataAnnotationMainWindow(QMainWindow):
         kf = self.video_annot.keyframes[kf_indx]
 
         if self.do_keypoints_end_draw.isChecked():
-            kf.pts_2d_of_end.append([x, y])
+            kf.pts_2d_of_end.append(self._convert_pt_to_image_coords([x, y]))
 
         if self.do_keypoints_start_draw.isChecked():
-            kf.pts_2d_of_start.append([x, y])
+            kf.pts_2d_of_start.append(self._convert_pt_to_image_coords([x, y]))
 
         if self.do_keypoints_depth_draw.isChecked():
             if self.show_rgb_button.isChecked():
-                kf.pts_2d_rgb_depth.append([x, y])
+                kf.pts_2d_rgb_depth.append(self._convert_pt_to_image_coords([x, y]))
             else:
-                kf.pts_2d_depth.append([x, y])
+                kf.pts_2d_depth.append(self._convert_pt_to_image_coords([x, y], b_do_depth=True))
 
     def get_key_points(self):
         if self.video_annot is None:
@@ -682,12 +737,27 @@ class DataAnnotationMainWindow(QMainWindow):
                 pts_and_colors.append((kf_prev.pts_2d_of_start, Qt.white))
         if self.do_keypoints_depth_draw.isChecked():
             if self.show_rgb_button.isChecked():
-                pts_and_colors.append((kf.pts_2d_rgb_depth, Qt.blue))
+                # These can just go in to list
+                pts_and_colors.append((kf.pts_2d_rgb_depth, Qt.cyan))
                 pts_and_colors.append((kf.depth_pts_in_rgb(), Qt.green))
             else:
-                pts_and_colors.append((kf.pts_2d_depth, Qt.green))
-                pts_and_colors.append((kf.rgb_pts_in_depth(), Qt.blue))
-        return pts_and_colors
+                # for all of these points, convert to rgb first
+                pts_rgb = []
+                pts_depth = []
+                for pt in kf.rgb_pts_in_depth():
+                    pts_rgb.append([pt[0] / self.x_rgb_to_depth, pt[1] / self.y_rgb_to_depth])
+                for pt in kf.pts_2d_depth:
+                    pts_depth.append([pt[0] / self.x_rgb_to_depth, pt[1] / self.y_rgb_to_depth])
+                pts_and_colors.append((pts_rgb, Qt.cyan))
+                pts_and_colors.append((pts_depth, Qt.blue))
+
+        pts_and_colors_in_qt_window = []
+        for pts, cols in pts_and_colors:
+            pts_back = []
+            for p in pts:
+                pts_back.append(self._convert_pt_from_image_coords(p))
+            pts_and_colors_in_qt_window.append((pts_back, cols))
+        return pts_and_colors_in_qt_window
 
     def get_vector(self):
         n_frame = int(self.image_number.value())
