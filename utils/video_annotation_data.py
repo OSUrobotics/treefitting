@@ -578,20 +578,28 @@ if __name__ == '__main__':
     from os.path import exists
     from os import mkdir
 
+    # EG, /users/cindygrimm - the top of your folder
     path_start = FileNamesSubDirs.get_path()
+    # Where you want all of your stuff to go. Please use this or set up an "if not exists" like
+    #   the box path below
     dest_path = path_start + "PyCharmProjects/data/"
+
+    # This is where Box lives in your home directory
     box_path = "Library/CloudStorage/Box-Box/"
+    # Since my laptop and desktop have two different Box locations, I use this to switch between them
     if not exists(path_start + box_path):
         box_path = "MyBox/"
+
+    # Put the two together
     src_box_path = path_start + box_path
 
     tree_name = "CindyEnvyPhone"
 
-    b_draw_debug = True
+    b_draw_debug = False
     b_rename_files = False
     b_make_edge_images = False
     b_copy_tree = False
-    b_copy_blueberry = False
+    b_copy_blueberry = True
     b_make_pips = False
     b_add_tracks = False
     b_redo_fit = False
@@ -649,14 +657,18 @@ if __name__ == '__main__':
             va_back = VideoAnnotationData.read_json(my_dict)
 
     if b_copy_blueberry:
+        # Slides for which blueberries matter https://docs.google.com/presentation/d/1334kmM_dOyAWyDPob_ZQNf7sxLo88_kX1r4042m80sQ/edit?slide=id.g33458aa9be0_0_0#slide=id.g33458aa9be0_0_0
+
         src_path = src_box_path + "Robotic pruning and thinning/Datasets/2024/Blueberry March/"
-        bush_name = "bush_8_west"
-        full_fn = VideoAnnotationData.read_blueberry(src_path=src_path, dest_path=dest_path, bush_name=bush_name, b_get_box_files=False)
+        bush_name = "bush_1_east"
+        if not exists(dest_path + "/" + bush_name):
+            mkdir(dest_path + "/" + bush_name)
+        full_fn = VideoAnnotationData.read_blueberry(src_path=src_path, dest_path=dest_path, bush_name=bush_name, b_get_box_files=True)
 
         va = VideoAnnotationData(dest_path + bush_name + "/", img_type="jpg")
 
         va.mask_names = full_fn.mask_names
-        va.add_directory(name_filter="rgb", start_index=0, end_index=-1, skip_index=32)
+        va.add_directory(name_filter="rgb", start_index=147, end_index=614, skip_index=32)
         va.image_name = ""
 
         va_fname = dest_path + bush_name + "/video_annot.json"

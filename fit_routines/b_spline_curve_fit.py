@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import numpy as np
-from sipbuild.generator.parser.rules import p_convert_to_subclass_code
 
 from tree_geometry.b_spline_curve import BSplineCurve
 from fit_routines.bspline_fit_params import BSplineFitParams
