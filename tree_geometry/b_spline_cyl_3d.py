@@ -21,7 +21,7 @@ class BSplineCyl3d(BSplineCyl):
         super().__init__(ctrl_pts=ctrl_pts, degree=degree, radii=radii)
 
         # For controlling mesh generation
-        self.n_along_per = 4 # Per segment of curve
+        self.n_along_per = 6 # Per segment of curve
         self.n_around = 32
         self.vertex_locs = None
 
@@ -55,16 +55,41 @@ class BSplineCyl3d(BSplineCyl):
 
     def make_mesh(self) -> None:
         """Calculate the cylinder vertices"""
+
+        # For doing calculations
         pt = np.ones(shape=(4,))
         norm_vec = np.zeros(shape=(4,))
+
+        # How many samples to take
         n_total = self.n_along_per * self.n_segments()
 
+        # Store the points and the normals here
         self.vertex_locs = np.zeros((n_total, self.n_around, 3))
         self.vertex_normals = np.zeros((n_total, self.n_around, 3))
 
-        # TODO fix frenet frame twist
-        for it, t in enumerate(np.linspace(0, self.max_t(), n_total)):
-            mat = self.frenet_frame(t)
+        # Pre-calc the points, tangents, and bi normals
+        ts = np.linspace(0, self.max_t(), n_total)
+        pts = self.eval_crv(ts)
+        vec_tangs = self.eval_deriv(ts)
+
+        # Matrix is the frenet frame; we'll propagate
+        mat = self.frenet_frame(0.0)
+
+        vec_tang = vec_tangs[0]
+        vec_norm = self.eval_norm(0.0) / np.linalg.norm(self.eval_norm(0.0))
+        vec_tang = vec_tang / np.linalg.norm(vec_tang)
+
+        # For when we fall off the end
+        pts = np.concatenate((pts, pts[0:1, :]), axis=0)
+        vec_tangs = np.concatenate((vec_tangs, vec_tangs[0:1, :]), axis=0)
+        for it, t in enumerate(ts):
+            # Build the "frenet frame" from the rotation minimizing tangent and normal vecs
+            mat[0:3, 3] = pts[it][0:3]
+            mat[0:3, 0] = np.cross(vec_tang, vec_norm).transpose()
+            mat[0:3, 1] = vec_norm.transpose()
+            mat[0:3, 2] = vec_tang.transpose()
+
+            # Generate the samples around the spine
             radii = self.radius(t)
             for itheta, theta in enumerate(np.linspace(0, np.pi * 2.0, self.n_around, endpoint=False)):
                 pt[0] = np.cos(theta) * radii
@@ -78,6 +103,26 @@ class BSplineCyl3d(BSplineCyl):
 
                 self.vertex_locs[it, itheta, :] = pt_on_crv[0:3].transpose()
                 self.vertex_normals[it, itheta, :] = norm_on_srf[0:3].transpose()
+
+            # propagate the frame forward
+            # reflection vector 1
+            vec_tang_approx = pts[it+1] - pts[it]              # v1 = x_i+1 - x_i
+            len_tang_approx = np.dot(vec_tang_approx, vec_tang_approx)
+            # r_i^L = r_i - (2/c1) * (v1 dot ri) * v1
+            vec_refl_norm = vec_norm - (2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_norm) * vec_tang_approx
+            # t_i^L = t_i - (2/c1) * (v1 dot t_i) * v1
+            vec_tang_refl = vec_tang - (2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_tang) * vec_tang_approx
+            # reflection vector 2
+            vec_refl_back = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1]) - vec_tang_refl
+            len_vec_refl_back = np.dot(vec_refl_back, vec_refl_back)
+            vec_refl_norm_back = vec_refl_norm - (2.0 / len_tang_approx) * np.dot(vec_refl_back, vec_refl_norm) * vec_refl_back
+
+            vec_norm = vec_refl_norm_back
+            vec_tang = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1])
+
+            check_dot = np.dot(vec_norm, vec_tang)
+            assert np.isclose(check_dot, 0.0)
+
 
     def write_json(self):
         """Create a dictionary and return it"""
@@ -93,7 +138,7 @@ class BSplineCyl3d(BSplineCyl):
         Assumes make_mesh has been called
         @param fname - file name (should end in .obj"""
 
-        if self.vertex_locs == None:
+        if self.vertex_locs is None:
             self.make_mesh()
 
         with open(fname, "w") as fp:
@@ -117,5 +162,6 @@ if __name__ == "__main__":
     branch = BSplineCyl3d([[506.5, 156.0, 0.0], [457.49999996771703, 478.9999900052037, 0.0], [521.5, 318.0, 0.0]],
                           degree='quadratic', radii=[10.5, 8.25])
 
+    branch.set_mesh_dimensions(12, 32)
     branch.make_mesh()
     branch.write_mesh("check_3d_bezier1.obj")
