@@ -9,7 +9,7 @@ import numpy as np
 
 class DrawImages():
     im_dict = {"rgb": 0, "depth": 1, "edge": 2, "flow": 3, "mask": 4,
-               "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8}
+               "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8, "rgb_depth":9}
 
     def __init__(self):
         # Created when OpenGL initialized (bind_texture)
@@ -29,7 +29,9 @@ class DrawImages():
             pass
         return 0
 
-    def bind_texture(self, rgb_image, edge_image=None, mask_image=None, flow_image=None, depth_image=None, next_rgb_image=None):
+    def bind_texture(self, rgb_image,
+                     edge_image=None, mask_image=None, flow_image=None, depth_image=None, next_rgb_image=None,
+                     mat_depth_to_rgb=None):
         self.aspect_ratio = rgb_image.shape[0] / rgb_image.shape[1]
         self.im_size = (rgb_image.shape[1], rgb_image.shape[0])
 
@@ -85,13 +87,23 @@ class DrawImages():
         im_sq_rgb_mask[:, :, 0] = im_sq_rgb_mask[:, :, 0] + im_sq_mask[:, :, 0] // 2
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
+        if rgb_image is not None and depth_image is not None:
+            im_sq_rgb_depth = cv2.resize(rgb_image, (im_size, im_size)) // 2
+            im_gray = cv2.cvtColor(im_sq_depth, cv2.COLOR_BGR2GRAY)
+            #im_scl = cv2.transform(im_gray, mat_depth_to_rgb)
+            for ch in (0, 1, 2):
+                im_sq_rgb_depth[:, :, ch] = im_sq_rgb_depth[:, :, ch] + cv2.Canny(im_gray, 10, 100, apertureSize=3) // 2
+        else:
+            im_sq_rgb_depth = im_sq
+
         if len(self.image_gl_tex) == 0:
             n_textures = len(DrawImages.im_dict)
             self.image_gl_tex = GL.glGenTextures(n_textures)
+
         for i, im in enumerate(
                 # im_dict={"rgb": 0, "depth": 1, "edge": 2, "flow": 3, "mask": 4,
-                #          "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8}
-                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge, im_sq_rgb_rgb_next]):
+                #          "rgb_edge": 5, "rgb_mask": 6, "rgb_mask_edge": 7, "rgb_edge_rgb_next": 8, "rgb_depth": 9}
+                [im_sq, im_sq_depth, im_sq_edge, im_sq_flow, im_sq_mask, im_sq_rgb_edge, im_sq_rgb_mask, im_sq_rgb_mask_edge, im_sq_rgb_rgb_next, im_sq_rgb_depth]):
             if im is None:
                 self.image_gl_tex[i] = 100
             else:

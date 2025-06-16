@@ -15,3 +15,14 @@ This assumes that the .mkv file has been turned into folders of images (rgb and 
   * 
 
 ## Running the gui
+video_annotation_gui/data_annotation_main_window.py is the main file. 
+
+## Re-doing the fit
+* utils/video_annotation_data, main file
+* Set b_redo_fit to be True and make sure the bush name and .json file are correct
+* will output to foo_refit.json, and put debug images in debug (fitted curves)
+* There are two primary values to change: average fit and inlier. The first is the average fit for all points, the second is how accurate the individual points need to be. In pixels
+
+
+## 3D fit
+* fit_routines/fit_bspline_cyl_sketch.py

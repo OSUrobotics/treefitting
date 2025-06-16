@@ -145,6 +145,10 @@ class FileNamesSubDirs:
             # image name no .xxx extension
             im_name_no_extension = im_name[0:-len(self.image_tag)]
 
+            if "depth" in im_name_no_extension:
+                continue
+            if "edge" in im_name_no_extension:
+                continue
             ret_names.append(im_name_no_extension)
 
         ret_names.sort(key=FileNamesSubDirs.alphanumeric_key)

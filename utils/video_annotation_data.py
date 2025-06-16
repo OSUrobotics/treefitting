@@ -325,8 +325,8 @@ class VideoAnnotationData(FileNames):
 
                 depth_im = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.jpg"
                 depth_data = f"{src_path}{bush_name}/depth/depth_raw_{im_num}.csv"
-                dest_depth_name = dest_path + f"/rgb_{im_num:05d}_depth.jpg"
-                dest_depth_data_name = dest_path + f"/rgb_{im_num:05d}_depth.csv"
+                dest_depth_name = dest_path + f"/rgb{im_num:05d}_depth.jpg"
+                dest_depth_data_name = dest_path + f"/rgb{im_num:05d}_depth.csv"
                 if exists(depth_im):
                         if not exists(dest_depth_name):
                             print(f"copying {depth_im} {dest_depth_name}")
@@ -359,8 +359,8 @@ def read_and_rerun(dir_name, annot_name):
         va = VideoAnnotationData.read_json(my_dict)
 
     fit_params = BSplineFitParams()
-    fit_params["inlier threshold"] = 6
-    fit_params["average fit"] = 3
+    fit_params["inlier threshold"] = 8
+    fit_params["average fit"] = 5
     fit_params["outlier ratio"] = 0.0
     fit_params["degree"] = "cubic"
     for kf in va.keyframes:
@@ -599,10 +599,10 @@ if __name__ == '__main__':
     b_rename_files = False
     b_make_edge_images = False
     b_copy_tree = False
-    b_copy_blueberry = True
+    b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
-    b_redo_fit = False
+    b_redo_fit = True
 
     if b_draw_debug:
         tree_name = "bush_8_west"
@@ -616,12 +616,13 @@ if __name__ == '__main__':
         import glob
         from shutil import copyfile
 
-        tree_name = "bush_8_west"
-        images = glob.glob(dest_path + tree_name + '/depth*.*')
+        tree_name = "bush_1_east"
+        images = glob.glob(dest_path + tree_name + '/rgb_*depth*.*')
         for im in images:
             print(f"Im {im}")
             im_name = im.split("/")[-1]
-            im_change = im[0:-len(im_name)] + "rgb_" + im_name[6:11] + "_depth" + im_name[-4:]
+            #im_change = im[0:-len(im_name)] + "rgb_" + im_name[6:11] + "_depth" + im_name[-4:]
+            im_change = im[0:-len(im_name)] + im_name[0:3] + im_name[4:]
             print(f"  {im_name} {im_change}")
             copyfile(im, im_change)
 
@@ -704,7 +705,7 @@ if __name__ == '__main__':
             json.dump(pts, f, indent=2)
 
     if b_redo_fit:
-        read_and_rerun("bush_8_west", "video_annot_cane")
+        read_and_rerun("bush_1_east", "video_annot")
 
     if b_add_tracks:
         fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"

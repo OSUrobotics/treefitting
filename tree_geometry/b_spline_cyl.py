@@ -86,7 +86,7 @@ class BSplineCyl(BSplineCurve):
         @param perc_width How much of the radius to move in/out of the edge
         @returns rectangle as 4x2 numpy array"""
         edge_left_inner = self.edge_pts(np.linspace(t1, t2, 2), perc_width)
-        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 + perc_width)
+        edge_right_inner = self.edge_pts(np.linspace(t1, t2, 2), -1.0 * perc_width)
 
         rect = np.zeros((4, 2), dtype="float32")
         rect[0, :] = edge_left_inner[0]

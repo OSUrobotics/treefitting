@@ -30,7 +30,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
         self.object = 0
         self.up_down = 0
         self.turntable = 0
-        self.zRot = 00
+        self.zRot = 0
 
         self.pt_center = np.array([0, 0, 0])
 

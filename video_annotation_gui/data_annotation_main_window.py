@@ -69,8 +69,10 @@ class DataAnnotationMainWindow(QMainWindow):
 
         path_names = QGroupBox('File names')
         path_names_layout = QGridLayout()
-        path_names_layout.setColumnMinimumWidth(0, 40)
-        path_names_layout.setColumnMinimumWidth(1, 200)
+        # path_names_layout.setSpacing(5)
+        path_names.setLayout(path_names_layout)
+        #path_names_layout.setColumnMinimumWidth(0, 40)
+        # path_names_layout.setColumnMinimumWidth(1, 200)
         src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
         tree_name = "bush_1_east"
         self.path_name = QLineEdit(src_drive + tree_name + "/")
@@ -79,39 +81,30 @@ class DataAnnotationMainWindow(QMainWindow):
         self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
 
-        path_names_layout.addWidget(QLabel("Path dir:"))
-        path_names_layout.addWidget(self.path_name)
-        path_names_layout.addWidget(QLabel("File data names:"))
-        path_names_layout.addWidget(self.file_name)
-        path_names_layout.addWidget(QLabel("Image:"))
-        path_names_layout.addWidget(self.image_number)
-        path_names_layout.addWidget(QLabel("Type:"))
-        path_names_layout.addWidget(self.mask_number)
-        path_names_layout.addWidget(QLabel("Type id:"))
-        path_names_layout.addWidget(self.mask_id_number)
-
-        names_layout = QHBoxLayout()
-        self.image_name = QLabel("image name")
-        self.mask_name = QLabel("None")
-        names_layout.addWidget(self.image_name)
-        names_layout.addWidget(self.mask_name)
-
-        # path_names_layout.setSpacing(5)
-        path_names.setLayout(path_names_layout)
+        path_names_layout.addWidget(QLabel("Path dir:"), 0, 0)
+        path_names_layout.addWidget(self.path_name, 0, 1)
+        path_names_layout.addWidget(QLabel("File data names:"), 1, 0)
+        path_names_layout.addWidget(self.file_name, 1, 1)
+        path_names_layout.addWidget(self.image_number, 2, 0, 1, 2)
+        path_names_layout.addWidget(self.mask_number, 3, 0, 1, 2)
+        path_names_layout.addWidget(self.mask_id_number, 4, 0, 1, 2)
 
         self.image_number.slider.valueChanged.connect(self.read_images)
         self.mask_number.slider.valueChanged.connect(self.read_images)
         self.mask_id_number.slider.valueChanged.connect(self.read_images)
 
-        read_filenames_button = QPushButton('Read file names')
-        read_filenames_button.clicked.connect(self.read_file_names)
+        self.image_name = QLabel("image name")
+        self.mask_name = QLabel("None")
+        path_names_layout.addWidget(self.image_name, 5, 0)
+        path_names_layout.addWidget(self.mask_name, 5, 1)
 
-        file_io = QGroupBox('File io')
-        file_io_layout = QVBoxLayout()
-        file_io_layout.addWidget(path_names)
-        file_io_layout.addWidget(read_filenames_button)
-        file_io_layout.addLayout(names_layout)
-        file_io.setLayout(file_io_layout)
+        read_filenames_button = QPushButton('Read file')
+        read_filenames_button.clicked.connect(self.read_file_names)
+        write_filenames_button = QPushButton('Write file')
+        write_filenames_button.clicked.connect(self.write_file_names)
+        path_names_layout.addWidget(read_filenames_button, 6, 0)
+        path_names_layout.addWidget(write_filenames_button, 6, 1)
+
 
         # Sliders for Camera
         reset_view = QPushButton('Reset view')
@@ -123,15 +116,16 @@ class DataAnnotationMainWindow(QMainWindow):
 
         params_camera = QGroupBox('Camera parameters')
         params_camera_layout = QVBoxLayout()
+        params_camera.setLayout(params_camera_layout)
         params_camera_layout.addWidget(self.turntable)
         params_camera_layout.addWidget(self.up_down)
         params_camera_layout.addWidget(self.zoom)
-        params_camera_layout.addWidget(reset_view)
         params_camera_layout.addWidget(self.horizontal_angle)
-        params_camera.setLayout(params_camera_layout)
+        params_camera_layout.addWidget(reset_view)
 
         params_crvs = QGroupBox('3D Data parameters')
-        params_crvs_layout = QVBoxLayout()
+        params_crvs_layout = QGridLayout()
+        params_crvs.setLayout(params_crvs_layout)
         self.show_3d_crv_button = QCheckBox('Show 3d crv')
         self.show_3d_crv_button.clicked.connect(self.redraw_self)
         self.show_3d_crv_axis_button = QCheckBox('Show 3d crv axis')
@@ -140,16 +134,16 @@ class DataAnnotationMainWindow(QMainWindow):
         self.show_3d_pts_button.clicked.connect(self.redraw_self)
         self.n_around = SliderIntDisplay("N around", 8, 64, 32)
         self.n_along = SliderIntDisplay("N along", 8, 64, 16)
-        params_crvs_layout.addWidget(self.show_3d_crv_button)
-        params_crvs_layout.addWidget(self.show_3d_crv_axis_button)
-        params_crvs_layout.addWidget(self.show_3d_pts_button)
-        params_crvs_layout.addWidget(self.n_around)
-        params_crvs_layout.addWidget(self.n_along)
-        params_crvs.setLayout(params_crvs_layout)
+        params_crvs_layout.addWidget(self.show_3d_crv_button, 0, 0)
+        params_crvs_layout.addWidget(self.show_3d_crv_axis_button, 1, 0)
+        params_crvs_layout.addWidget(self.show_3d_pts_button, 2, 0)
+        params_crvs_layout.addWidget(self.n_around, 0, 1)
+        params_crvs_layout.addWidget(self.n_along, 1, 1)
 
         # For showing images and curves
         shows = QGroupBox('Shows')
-        shows_layout = QVBoxLayout()
+        shows_layout = QGridLayout()
+        shows.setLayout(shows_layout)
 
         self.show_rgb_button = QCheckBox('Show rgb')
         self.show_rgb_button.setCheckState(2)
@@ -168,18 +162,18 @@ class DataAnnotationMainWindow(QMainWindow):
         self.show_sketch_crv_button.clicked.connect(self.redraw_self)
         self.show_sketch_crv_button.setCheckState(2)
 
-        shows_layout.addWidget(self.show_rgb_button)
-        shows_layout.addWidget(self.show_edge_button)
-        shows_layout.addWidget(self.show_depth_button)
-        shows_layout.addWidget(self.show_overlay_button)
-        shows_layout.addWidget(self.show_backbone_button)
-        shows_layout.addWidget(self.show_sketch_crv_button)
+        shows_layout.addWidget(self.show_rgb_button, 0, 0)
+        shows_layout.addWidget(self.show_edge_button, 1, 0)
+        shows_layout.addWidget(self.show_depth_button, 2, 0)
+        shows_layout.addWidget(self.show_overlay_button, 3, 0)
+        shows_layout.addWidget(self.show_backbone_button, 0, 1)
+        shows_layout.addWidget(self.show_sketch_crv_button, 1, 1)
         shows_layout.setSpacing(5)
-        shows.setLayout(shows_layout)
 
         # Drawing
         drawing_states = QGroupBox('Drawing states         ')
         drawing_states_layout = QGridLayout()
+        drawing_states.setLayout(drawing_states_layout)
         new_sketch_button = QPushButton('New curve')
         new_sketch_button.clicked.connect(self.new_curve)
         done_kp_button = QPushButton('Done kp')
@@ -197,26 +191,23 @@ class DataAnnotationMainWindow(QMainWindow):
         self.do_keypoints_depth_draw.clicked.connect(self.on_draw_toggled)
         self.do_sketch_curve_draw.setChecked(1)
 
-        drawing_states_layout.addWidget(self.do_sketch_curve_draw)
-        drawing_states_layout.addWidget(self.do_keypoints_start_draw)
-        drawing_states_layout.addWidget(self.do_keypoints_end_draw)
-        drawing_states_layout.addWidget(self.do_keypoints_depth_draw)
+        drawing_states_layout.addWidget(self.do_sketch_curve_draw, 0, 0)
+        drawing_states_layout.addWidget(self.do_keypoints_start_draw, 1, 0)
+        drawing_states_layout.addWidget(self.do_keypoints_end_draw, 2, 0)
+        drawing_states_layout.addWidget(self.do_keypoints_depth_draw, 3, 0)
 
-        drawing_states_layout.addWidget(new_sketch_button)
-        drawing_states_layout.addWidget(done_kp_button)
-        drawing_states_layout.addWidget(clear_drawings_button)
-
-        drawing_states.setLayout(drawing_states_layout)
+        drawing_states_layout.addWidget(new_sketch_button, 0, 1)
+        drawing_states_layout.addWidget(done_kp_button, 1, 1)
+        drawing_states_layout.addWidget(clear_drawings_button, 2, 1)
 
         # Put all the pieces in one box
         left_side_layout = QVBoxLayout()
-
-        left_side_layout.addWidget(file_io)
-        left_side_layout.addStretch()
-        left_side_layout.addWidget(params_camera)
+        left_side_layout.addWidget(path_names)
+        # left_side_layout.addStretch()
         left_side_layout.addWidget(params_crvs)
         left_side_layout.addWidget(shows)
         left_side_layout.addWidget(drawing_states)
+        left_side_layout.addWidget(params_camera)
 
         return left_side_layout
 
@@ -234,7 +225,8 @@ class DataAnnotationMainWindow(QMainWindow):
         self.blank_text = QTextEdit('Space')
         quit_button = QPushButton('Quit')
         quit_button.clicked.connect(app.exit)
-        quit_button.setMinimumWidth(1280)
+        #quit_button.setMinimumWidth(1280)
+        quit_button.setMinimumWidth(1200)
 
         # Put them together, quit button on the bottom
         right_layout = QVBoxLayout()
@@ -308,6 +300,16 @@ class DataAnnotationMainWindow(QMainWindow):
         self.read_images()
         self.set_draw_params_from_sliders()
 
+    def write_file_names(self):
+        fname = self.path_name.text() + self.file_name.text()
+        indx = 0
+        fname_next = fname[0:-5] + "_" + str(indx) + ".json"
+        while exists(fname_next):
+            indx += 1
+            fname_next = fname[0:-5] + "_" + str(indx) + ".json"
+        with open(fname_next, 'w') as f:
+            json.dump(self.video_annot.write_json(), f, indent=4)
+
     def on_draw_toggled(self):
         self.redraw_self()
 
@@ -320,6 +322,8 @@ class DataAnnotationMainWindow(QMainWindow):
                 self.glWidget.draw_images.draw_tex = "rgb_edge_rgb_next"
             elif self.show_edge_button.isChecked():
                 self.glWidget.draw_images.draw_tex = "rgb_edge"
+            elif self.show_depth_button.isChecked():
+                self.glWidget.draw_images.draw_tex = "rgb_depth"
             else:
                 self.glWidget.draw_images.draw_tex = "rgb"
         elif self.show_edge_button.isChecked():
@@ -396,7 +400,7 @@ class DataAnnotationMainWindow(QMainWindow):
         
         fname = "save_crv.json"
         with open(fname, "w") as f:
-            json.dump(self.sketch_curve.write_json(), f)
+            json.dump(self.sketch_curve.write_json(), f, indent=4)
 
         # Actually convert the curve
         width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
@@ -407,7 +411,7 @@ class DataAnnotationMainWindow(QMainWindow):
                                                               width=width_rgb_image, height=height_rgb_image)
         fname = "save_crv_in_image.json"
         with open(fname, "w") as f:
-            json.dump(self.sketch_curve.write_json(), f)
+            json.dump(self.sketch_curve.write_json(), f, indent=4)
 
         # Will create bspline curve
         indx = (self.image_number.value(), self.mask_number.value(), 0)
@@ -597,69 +601,84 @@ class DataAnnotationMainWindow(QMainWindow):
                 kf.rgb_to_depth_matrix = mat
         self.video_annot.crvs_in_depth_image()
 
+        with open(fname, "w") as f:
+            json.dump(self.video_annot.write_json(), f, indent=2)
+
     def read_images(self):
         if self.in_read_images:
             return
 
-        if self.video_annot is not None:
-            print(f"Read images from {self.video_annot.path}")
+        if self.video_annot is None:
+            self.in_read_images = False
+            return
 
-            if self.last_image_index == self.image_number.value():
-                self.set_draw_params_from_sliders()
-                self.in_read_images = False
-                return
+        kf_indx = self.image_number.value()
+        if kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+            self.in_read_images = False
+            return
+
+        kf = self.video_annot.keyframes[kf_indx]
+        print(f"Read images from {self.video_annot.path}")
+
+        if self.last_image_index == self.image_number.value():
+            self.set_draw_params_from_sliders()
+            self.in_read_images = False
+            return
+        else:
+            self.last_image_index = self.image_number.value()
+
+        self.image_names = {}
+        indx = (0, self.image_number.value(), 0, 0)
+        self.image_names["rgb"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
+        self.image_names["edge"] = self.video_annot.get_edge_name(index=indx, b_add_tag=True)
+        self.image_names["depth"] = self.video_annot.get_depth_image_name(index=indx, b_add_tag=True)
+        if indx[0] + 1 < len(self.video_annot.image_names[0]):
+            index_next = (0, self.image_number.value()+1, 0, 0)
+            self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_edge_name(index=index_next, b_add_tag=True)
+        else:
+            # Get a copy of this image
+            self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
+
+        self.images = {}
+        for k, v in self.image_names.items():
+            if exists(v):
+                self.images[k] = cv2.imread(v)
             else:
-                self.last_image_index = self.image_number.value()
+                self.images[k] = None
 
-            self.image_names = {}
-            indx = (0, self.image_number.value(), 0, 0)
-            self.image_names["rgb"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
-            self.image_names["edge"] = self.video_annot.get_edge_name(index=indx, b_add_tag=True)
-            self.image_names["depth"] = self.video_annot.get_depth_image_name(index=indx, b_add_tag=True)
-            if indx[0] + 1 < len(self.video_annot.image_names[0]):
-                index_next = (0, self.image_number.value()+1, 0, 0)
-                self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_edge_name(index=index_next, b_add_tag=True)
-            else:
-                # Get a copy of this image
-                self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
+        if self.images["rgb"] is not None:
+            width_rgb_image = self.images["rgb"].shape[1]
+            height_rgb_image = self.images["rgb"].shape[0]
 
-            self.images = {}
-            for k, v in self.image_names.items():
-                if exists(v):
-                    self.images[k] = cv2.imread(v)
-                else:
-                    self.images[k] = None
+            width_window = self.glWidget.width()
+            height_window = self.glWidget.height()
 
-            if self.images["rgb"] is not None:
-                width_rgb_image = self.images["rgb"].shape[1]
-                height_rgb_image = self.images["rgb"].shape[0]
+            # The rectangle of the image in window coordinates
+            self.glWidget.draw_curve_2d.im_size = (width_rgb_image, height_rgb_image)
+            self.glWidget.draw_curve_2d.lower_left = [0, 0]
+            self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
+            self.glWidget.draw_curve_2d.aspect_ratio = height_rgb_image / width_rgb_image
 
-                width_window = self.glWidget.width()
-                height_window = self.glWidget.height()
+            w = self.glWidget.width()
+            h = int(self.glWidget.draw_curve_2d.aspect_ratio * w)
 
-                # The rectangle of the image in window coordinates
-                self.glWidget.draw_curve_2d.im_size = (width_rgb_image, height_rgb_image)
-                self.glWidget.draw_curve_2d.lower_left = [0, 0]
-                self.glWidget.draw_curve_2d.upper_right = [width_window, height_window]
-                self.glWidget.draw_curve_2d.aspect_ratio = height_rgb_image / width_rgb_image
+            self.glWidget.resize(w, h)
 
-                w = self.glWidget.width()
-                h = int(self.glWidget.draw_curve_2d.aspect_ratio * w)
+            if self.images["depth"] is not None:
+                width_depth_image = self.images["depth"].shape[1]
+                height_depth_image = self.images["depth"].shape[0]
+                self.x_rgb_to_depth = width_depth_image / width_rgb_image
+                self.y_rgb_to_depth = height_depth_image / height_rgb_image
 
-                self.glWidget.resize(w, h)
+        mat_depth_to_rgb = np.linalg.inv(kf.rgb_to_depth_matrix)
 
-                if self.images["depth"] is not None:
-                    width_depth_image = self.images["depth"].shape[1]
-                    height_depth_image = self.images["depth"].shape[0]
-                    self.x_rgb_to_depth = width_depth_image / width_rgb_image
-                    self.y_rgb_to_depth = height_depth_image / height_rgb_image
+        self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
+                                               edge_image=self.images["edge"],
+                                               depth_image=self.images["depth"],
+                                               next_rgb_image=self.images["rgb_edge_rgb_next"],
+                                               mat_depth_to_rgb=mat_depth_to_rgb)
 
-            self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
-                                                   edge_image=self.images["edge"],
-                                                   depth_image=self.images["depth"],
-                                                   next_rgb_image=self.images["rgb_edge_rgb_next"])
-
-            self.redraw_self()
+        self.redraw_self()
         self.in_read_images = False
 
     def sketched_curves(self):
@@ -671,12 +690,19 @@ class DataAnnotationMainWindow(QMainWindow):
             image_indx = self.image_number.value()
             if image_indx < len(self.video_annot.keyframes):
                 kf = self.video_annot.keyframes[image_indx]
-                for cyl_type in kf.bspline_cyls:
-                    for crv in cyl_type:
-                        if not self.show_depth_button.isChecked():
+                for mask_index, cyl_type in enumerate(kf.bspline_cyls):
+                    for mask_id, crv in enumerate(cyl_type):
+                        if self.show_rgb_button.isChecked():
                             crv_list.append(crv)
                         else:
-                            depth_crv = crv.transform(kf.rgb_to_depth_matrix)
+                            depth_crv = kf.get_bsplinecyl_in_depth_image(mask_index, mask_id)
+                            new_pts = []
+                            for indx in range(0, depth_crv.n_points()):
+                                pt = depth_crv.point(indx)
+                                pt[0] /= self.x_rgb_to_depth
+                                pt[1] /= self.y_rgb_to_depth
+                                new_pts.append(pt)
+                            depth_crv.set_points(new_pts)
                             crv_list.append(depth_crv)
             return crv_list
         return []
@@ -781,7 +807,7 @@ if __name__ == '__main__':
     app = QApplication([])
 
     gui = DataAnnotationMainWindow()
-
+    gui.showMaximized()
     gui.show()
 
     app.exec_()

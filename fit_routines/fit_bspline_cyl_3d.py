@@ -59,7 +59,15 @@ class FitBSplineCyl3dDepth:
 
         self.d_min = np.min(np.min(self.depth_data))
         self.d_max = np.max(np.max(self.depth_data))
-        self.depth_image = np.uint8(255 * (self.depth_data - self.d_min) / (self.d_max - self.d_min))
+        self.zero_value = self.depth_data[0, 0]
+        n_count = np.count_nonzero(self.depth_data == self.zero_value)
+        print(f"zero value {self.depth_data[0, 0]}, perc {n_count/self.depth_data.size} d min {self.d_min}, d max {self.d_max}")
+        self.depth_image = 255 - depth_data
+        for clip in [(1, 10), (10, 100), (100, 225), (225, 240), (240, 254), (0, 254)]:
+            im_mask_orig_rgb = np.zeros(self.depth_data.shape, dtype=np.uint8)
+            im_mask_orig_rgb[np.logical_and(self.depth_data > clip[0], self.depth_data < clip[1])] = 250
+            cv2.imwrite(f"fit3d_depth_orig_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
+        #self.depth_image = np.uint8(255 * (self.depth_data - self.d_min) / (self.d_max - self.d_min))
 
     def _full_depth_stats(self):
         """ Get the best pixel offset (if any) for each point/pixel along the edge
@@ -69,7 +77,7 @@ class FitBSplineCyl3dDepth:
         @return t, stats for depth, spaced n apart"""
 
         ret_stats = {"step_size": 5,
-                     "perc_fuzzy": 0.0}
+                     "perc_fuzzy": 0.2}
 
         # First going to render the depth curve into an image
         im_cyl = BSplineCylImage(self.crv_2d_depth.points(), self.crv_2d_depth.degree_name(), self.crv_2d_depth.radii_crv.points())
@@ -85,15 +93,23 @@ class FitBSplineCyl3dDepth:
         depth_unsorted = self.depth_data[im_mask > 0]
         n_total_pix = im_mask.size
         depth_sort = np.sort(depth_unsorted)
+        depth_sort = depth_sort[depth_sort < 254]
         # Get rid of background pixels
         ret_stats["depth_sort"] = depth_sort
         ret_stats["total_non_zero"] = depth_sort.size
         ret_stats["min_value"] = np.min(depth_sort)
         ret_stats["max_value"] = np.max(depth_sort)
+        ret_stats["median_value"] = np.median(depth_sort)
 
-        # TODO: I have foreground and background swapped...
+        for clip in [(1, 10), (10, 100), (100, 225), (225, 240), (240, 254), (0, 254)]:
+            im_mask_orig_rgb = np.zeros(self.depth_data.shape, dtype=np.uint8)
+            im_mask_orig_rgb[np.logical_and(self.depth_data > clip[0], self.depth_data < clip[1])] = 250
+            im_mask_orig_rgb = im_mask_orig_rgb * im_mask
+            cv2.imwrite(f"fit3d_depth_mask_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
+
         # Assuming some pixels are in the background, should have a sharp "jump" to pixels in the foreground
         # Assume most of the foreground pixels (close) are correct
+        """
         ret_stats["best_split"] = []
         depth_clip = 0.8 * np.median(depth_sort) + 0.2 * np.max(depth_sort)
         print(f"Median {np.median(depth_sort)} min {np.min(depth_sort)} max {np.max(depth_sort)}")
@@ -108,15 +124,19 @@ class FitBSplineCyl3dDepth:
             print(f"Score {score} {depth_sort[int(score[0] + w)]}")
         depth_clip /= 5.0
         ret_stats["depth_clip"] = depth_clip
-
-        ts = np.linspace(0, self.crv_2d_depth.max_t(), self.crv_2d_depth.n_points() * 5)
+        """
+        ts = np.linspace(0, self.crv_2d_depth.max_t(), self.crv_2d_depth.n_points() * 2)
         rects, ts_rects = self.crv_2d_depth.interior_rects(ts, 1.0)
 
-        im_mask_depth = np.zeros(im_mask.shape)
-        im_mask_depth[im_mask > 0] = self.depth_data[im_mask > 0]
-        im_mask_depth[im_mask_depth > depth_clip] = 0.0
-        im_mask_depth_rgb = np.uint8(255.0 * im_mask_depth / ret_stats["max_value"])
-        cv2.imwrite("fit3d_depth_mask.png", im_mask_depth_rgb)
+        n_perc_min = int(0.1 * depth_sort.size)
+        n_perc_max = int(0.9 * depth_sort.size)
+        ret_stats["clip_min"] = depth_sort[n_perc_min]
+        ret_stats["clip_max"] = depth_sort[n_perc_max]
+        im_mask_clip = np.zeros(im_mask.shape, dtype=np.uint8)
+        b_sel = np.logical_and(self.depth_data >= ret_stats["clip_min"], self.depth_data <= ret_stats["clip_max"])
+        im_mask_clip[b_sel] = 255
+        cv2.imwrite("fit3d_depth_mask_clip.png", im_mask_clip)
+        im_mask_clip[b_sel] = self.depth_image[b_sel]
         ret_stats["ts"] = []
         ret_stats["depth_at_center"] = []
         ret_stats["z_at_center"] = []
@@ -127,17 +147,19 @@ class FitBSplineCyl3dDepth:
             max_x = int(np.max(r[:, 0]))
             min_y = int(np.min(r[:, 1]))
             max_y = int(np.max(r[:, 1]))
-            if min_x < 0 or min_y < 0 or max_x > im_mask_depth.shape[1] or max_y > im_mask_depth.shape[0]:
+            if min_x < 0 or min_y < 0 or max_x > im_mask_clip.shape[1] or max_y > im_mask_clip.shape[0]:
                 continue
 
-            seg_depth = im_mask_depth[min_y:max_y, min_x:max_x]
+            seg_depth = im_mask_clip[min_y:max_y, min_x:max_x]
 
             max_depth = np.max(seg_depth)
             depth_at_center = 0.0
+            # We have at least one pixel > 0
             if max_depth > 0.0:
-                depth_at_center = np.mean(seg_depth[seg_depth > 0.0])
+                depth_at_center = np.median(seg_depth[seg_depth > 0])
+                depth_at_center = camera_params["min_depth"] + (255 - depth_at_center) / (camera_params["max_depth"] - camera_params["min_depth"])
 
-            if depth_at_center > 0:
+            if depth_at_center > 0.0:
                 rad_2d = self.crv_2d.radius(t)
                 ang_subtend_degrees = self.camera_params["camera_width_angle"] * (2 * rad_2d) / self.camera_params["depth_image_width"]
                 ang_subtend_radians = np.pi * ang_subtend_degrees / 180.0
@@ -249,7 +271,7 @@ if __name__ == '__main__':
     from utils.video_annotation_data import VideoAnnotationData
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--path', default="PycharmProjects/data/bush_8_west/", type=str, help="where to grab images from")
+    parser.add_argument('--path', default="PycharmProjects/data/bush_1_east/", type=str, help="where to grab images from")
     parser.add_argument('--annot', default="video_annot.json", type=str, help="which video annotation to use")
     parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
     parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
@@ -294,10 +316,10 @@ if __name__ == '__main__':
         kf = va.keyframes[kf_indx]
 
         # The gray scale image
+        #  254 is the "no data" value, all data is in the z channel
         depth_image = cv2.imread(va.get_depth_data_name((0, kf_indx, 0, 0)))
-        # Get just the last channel and convert from 0..255 to min/max depth
-        depth_data_z = depth_image[:, :, 2] / 255.0
-        depth_data = depth_data_z * (camera_params["max_depth"] - camera_params["min_depth"]) + camera_params["min_depth"]
+        depth_data = depth_image[:, :, 2]
+
         # depth_data = np.fromfile(va.get_depth_data_name((0, kf_indx, 0, 0)))
         # depth_data.reshape((camera_params["depth_image_width"], camera_params["depth_image_height"]))
         print(f"min {np.min(depth_image)}, {np.min(depth_data)} max {np.max(depth_image)}, {np.max(depth_data)}")
