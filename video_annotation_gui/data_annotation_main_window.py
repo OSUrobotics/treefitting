@@ -214,7 +214,7 @@ class DataAnnotationMainWindow(QMainWindow):
     # Drawing screen and quit button
     def _init_right_layout_(self):
         # The display for the robot drawing
-        self.glWidget = OopenGLDrawWindow(gui=self, parent=self, size_start=(2*640, 2*480))
+        self.glWidget = OopenGLDrawWindow(gui=self, parent=self, size_start=(3*640, 3*480))
 
         self.up_down.slider.valueChanged.connect(self.glWidget.set_up_down_rotation)
         self.glWidget.upDownRotationChanged.connect(self.up_down.slider.setValue)
@@ -233,7 +233,7 @@ class DataAnnotationMainWindow(QMainWindow):
 
         right_layout.addWidget(self.glWidget)
         right_layout.addWidget(self.blank_text)
-        right_layout.addWidget(quit_button, stretch=20)
+        right_layout.addWidget(quit_button, stretch=10)
 
         return right_layout
 
@@ -670,6 +670,7 @@ class DataAnnotationMainWindow(QMainWindow):
                 self.x_rgb_to_depth = width_depth_image / width_rgb_image
                 self.y_rgb_to_depth = height_depth_image / height_rgb_image
 
+        #mat_depth_to_rgb = kf.rgb_to_depth_matrix
         mat_depth_to_rgb = np.linalg.inv(kf.rgb_to_depth_matrix)
 
         self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
@@ -807,7 +808,7 @@ if __name__ == '__main__':
     app = QApplication([])
 
     gui = DataAnnotationMainWindow()
-    gui.showMaximized()
+    # gui.showMaximized()
     gui.show()
 
     app.exec_()

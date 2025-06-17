@@ -21,7 +21,7 @@ class BSplineCyl3d(BSplineCyl):
         super().__init__(ctrl_pts=ctrl_pts, degree=degree, radii=radii)
 
         # For controlling mesh generation
-        self.n_along_per = 6 # Per segment of curve
+        self.n_along_per = 8 # Per segment of curve
         self.n_around = 32
         self.vertex_locs = None
 
@@ -75,9 +75,13 @@ class BSplineCyl3d(BSplineCyl):
         # Matrix is the frenet frame; we'll propagate
         mat = self.frenet_frame(0.0)
 
-        vec_tang = vec_tangs[0]
+        vec_tang = vec_tangs[0, :]
         vec_norm = self.eval_norm(0.0) / np.linalg.norm(self.eval_norm(0.0))
         vec_tang = vec_tang / np.linalg.norm(vec_tang)
+
+        check_dot = np.dot(vec_norm, vec_tang)
+        if not np.isclose(check_dot, 0.0):
+            print(f"Bad start dot {check_dot}")
 
         # For when we fall off the end
         pts = np.concatenate((pts, pts[0:1, :]), axis=0)
@@ -104,21 +108,35 @@ class BSplineCyl3d(BSplineCyl):
                 self.vertex_locs[it, itheta, :] = pt_on_crv[0:3].transpose()
                 self.vertex_normals[it, itheta, :] = norm_on_srf[0:3].transpose()
 
-            # propagate the frame forward
+            # propagate the frame forward https://www.microsoft.com/en-us/research/wp-content/uploads/2016/12/Computation-of-rotation-minimizing-frames.pdf
+            # Next unit-normal tangent
+            vec_tang_next = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1])
+
             # reflection vector 1
             vec_tang_approx = pts[it+1] - pts[it]              # v1 = x_i+1 - x_i
+            vec_tang_approx_unit_len = vec_tang_approx  / np.linalg.norm(vec_tang_approx)
             len_tang_approx = np.dot(vec_tang_approx, vec_tang_approx)
             # r_i^L = r_i - (2/c1) * (v1 dot ri) * v1
-            vec_refl_norm = vec_norm - (2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_norm) * vec_tang_approx
+            vec_refl_norm = vec_norm - ((2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_norm)) * vec_tang_approx
+            vec_refl_norm2 = vec_norm - np.dot(vec_tang_approx_unit_len, vec_norm) * vec_tang_approx_unit_len
             # t_i^L = t_i - (2/c1) * (v1 dot t_i) * v1
-            vec_tang_refl = vec_tang - (2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_tang) * vec_tang_approx
-            # reflection vector 2
-            vec_refl_back = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1]) - vec_tang_refl
-            len_vec_refl_back = np.dot(vec_refl_back, vec_refl_back)
-            vec_refl_norm_back = vec_refl_norm - (2.0 / len_tang_approx) * np.dot(vec_refl_back, vec_refl_norm) * vec_refl_back
+            vec_refl_tang = vec_tang - ((2.0 / len_tang_approx) * np.dot(vec_tang_approx, vec_tang)) * vec_tang_approx
+            vec_refl_tang2 = vec_tang - np.dot(vec_tang_approx_unit_len, vec_tang) * vec_tang_approx_unit_len
 
-            vec_norm = vec_refl_norm_back
-            vec_tang = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1])
+            check_perp_refl = np.dot(vec_refl_norm, vec_refl_tang)
+            check_perp = np.dot(vec_refl_norm, vec_refl_tang)
+            check_tang_change = np.dot(vec_tang, vec_norm)
+            if not np.isclose(check_perp_refl, 0.0) or not np.isclose(check_perp, 0.0):
+                print(f"Not perp {check_perp_refl}, {check_perp} tang {check_tang_change}")
+
+            # reflection vector 2
+            vec_refl_back = vec_tang_next - vec_refl_tang
+            len_vec_refl_back = np.dot(vec_refl_back, vec_refl_back)
+            vec_refl_norm_back = vec_refl_norm - (2.0 / len_vec_refl_back) * np.dot(vec_refl_back, vec_refl_norm) * vec_refl_back
+
+            len_vec_refl_norm_back = np.linalg.norm(vec_refl_norm_back)
+            vec_norm = vec_refl_norm_back / len_vec_refl_norm_back
+            vec_tang = vec_tang_next
 
             check_dot = np.dot(vec_norm, vec_tang)
             if not np.isclose(check_dot, 0.0):

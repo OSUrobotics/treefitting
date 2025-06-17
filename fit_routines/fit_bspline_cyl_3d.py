@@ -41,7 +41,7 @@ class FitBSplineCyl3dDepth:
         # save the data
         self.crv_2d = crv_2d_image
         self.crv_2d_depth = crv_2d_depth
-        self.depth_data = depth_data
+        self.depth_data_orig = depth_data
         self.camera_params = camera_params
         self.fit_params = fit_params
 
@@ -51,21 +51,21 @@ class FitBSplineCyl3dDepth:
         if self.camera_params is None:
             set_default_params(self.camera_params)
         if "depth image width" in self.camera_params:
-            assert self.camera_params["depth_image_width"] == self.depth_data.shape[0]
-            assert self.camera_params["depth_image_height"] == self.depth_data.shape[1]
+            assert self.camera_params["depth_image_width"] == self.depth_data_orig.shape[0]
+            assert self.camera_params["depth_image_height"] == self.depth_data_orig.shape[1]
         else:
-            self.camera_params["depth_image_width"] = self.depth_data.shape[0]
-            self.camera_params["depth_image_height"] = self.depth_data.shape[1]
+            self.camera_params["depth_image_width"] = self.depth_data_orig.shape[0]
+            self.camera_params["depth_image_height"] = self.depth_data_orig.shape[1]
 
-        self.d_min = np.min(np.min(self.depth_data))
-        self.d_max = np.max(np.max(self.depth_data))
-        self.zero_value = self.depth_data[0, 0]
-        n_count = np.count_nonzero(self.depth_data == self.zero_value)
-        print(f"zero value {self.depth_data[0, 0]}, perc {n_count/self.depth_data.size} d min {self.d_min}, d max {self.d_max}")
-        self.depth_image = 255 - depth_data
-        for clip in [(1, 10), (10, 100), (100, 225), (225, 240), (240, 254), (0, 254)]:
-            im_mask_orig_rgb = np.zeros(self.depth_data.shape, dtype=np.uint8)
-            im_mask_orig_rgb[np.logical_and(self.depth_data > clip[0], self.depth_data < clip[1])] = 250
+        self.d_min = np.min(np.min(self.depth_data_orig))
+        self.d_max = np.max(np.max(self.depth_data_orig))
+        self.zero_value = self.depth_data_orig[0, 0]
+        n_count = np.count_nonzero(self.depth_data_orig == self.zero_value)
+        print(f"zero value {self.depth_data_orig[0, 0]}, perc {n_count/self.depth_data_orig.size} d min {self.d_min}, d max {self.d_max}")
+        self.depth_image = 255 - self.depth_data_orig
+        for clip in [(2, 20), (20, 100), (100, 225), (225, 240), (240, 254), (1, 254)]:
+            im_mask_orig_rgb = np.zeros(self.depth_image.shape, dtype=np.uint8)
+            im_mask_orig_rgb[np.logical_and(self.depth_image > clip[0], self.depth_image < clip[1])] = 250
             cv2.imwrite(f"fit3d_depth_orig_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
         #self.depth_image = np.uint8(255 * (self.depth_data - self.d_min) / (self.d_max - self.d_min))
 
@@ -90,7 +90,7 @@ class FitBSplineCyl3dDepth:
         # TODO clip to rectangle that contains curve
         # All depth values under mask, in mask form
         # Get just the depth values under the mask
-        depth_unsorted = self.depth_data[im_mask > 0]
+        depth_unsorted = self.depth_image[im_mask > 0]
         n_total_pix = im_mask.size
         depth_sort = np.sort(depth_unsorted)
         depth_sort = depth_sort[depth_sort < 254]
@@ -102,8 +102,8 @@ class FitBSplineCyl3dDepth:
         ret_stats["median_value"] = np.median(depth_sort)
 
         for clip in [(1, 10), (10, 100), (100, 225), (225, 240), (240, 254), (0, 254)]:
-            im_mask_orig_rgb = np.zeros(self.depth_data.shape, dtype=np.uint8)
-            im_mask_orig_rgb[np.logical_and(self.depth_data > clip[0], self.depth_data < clip[1])] = 250
+            im_mask_orig_rgb = np.zeros(self.depth_image.shape, dtype=np.uint8)
+            im_mask_orig_rgb[np.logical_and(self.depth_image > clip[0], self.depth_image < clip[1])] = 250
             im_mask_orig_rgb = im_mask_orig_rgb * im_mask
             cv2.imwrite(f"fit3d_depth_mask_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
 
@@ -133,10 +133,11 @@ class FitBSplineCyl3dDepth:
         ret_stats["clip_min"] = depth_sort[n_perc_min]
         ret_stats["clip_max"] = depth_sort[n_perc_max]
         im_mask_clip = np.zeros(im_mask.shape, dtype=np.uint8)
-        b_sel = np.logical_and(self.depth_data >= ret_stats["clip_min"], self.depth_data <= ret_stats["clip_max"])
+        b_sel = np.logical_and(self.depth_image >= ret_stats["clip_min"], self.depth_image <= ret_stats["clip_max"])
         im_mask_clip[b_sel] = 255
-        cv2.imwrite("fit3d_depth_mask_clip.png", im_mask_clip)
+        cv2.imwrite("fit3d_depth_mask_clip_bw.png", im_mask_clip)
         im_mask_clip[b_sel] = self.depth_image[b_sel]
+        cv2.imwrite("fit3d_depth_mask_clip_grey.png", im_mask_clip)
         ret_stats["ts"] = []
         ret_stats["depth_at_center"] = []
         ret_stats["z_at_center"] = []
@@ -156,8 +157,9 @@ class FitBSplineCyl3dDepth:
             depth_at_center = 0.0
             # We have at least one pixel > 0
             if max_depth > 0.0:
-                depth_at_center = np.median(seg_depth[seg_depth > 0])
-                depth_at_center = camera_params["min_depth"] + (255 - depth_at_center) / (camera_params["max_depth"] - camera_params["min_depth"])
+                depth_at_center_uint = np.median(seg_depth[seg_depth > 0])
+                depth_at_center = camera_params["min_depth"] + (255.0 - depth_at_center_uint) / (camera_params["max_depth"] - camera_params["min_depth"])
+                print(f"{depth_at_center_uint} ", end="")
 
             if depth_at_center > 0.0:
                 rad_2d = self.crv_2d.radius(t)
@@ -172,6 +174,7 @@ class FitBSplineCyl3dDepth:
                 ret_stats["z_at_center"].append(z_at_center)
                 ret_stats["radius_3d"].append(radius_3d)
 
+        print("\n")
         return ret_stats
 
     def _curve_from_stats(self, stats_depth, rgb_image:np.array=None):
@@ -250,6 +253,7 @@ class FitBSplineCyl3dDepth:
         # Now do the actual fit
         pt_list = PointList(pts)
         pts_start_3d = []
+
         for indx in range(0, self.crv_2d.n_points()):
             indx_3d = int((pt_list.n_points()-1) * indx / (self.crv_2d.n_points() - 1.0))
             pt = pt_list.points()[indx_3d]

@@ -18,7 +18,7 @@ class OopenGLDrawWindow(QOpenGLWidget):
     zRotationChanged = pyqtSignal(int)
     gl_inited = False
 
-    def __init__(self, gui, parent=None, size_start=(2*640, 2*480)):
+    def __init__(self, gui, parent=None, size_start=(3*640, 3*480)):
         super(OopenGLDrawWindow, self).__init__(parent)
 
         self.draw_images = DrawImages()

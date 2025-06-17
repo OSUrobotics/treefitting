@@ -597,12 +597,13 @@ if __name__ == '__main__':
 
     b_draw_debug = False
     b_rename_files = False
-    b_make_edge_images = True
+    b_make_edge_images = False
     b_copy_tree = False
-    b_copy_blueberry = True
+    b_copy_blueberry = False
     b_make_pips = False
     b_add_tracks = False
-    b_redo_fit = False
+    b_redo_fit = True
+    b_propagate_matrix = False
 
     if b_draw_debug:
         tree_name = "bush_8_west"
@@ -710,6 +711,22 @@ if __name__ == '__main__':
     if b_add_tracks:
         fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
         add_2d_tracks(va_fname, 0, fname_pts)
+
+    if b_propagate_matrix:
+        tree_name = "bush_1_east"
+        va_name = dest_path + tree_name + "/video_annot.json"
+        kf_copy = 0
+        with open(va_name, "r") as f:
+            my_dict = json.load(f)
+            va = VideoAnnotationData.read_json(my_dict)
+            mat_rgb_to_depth = va.keyframes[0].rgb_to_depth_matrix
+            for kf in va.keyframes:
+                kf.rgb_to_depth_matrix = mat_rgb_to_depth
+
+        va_fname = dest_path + tree_name + "/video_annot_mats.json"
+        with open(va_fname, "w") as f:
+            my_dict = va.write_json()
+            json.dump(my_dict, f, indent=2)
 
     import json
 

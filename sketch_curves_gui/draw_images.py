@@ -88,11 +88,14 @@ class DrawImages():
         im_sq_rgb_mask_edge[:, :, 0] = im_sq_rgb_mask_edge[:, :, 0] + im_sq_mask[:, :, 0] // 2
 
         if rgb_image is not None and depth_image is not None:
-            im_sq_rgb_depth = cv2.resize(rgb_image, (im_size, im_size)) // 2
-            im_gray = cv2.cvtColor(im_sq_depth, cv2.COLOR_BGR2GRAY)
-            #im_scl = cv2.transform(im_gray, mat_depth_to_rgb)
+            im_depth_gray = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
+            mat_cv = np.float32([mat_depth_to_rgb[0, :], mat_depth_to_rgb[1, :]])
+            im_depth_scale_to_rgb = cv2.warpAffine(im_depth_gray, mat_cv, (rgb_image.shape[1], rgb_image.shape[0]))
+            im_depth_scale_to_rgb_edge = cv2.Canny(im_depth_scale_to_rgb, 10, 100, apertureSize=3)
+            im_rgb_depth = np.copy(rgb_image)
             for ch in (0, 1, 2):
-                im_sq_rgb_depth[:, :, ch] = im_sq_rgb_depth[:, :, ch] + cv2.Canny(im_gray, 10, 100, apertureSize=3) // 2
+                im_rgb_depth[:, :, ch] = rgb_image[:, :, ch] // 2 + im_depth_scale_to_rgb_edge // 2
+            im_sq_rgb_depth = cv2.resize(im_rgb_depth, (im_size, im_size))
         else:
             im_sq_rgb_depth = im_sq
 

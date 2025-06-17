@@ -25,4 +25,4 @@ video_annotation_gui/data_annotation_main_window.py is the main file.
 
 
 ## 3D fit
-* fit_routines/fit_bspline_cyl_sketch.py
+* fit_routines/fit_bspline_cyl_3d.py
