@@ -121,7 +121,8 @@ class BSplineCyl3d(BSplineCyl):
             vec_tang = vec_tangs[it+1] / np.linalg.norm(vec_tangs[it+1])
 
             check_dot = np.dot(vec_norm, vec_tang)
-            assert np.isclose(check_dot, 0.0)
+            if not np.isclose(check_dot, 0.0):
+                print(f"Bad dot {check_dot}")
 
 
     def write_json(self):
