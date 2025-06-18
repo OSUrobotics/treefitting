@@ -101,7 +101,7 @@ class FitBSplineCyl3dDepth:
         ret_stats["max_value"] = np.max(depth_sort)
         ret_stats["median_value"] = np.median(depth_sort)
 
-        for clip in [(1, 10), (10, 100), (100, 225), (225, 240), (240, 254), (0, 254)]:
+        for clip in [(2, 20), (20, 60), (60, 100), (100, 240), (1, 254)]:
             im_mask_orig_rgb = np.zeros(self.depth_image.shape, dtype=np.uint8)
             im_mask_orig_rgb[np.logical_and(self.depth_image > clip[0], self.depth_image < clip[1])] = 250
             im_mask_orig_rgb = im_mask_orig_rgb * im_mask
@@ -158,8 +158,12 @@ class FitBSplineCyl3dDepth:
             # We have at least one pixel > 0
             if max_depth > 0.0:
                 depth_at_center_uint = np.median(seg_depth[seg_depth > 0])
+                depth_sort_sec = np.sort(seg_depth[seg_depth > 0])
                 depth_at_center = camera_params["min_depth"] + (255.0 - depth_at_center_uint) / (camera_params["max_depth"] - camera_params["min_depth"])
-                print(f"{depth_at_center_uint} ", end="")
+                for perc in [0.0, 0.1, 0.2, 0.5, 0.8]:
+                    indx = int(perc * depth_sort_sec.size)
+                    print(f" (indx {indx}, {depth_sort_sec[indx]})", end="")
+                print("\n")
 
             if depth_at_center > 0.0:
                 rad_2d = self.crv_2d.radius(t)
@@ -174,7 +178,6 @@ class FitBSplineCyl3dDepth:
                 ret_stats["z_at_center"].append(z_at_center)
                 ret_stats["radius_3d"].append(radius_3d)
 
-        print("\n")
         return ret_stats
 
     def _curve_from_stats(self, stats_depth, rgb_image:np.array=None):
