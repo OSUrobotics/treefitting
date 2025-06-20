@@ -577,23 +577,7 @@ if __name__ == '__main__':
     import json
     from os.path import exists
     from os import mkdir
-
-    # EG, /users/cindygrimm - the top of your folder
-    path_start = FileNamesSubDirs.get_path()
-    # Where you want all of your stuff to go. Please use this or set up an "if not exists" like
-    #   the box path below
-    dest_path = path_start + "PyCharmProjects/data/"
-
-    # This is where Box lives in your home directory
-    box_path = "Library/CloudStorage/Box-Box/"
-    # Since my laptop and desktop have two different Box locations, I use this to switch between them
-    if not exists(path_start + box_path):
-        box_path = "MyBox/"
-
-    # Put the two together
-    src_box_path = path_start + box_path
-
-    tree_name = "CindyEnvyPhone"
+    import argparse
 
     b_draw_debug = False
     b_rename_files = False
@@ -605,20 +589,51 @@ if __name__ == '__main__':
     b_redo_fit = True
     b_propagate_matrix = False
 
-    if b_draw_debug:
-        tree_name = "bush_8_west"
-        va_fname = dest_path + tree_name + "/video_annot.json"
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--action', default="draw_debug", type=str, help="One of: draw_debug, rename_files, make_edge_images, copy_tree, copy_blueberry, make_pips, add_tracks, redo_fit, copy_matrix")
+    parser.add_argument('--dest_path', default="PycharmProjects/data/", type=str, help="where tree/bush data is stored")
+    parser.add_argument('--box_path', default="Library/CloudStorage/Box-Box/", type=str, help="where your box folder libes")
+    parser.add_argument('--bush_tree_name', default="bush_1_east", type=str, help="Tree or bush name")
+    parser.add_argument('--annot', default="video_annot.json", type=str, help="which video annotation to use")
+    parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
+    parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
+    parser.add_argument('--mask_id', default=-1, type=int, help="which curve, set to -1 for all")
+    parser.add_argument('--camera', default="azure", type=str, help="Camera, one of azure, intel TODO")
+    parser.add_argument('--start_index', default=0, type=int, help="Start index for copy tree/bush")
+    parser.add_argument('--end_index', default=-1, type=int, help="End index for copy tree/bush, -1 is all")
+    parser.add_argument('--skip_index', default=1, type=int, help="skip frames for copy tree/bush, 10 for tree, 32 for blueberry")
+
+    args = parser.parse_args()
+
+    # Grab the current path
+    path_start = FileNamesSubDirs.get_path()
+    # Where the video_annot.json lives
+    path_full = path_start + args.dest_path + args.bush_tree_name + "/"
+    # The video_annot.json file
+    va_fname = path_full + args.annot
+
+    # This is where Box lives in your home directory
+    box_path = "Library/CloudStorage/Box-Box/"
+    # Since my laptop and desktop have two different Box locations, I use this to switch between them
+    if not exists(path_start + box_path):
+        box_path = "MyBox/"
+
+    # Put the two together
+    src_box_path = path_start + box_path
+
+    if args.action == "draw_debug":
         with open(va_fname, "r") as f:
             my_dict = json.load(f)
             va_back = VideoAnnotationData.read_json(my_dict)
             va_back.crvs_in_depth_image()
 
-    if b_rename_files:
+    if args.action == "rename_files":
         import glob
         from shutil import copyfile
 
-        tree_name = "bush_1_east"
-        images = glob.glob(dest_path + tree_name + '/rgb_*depth*.*')
+        # This one usually needs a code change
+        # Which files to change the name for
+        images = glob.glob(path_full + '/rgb_*depth*.*')
         for im in images:
             print(f"Im {im}")
             im_name = im.split("/")[-1]
@@ -627,18 +642,18 @@ if __name__ == '__main__':
             print(f"  {im_name} {im_change}")
             copyfile(im, im_change)
 
-    if b_copy_tree:
+    if args.action == "copy_tree":
         dest_path = path_start + "data/EnvyTree/"
         src_tree_pruning_path = src_box_path + "Robotic pruning and thinning/Datasets/2023/Jan 2023 Azure and ZED Videos/OSU Envy Orchard/"
         src_path = src_tree_pruning_path + "BeforePruning/row1East/EAST/tree2/"
-        tree_name = "BP_R1_East_tree2"
+        tree_name = args.bush_tree_name
         fn = VideoAnnotationData.read_envy(src_path=src_path, dest_path=dest_path, tree_name=tree_name,
                                            b_get_box_files=False)
 
         va = VideoAnnotationData(dest_path + tree_name + "/", img_type="png")
 
         va.mask_names = ["trunk", "left_support", "right_support", "tertiary"]
-        va.add_directory(name_filter="rgb", start_index=0, end_index=115, skip_index=10)
+        va.add_directory(name_filter="rgb", start_index=args.skip_index, end_index=args.end_index, skip_index=args.skip_index)
         va.image_name = ""
 
         va_fname = dest_path + tree_name + "/video_annot.json"
@@ -650,45 +665,36 @@ if __name__ == '__main__':
             my_dict = json.load(f)
             va_back = VideoAnnotationData.read_json(my_dict)
 
-    if b_copy_blueberry:
+    if args.action == "copy_blueberry":
         # Slides for which blueberries matter https://docs.google.com/presentation/d/1334kmM_dOyAWyDPob_ZQNf7sxLo88_kX1r4042m80sQ/edit?slide=id.g33458aa9be0_0_0#slide=id.g33458aa9be0_0_0
 
         src_path = src_box_path + "Robotic pruning and thinning/Datasets/2024/Blueberry March/"
-        bush_name = "bush_1_east"
-        if not exists(dest_path + "/" + bush_name):
-            mkdir(dest_path + "/" + bush_name)
-        full_fn = VideoAnnotationData.read_blueberry(src_path=src_path, dest_path=dest_path, bush_name=bush_name, b_get_box_files=True)
+        bush_name = args.bush_tree_name
+        if not exists(path_full):
+            mkdir(path_full)
+        full_fn = VideoAnnotationData.read_blueberry(src_path=src_path, dest_path=path_start + args.dest_path, bush_name=bush_name, b_get_box_files=True)
 
-        va = VideoAnnotationData(dest_path + bush_name + "/", img_type="jpg")
+        va = VideoAnnotationData(path_full, img_type="jpg")
 
         va.mask_names = full_fn.mask_names
-        va.add_directory(name_filter="rgb", start_index=147, end_index=614, skip_index=32)
+        va.add_directory(name_filter="rgb", start_index=args.skip_index, end_index=args.end_index, skip_index=args.skip_index)
         va.image_name = ""
 
-        va_fname = dest_path + bush_name + "/video_annot.json"
         with open(va_fname, "w") as f:
             my_dict = va.write_json()
             json.dump(my_dict, f, indent=2)
 
+    if args.action == "make_edge_images":
         with open(va_fname, "r") as f:
-            my_dict = json.load(f)
-            va_back = VideoAnnotationData.read_json(my_dict)
-
-    if b_make_edge_images:
-        tree_name = "bush_1_east"
-        va_name = dest_path + tree_name + "/video_annot.json"
-        with open(va_name, "r") as f:
             my_dict = json.load(f)
             va = VideoAnnotationData.read_json(my_dict)
             va.create_edge_images()
 
-    if b_make_pips:
-        annot_name = 'first_tree_annot'
-        va_fname = dest_path + tree_name + "/" + annot_name + ".json"
+    if args.action == "make_pips":
         with open(va_fname, "r") as f:
             my_dict = json.load(f)
             va = VideoAnnotationData.read_json(my_dict)
-        dir_pips = dest_path + tree_name + "/CalculatedData/pips2"
+        dir_pips = path_full + "/CalculatedData/pips2"
         if not exists(dir_pips):
             mkdir(dir_pips)
             if not exists(dir_pips + "/input"):
@@ -698,32 +704,30 @@ if __name__ == '__main__':
 
         images, pts = produce_pips2_data(annot_full_path_name=va, kf=0)
         for indx, im in enumerate(images):
-            fname = dest_path + tree_name + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
+            fname = path_full + "/CalculatedData/pips2/input/im" + f"{indx}" + ".png"
             cv2.imwrite(fname, im)
 
-        fname = dest_path + tree_name + "/CalculatedData/pips2/input/pts" + "" + ".json"
+        fname = path_full + "/CalculatedData/pips2/input/pts" + "" + ".json"
         with open(fname, "w") as f:
             json.dump(pts, f, indent=2)
 
-    if b_redo_fit:
-        read_and_rerun("bush_1_east", "video_annot")
+    if args.action == "redo_fit":
+        read_and_rerun(dir_name=args.bush_tree_name, annot_name=args.annot_name[:-4])
 
-    if b_add_tracks:
-        fname_pts = dest_path + tree_name + "/CalculatedData/pips2/output/pts_2d.json"
+    if args.action == "add_tracks":
+        fname_pts = path_full + "/CalculatedData/pips2/output/pts_2d.json"
         add_2d_tracks(va_fname, 0, fname_pts)
 
-    if b_propagate_matrix:
-        tree_name = "bush_1_east"
-        va_name = dest_path + tree_name + "/video_annot.json"
-        kf_copy = 0
-        with open(va_name, "r") as f:
+    if args.action == "propagate_matrix":
+        kf_copy = args.key_frame
+        with open(va_fname, "r") as f:
             my_dict = json.load(f)
             va = VideoAnnotationData.read_json(my_dict)
             mat_rgb_to_depth = va.keyframes[0].rgb_to_depth_matrix
             for kf in va.keyframes:
                 kf.rgb_to_depth_matrix = mat_rgb_to_depth
 
-        va_fname = dest_path + tree_name + "/video_annot_mats.json"
+        va_fname = path_full + "/video_annot_mats.json"
         with open(va_fname, "w") as f:
             my_dict = va.write_json()
             json.dump(my_dict, f, indent=2)
