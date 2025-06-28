@@ -1,18 +1,51 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import cv2
 
+class CameraProjections():
+    def __init__(self, camera_fname="", params={}):
+        """ Just set the default parameter values in case there aren't any
+        @params params - dictionary with values
+        """
+        from os.path import exists
+        import json
 
-def set_default_params(params):
-    """ Just set the default parameter values in case there aren't any
-    @params params - dictionary with values
-    """
-    if not "z_near" in params:
-        params["z_near"] = 1.0
-    if not "z_far" in params:
-        params["z_far"] = 100.0
-    if not "camera_width_angle" in params:
-        params["camera_width_angle"] = 90.0
+        self.params = {}
+
+        cam_params = {}
+        self.world_to_rgb_image = np.identity(3)
+        self.world_to_depth_image = np.identity(3)
+        self.rgb_image_distortion_coefs = np.zeros((5,))
+        self.depth_image_distortion_coefs = np.zeros((5,))
+        if exists(camera_fname):
+            with open(camera_fname, "r") as f:
+                cam_params = json.load(f)
+                try:
+                    for indx, val in enumerate(cam_params["color_intrinsic"]):
+                        self.world_to_rgb_image[indx // 3, indx % 3] = val
+                except ValueError:
+                    pass
+
+                try:
+                    for indx, val in enumerate(cam_params["depth_intrinsic"]):
+                        self.world_to_depth_image[indx // 3, indx % 3] = val
+                except ValueError:
+                    pass
+
+                try:
+                    self.rgb_image_distortion_coefs = np.array(cam_params["color_distortion_coef"])
+                    self.depth_image_distortion_coefs = np.array(cam_params["depth_distortion_coef"])
+
+        self.z_near = 1.0
+        self.z_far = 100.0
+        self.camera_width_angle = 90.0
+        if "z_near" in params:
+            self.z_near = params["z_near"]
+        if "z_far" in params:
+            self.z_far = params["z_near"]
+        if "camera_width_angle" in params:
+            self.camera_width_angle = params["camera_width_angle"]
 
 
 def from_image_to_box(params, pt_uv):

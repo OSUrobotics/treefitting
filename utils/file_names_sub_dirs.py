@@ -51,8 +51,7 @@ import os
 from glob import glob
 import json
 from os.path import exists, isdir
-from os import mkdir, getcwd
-from shutil import copyfile
+from os import mkdir
 
 
 class FileNamesSubDirs:
