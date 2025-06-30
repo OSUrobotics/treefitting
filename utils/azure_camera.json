@@ -1,0 +1,51 @@
+{
+  "options_list":
+  [
+    {
+      "name": "rgb_normal",
+      "image_size": [3840, 2160],
+      "focal_length_mm": 2.3,
+      "fov": [90, 59]
+    },
+    {
+      "name": "rgb_half_size",
+      "image_size": [1920, 1080],
+      "focal_length_mm": 2.3,
+      "fov": [90, 59]
+    },
+    {
+      "name": "rgb_wide",
+      "image_size": [2048, 1536],
+      "focal_length_mm": 2.3,
+      "fov": [90, 59]
+    },
+    {
+      "name": "depth_narrow_unbinned",
+      "image_size": [640, 576],
+      "focal_length_mm": 1.8,
+      "depth_range_m": [0.5, 3.8],
+      "fov": [75, 65]
+    },
+    {
+      "name": "depth_narrow_2x2_binned",
+      "image_size": [320, 288],
+      "focal_length_mm": 1.8,
+      "depth_range_m": [0.5, 3.8],
+      "fov": [75, 65]
+    },
+    {
+      "name": "depth_wide_unbinned",
+      "image_size": [1024, 1024],
+      "focal_length_mm": 1.8,
+      "depth_range_m": [0.25, 2.21],
+      "fov": [120, 120]
+    },
+    {
+      "name": "depth_wide_2x2_binned",
+      "image_size": [512, 512],
+      "focal_length_mm": 1.8,
+      "depth_range_m": [0.25, 2.21],
+      "fov": [120, 120]
+    }
+  ]
+}
