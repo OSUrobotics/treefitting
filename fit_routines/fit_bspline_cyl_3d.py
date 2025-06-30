@@ -14,7 +14,7 @@ from os.path import exists
 from utils.file_names import FileNames
 from tree_geometry.b_spline_cyl import BSplineCyl
 from tree_geometry.b_spline_cyl_3d import BSplineCyl3d
-from utils.camera_projections import frustrum_matrix, from_image_to_box, set_default_params, from_box_to_image
+from utils.camera_projections import CameraProjections
 from fit_routines.bspline_fit_params import BSplineFitParams
 from draw_routines.b_spline_image import BSplineCylImage
 from fit_routines.b_spline_curve_fit import BSplineCurveFit
@@ -26,13 +26,15 @@ class FitBSplineCyl3dDepth:
                  crv_2d_image: BSplineCyl,
                  crv_2d_depth: BSplineCyl,
                  depth_data: np.ndarray,
-                 camera_params: dict,
+                 cam_rgb: CameraProjections,
+                 cam_depth: CameraProjections,
                  fit_params: BSplineFitParams = None) -> None:
         """ Read in the depth data (data preferred), grab the depth data under the 2d curve, then promote to 3d
         @param crv_2d_image: curve in image
         @param crv_2d_depth: curve in depth image (presumes depth image has a different size than image)
         @param depth_data: Depth data as a .csv file (assumes depth image and csv file same size/aspect ratio)
-        @param camera_params: Camera params; should have aspect ratio/field of view filled in
+        @param cam_rgb: Camera params for rgb image; should have aspect ratio/field of view filled in
+        @param cam_depth: Camera params for depth image; should have aspect ratio/field of view filled in
         @param fit_params: Parameters for filtering the depth image - how finely to sample along the edge and how much to believe edge
            perc_width_depth - percent of width to use, should be 0.1 to 0.85
            perc_along_depth - take median of pixels from a perc of curve, should be 0.1 to 0.3
@@ -42,32 +44,30 @@ class FitBSplineCyl3dDepth:
         self.crv_2d = crv_2d_image
         self.crv_2d_depth = crv_2d_depth
         self.depth_data_orig = depth_data
-        self.camera_params = camera_params
+        self.cam_rgb = cam_rgb
+        self.cam_depth = cam_depth
         self.fit_params = fit_params
 
         if self.fit_params is None:
             self.fit_params = BSplineFitParams()
 
-        if self.camera_params is None:
-            set_default_params(self.camera_params)
-        if "depth image width" in self.camera_params:
-            assert self.camera_params["depth_image_width"] == self.depth_data_orig.shape[0]
-            assert self.camera_params["depth_image_height"] == self.depth_data_orig.shape[1]
-        else:
-            self.camera_params["depth_image_width"] = self.depth_data_orig.shape[0]
-            self.camera_params["depth_image_height"] = self.depth_data_orig.shape[1]
+        assert cam_depth.image_size[0] == self.depth_data_orig.shape[0]
+        assert cam_depth.image_size[1] == self.depth_data_orig.shape[1]
 
         self.d_min = np.min(np.min(self.depth_data_orig))
         self.d_max = np.max(np.max(self.depth_data_orig))
         self.zero_value = self.depth_data_orig[0, 0]
         n_count = np.count_nonzero(self.depth_data_orig == self.zero_value)
         print(f"zero value {self.depth_data_orig[0, 0]}, perc {n_count/self.depth_data_orig.size} d min {self.d_min}, d max {self.d_max}")
+
+        # Invert original depth data so that 0 is closest, 254 is furthest, 255 is "blank"
         self.depth_image = 255 - self.depth_data_orig
+
+        # Debug images showing ranges of depth values
         for clip in [(2, 20), (20, 100), (100, 225), (225, 240), (240, 254), (1, 254)]:
             im_mask_orig_rgb = np.zeros(self.depth_image.shape, dtype=np.uint8)
             im_mask_orig_rgb[np.logical_and(self.depth_image > clip[0], self.depth_image < clip[1])] = 250
             cv2.imwrite(f"fit3d_depth_orig_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
-        #self.depth_image = np.uint8(255 * (self.depth_data - self.d_min) / (self.d_max - self.d_min))
 
     def _full_depth_stats(self):
         """ Get the best pixel offset (if any) for each point/pixel along the edge
@@ -85,21 +85,30 @@ class FitBSplineCyl3dDepth:
         im_mask = np.zeros(self.depth_image.shape)
         im_cyl.make_mask_image(im_mask, step_size=ret_stats["step_size"], perc_fuzzy=ret_stats["perc_fuzzy"])
 
-        cv2.imwrite("fit3d_mask.png", im_mask)
-
-        # TODO clip to rectangle that contains curve
         # All depth values under mask, in mask form
-        # Get just the depth values under the mask
+        # Get just the depth values under the mask that are not background values
         depth_unsorted = self.depth_image[im_mask > 0]
-        n_total_pix = im_mask.size
+        depth_unsorted = depth_unsorted[depth_unsorted < 254]
+
+        # Sort the mask depth values
         depth_sort = np.sort(depth_unsorted)
-        depth_sort = depth_sort[depth_sort < 254]
-        # Get rid of background pixels
+
+        # Save stats
         ret_stats["depth_sort"] = depth_sort
         ret_stats["total_non_zero"] = depth_sort.size
         ret_stats["min_value"] = np.min(depth_sort)
         ret_stats["max_value"] = np.max(depth_sort)
         ret_stats["median_value"] = np.median(depth_sort)
+
+        # Image that has the depth values for just the pixels under the mask
+        im_mask_clip = np.zeros(im_mask.shape, dtype=np.uint8) * 255
+        b_sel = np.logical_and(self.depth_image < 254, im_mask > 0)
+        im_mask_clip[b_sel] = self.depth_image[b_sel]
+        im_mask_boxes = np.zeros(im_mask.shape, dtype=np.uint8) * 255
+
+        # Debug images - which pixels under the mask are in which range
+        cv2.imwrite("fit3d_depth_mask_clip_grey.png", im_mask_clip)
+        cv2.imwrite("fit3d_mask.png", im_mask)
 
         for clip in [(2, 20), (20, 60), (60, 100), (100, 240), (1, 254)]:
             im_mask_orig_rgb = np.zeros(self.depth_image.shape, dtype=np.uint8)
@@ -107,42 +116,17 @@ class FitBSplineCyl3dDepth:
             im_mask_orig_rgb = im_mask_orig_rgb * im_mask
             cv2.imwrite(f"fit3d_depth_mask_{clip[0]}_{clip[1]}.png", im_mask_orig_rgb)
 
-        # Assuming some pixels are in the background, should have a sharp "jump" to pixels in the foreground
-        # Assume most of the foreground pixels (close) are correct
-        """
-        ret_stats["best_split"] = []
-        depth_clip = 0.8 * np.median(depth_sort) + 0.2 * np.max(depth_sort)
-        print(f"Median {np.median(depth_sort)} min {np.min(depth_sort)} max {np.max(depth_sort)}")
-        print(f" 1/3 {depth_sort[int(depth_sort.size / 3.0)]}  2/3 {depth_sort[int(2.0 * depth_sort.size / 3.0)]}")
-        for w in [50, 70, 100, 120]:
-            score = (depth_sort.size // 2, 0, w)
-            for k in range(w+1, depth_sort.size - (w+1)):
-                if depth_sort[k+w] - depth_sort[k-w] > score[1]:
-                    score = (k, depth_sort[k+w] - depth_sort[k-w], w)
-            ret_stats["best_split"].append(score)
-            depth_clip += depth_sort[int(score[0] + w)]
-            print(f"Score {score} {depth_sort[int(score[0] + w)]}")
-        depth_clip /= 5.0
-        ret_stats["depth_clip"] = depth_clip
-        """
+        # Get rectangles along the spine of the mask
         ts = np.linspace(0, self.crv_2d_depth.max_t(), self.crv_2d_depth.n_points() * 2)
         rects, ts_rects = self.crv_2d_depth.interior_rects(ts, 1.0)
 
-        n_perc_min = int(0.1 * depth_sort.size)
-        n_perc_max = int(0.9 * depth_sort.size)
-        ret_stats["clip_min"] = depth_sort[n_perc_min]
-        ret_stats["clip_max"] = depth_sort[n_perc_max]
-        im_mask_clip = np.zeros(im_mask.shape, dtype=np.uint8)
-        b_sel = np.logical_and(self.depth_image >= ret_stats["clip_min"], self.depth_image <= ret_stats["clip_max"])
-        im_mask_clip[b_sel] = 255
-        cv2.imwrite("fit3d_depth_mask_clip_bw.png", im_mask_clip)
-        im_mask_clip[b_sel] = self.depth_image[b_sel]
-        cv2.imwrite("fit3d_depth_mask_clip_grey.png", im_mask_clip)
         ret_stats["ts"] = []
         ret_stats["depth_at_center"] = []
         ret_stats["z_at_center"] = []
         ret_stats["r_at_depth"] = []
         ret_stats["radius_3d"] = []
+        d_min_world = self.cam_depth.depth_range[0]
+        d_max_world = self.cam_depth.depth_range[1]
         for t, r in zip(ts_rects, rects):
             min_x = int(np.min(r[:, 0]))
             max_x = int(np.max(r[:, 0]))
@@ -152,32 +136,36 @@ class FitBSplineCyl3dDepth:
                 continue
 
             seg_depth = im_mask_clip[min_y:max_y, min_x:max_x]
+            im_mask_boxes[min_y:max_y, min_x:max_x] = im_mask_clip[min_y:max_y, min_x:max_x]
 
-            max_depth = np.max(seg_depth)
-            depth_at_center = 0.0
             # We have at least one pixel > 0
-            if max_depth > 0.0:
-                depth_at_center_uint = np.median(seg_depth[seg_depth > 0])
-                depth_sort_sec = np.sort(seg_depth[seg_depth > 0])
-                depth_at_center = camera_params["min_depth"] + (255.0 - depth_at_center_uint) / (camera_params["max_depth"] - camera_params["min_depth"])
-                for perc in [0.0, 0.1, 0.2, 0.5, 0.8]:
-                    indx = int(perc * depth_sort_sec.size)
-                    print(f" (indx {indx}, {depth_sort_sec[indx]})", end="")
-                print("\n")
+            if np.min(seg_depth) > 250:
+                continue
 
-            if depth_at_center > 0.0:
-                rad_2d = self.crv_2d.radius(t)
-                ang_subtend_degrees = self.camera_params["camera_width_angle"] * (2 * rad_2d) / self.camera_params["depth_image_width"]
-                ang_subtend_radians = np.pi * ang_subtend_degrees / 180.0
-                radius_3d = 0.5 * depth_at_center * np.tan(ang_subtend_radians)
-                z_at_center = depth_at_center - radius_3d
+            # What are the range of depth values?
+            depth_sort_sec = np.sort(seg_depth[seg_depth < 254])
+            for perc in [0.0, 0.1, 0.2, 0.5, 0.8]:
+                indx = int(perc * depth_sort_sec.size)
+                print(f" (indx {indx}, {depth_sort_sec[indx]})", end="")
+            print("\n")
 
-                ret_stats["ts"].append(t)
-                ret_stats["depth_at_center"].append(depth_at_center)
-                ret_stats["r_at_depth"].append(rad_2d)
-                ret_stats["z_at_center"].append(z_at_center)
-                ret_stats["radius_3d"].append(radius_3d)
+            depth_at_center_uint = depth_sort_sec[0]
+            depth_at_center = d_min_world + (depth_at_center_uint) / (d_max_world - d_min_world)
 
+            rad_2d = self.crv_2d.radius(t)
+            pix_perc = (2.0 * rad_2d) / self.cam_rgb.image_size[0]
+            ang_subtend_degrees = self.cam_rgb.camera_width_angle * pix_perc
+            ang_subtend_radians = np.pi * ang_subtend_degrees / 180.0
+            radius_3d = 0.5 * depth_at_center * np.tan(ang_subtend_radians)
+            z_at_center = depth_at_center - radius_3d
+
+            ret_stats["ts"].append(t)
+            ret_stats["depth_at_center"].append(depth_at_center)
+            ret_stats["r_at_depth"].append(rad_2d)
+            ret_stats["z_at_center"].append(z_at_center)
+            ret_stats["radius_3d"].append(radius_3d)
+
+        cv2.imwrite("fit3d_mask_boxes.png", im_mask_boxes)
         return ret_stats
 
     def _curve_from_stats(self, stats_depth, rgb_image:np.array=None):
@@ -187,16 +175,11 @@ class FitBSplineCyl3dDepth:
         @return: 3d curve
         """
 
-        mat = frustrum_matrix(self.camera_params)
+        mat = self.cam_rgb.frustrum_matrix()
         mat_inv = np.linalg.inv(mat)
 
-        image_width = self.camera_params["image_size"][0]
-        image_height = self.camera_params["image_size"][1]
-
-        cam_width_ang_half = 0.5 * self.camera_params['camera_width_angle']
-        cam_height_ang_half = (0.5 * self.camera_params['camera_width_angle'] *
-                               self.camera_params['depth_image_height'] / self.camera_params['depth_image_width'])
-        print(f"cam x ang {cam_width_ang_half * 2} cam y ang {cam_height_ang_half * 2} {image_width}, {image_height}")
+        image_width = self.cam_rgb.image_size[0]
+        image_height = self.cam_rgb.image_size[1]
 
         pt_z_origin = np.ones(shape=(4,))
         pt_post_proj = np.ones(shape=(4,))
@@ -206,7 +189,8 @@ class FitBSplineCyl3dDepth:
         ts_pts = np.linspace(0, self.crv_2d.max_t(), self.crv_2d.n_points() * 4)
         pts = []
         radii = []
-        for t in ts_pts:
+        for indx, t in enumerate(stats_depth.ts):
+            """
             # Search for best-match t
             z_at_center = 0.0
             radius = 1.0
@@ -221,14 +205,14 @@ class FitBSplineCyl3dDepth:
                     if stats_depth["ts"][indx-1] <= t <= stats_depth["ts"][indx]:
                         z_at_center = stats_depth["z_at_center"][indx]
                         radius = stats_depth["radius_3d"][indx]
-
+            """
             # Project the point 0, 0, d into the frustum box to get w, d'
-            pt_z_origin[2] = -z_at_center
+            pt_z_origin[2] = -stats_depth["z_at_center"][indx]
             pt_z_proj = mat @ pt_z_origin
 
             # Convert point in image coordinates to frustum box post project
             pt_crv_2d = self.crv_2d.eval_crv(t)
-            pt_proj_box = from_image_to_box(self.camera_params, pt_crv_2d)
+            pt_proj_box = cam_rgb.from_image_to_ndc(pt_crv_2d)
 
             # Now use the w to get the point pre-divide
             pt_post_proj[0] = pt_proj_box[0] * pt_z_proj[3]
@@ -241,7 +225,8 @@ class FitBSplineCyl3dDepth:
 
             # Check result
             pts.append(pt_in_space[0:3])
-            radii.append(radius)
+            radii.append(stats_depth["radius_3d"][indx])
+
 
             if rgb_image:
                 pt_back_image = from_box_to_image(pt_in_space)
@@ -308,16 +293,19 @@ if __name__ == '__main__':
         end_mask = va.n_masks()
 
     fit_params = BSplineFitParams()
-    camera_params = {}
-    set_default_params(camera_params)
+    cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
+                                camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                params={})
+    cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
+                                  camera_calibration_fname=("azure_camera_calibration.json", "depth"),
+                                  params={})
     if args.camera == "azure":
-        camera_params["image_size"] = (1920, 1080)
-        camera_params["depth_image_width"] = 640
-        camera_params["depth_image_height"] = 576
-        camera_params["camera_width_angle"] = 90
-        camera_params["camera_height_angle"] = 59
-        camera_params["min_depth"] = 0.5   # meters
-        camera_params["max_depth"] = 5.46  # meters
+        cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
+                                    camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                    params={})
+        cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
+                                      camera_calibration_fname=("azure_camera_calibration.json", "depth"),
+                                      params={})
 
     for kf_indx in range(start_kf, end_kf):
         kf = va.keyframes[kf_indx]
@@ -341,7 +329,7 @@ if __name__ == '__main__':
                 crv_2d_depth = kf.get_bsplinecyl_in_depth_image(m_indx, m_id_indx)
 
                 # Actual fit
-                crv_fit_3d = FitBSplineCyl3dDepth(crv_2d, crv_2d_depth, depth_data=depth_data, camera_params=camera_params, fit_params=fit_params)
+                crv_fit_3d = FitBSplineCyl3dDepth(crv_2d, crv_2d_depth, depth_data=depth_data, cam_rgb=cam_rgb, cam_depth=cam_depth, fit_params=fit_params)
                 crv_fit = crv_fit_3d.fit_curve()
 
                 crv_name = va.get_mask_name((0, kf_indx, m_indx, m_id_indx), b_calculate_path=True, b_add_tag=False) + "_crv.json"
