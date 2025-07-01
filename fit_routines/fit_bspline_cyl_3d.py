@@ -51,8 +51,8 @@ class FitBSplineCyl3dDepth:
         if self.fit_params is None:
             self.fit_params = BSplineFitParams()
 
-        assert cam_depth.image_size[0] == self.depth_data_orig.shape[0]
-        assert cam_depth.image_size[1] == self.depth_data_orig.shape[1]
+        assert cam_depth.image_size[0] == self.depth_data_orig.shape[1]
+        assert cam_depth.image_size[1] == self.depth_data_orig.shape[0]
 
         self.d_min = np.min(np.min(self.depth_data_orig))
         self.d_max = np.max(np.max(self.depth_data_orig))
@@ -88,7 +88,7 @@ class FitBSplineCyl3dDepth:
         # All depth values under mask, in mask form
         # Get just the depth values under the mask that are not background values
         depth_unsorted = self.depth_image[im_mask > 0]
-        depth_unsorted = depth_unsorted[depth_unsorted < 254]
+        depth_unsorted = depth_unsorted[np.logical_and(depth_unsorted > 0, depth_unsorted < 254)]
 
         # Sort the mask depth values
         depth_sort = np.sort(depth_unsorted)
@@ -102,7 +102,7 @@ class FitBSplineCyl3dDepth:
 
         # Image that has the depth values for just the pixels under the mask
         im_mask_clip = np.zeros(im_mask.shape, dtype=np.uint8) * 255
-        b_sel = np.logical_and(self.depth_image < 254, im_mask > 0)
+        b_sel = np.logical_and(self.depth_image < 254, im_mask > 1)
         im_mask_clip[b_sel] = self.depth_image[b_sel]
         im_mask_boxes = np.zeros(im_mask.shape, dtype=np.uint8) * 255
 
@@ -143,14 +143,15 @@ class FitBSplineCyl3dDepth:
                 continue
 
             # What are the range of depth values?
-            depth_sort_sec = np.sort(seg_depth[seg_depth < 254])
+            depth_sort_sec = np.sort(seg_depth[np.logical_and(seg_depth > 1, seg_depth < 254)])
             for perc in [0.0, 0.1, 0.2, 0.5, 0.8]:
                 indx = int(perc * depth_sort_sec.size)
                 print(f" (indx {indx}, {depth_sort_sec[indx]})", end="")
             print("\n")
 
-            depth_at_center_uint = depth_sort_sec[0]
-            depth_at_center = d_min_world + (depth_at_center_uint) / (d_max_world - d_min_world)
+            indx = int(0.1 * depth_sort_sec.size)
+            depth_at_center_uint = depth_sort_sec[indx]
+            depth_at_center = d_min_world + (depth_at_center_uint / 255.0) / (d_max_world - d_min_world)
 
             rad_2d = self.crv_2d.radius(t)
             pix_perc = (2.0 * rad_2d) / self.cam_rgb.image_size[0]
@@ -189,7 +190,7 @@ class FitBSplineCyl3dDepth:
         ts_pts = np.linspace(0, self.crv_2d.max_t(), self.crv_2d.n_points() * 4)
         pts = []
         radii = []
-        for indx, t in enumerate(stats_depth.ts):
+        for indx, t in enumerate(stats_depth['ts']):
             """
             # Search for best-match t
             z_at_center = 0.0
@@ -226,10 +227,6 @@ class FitBSplineCyl3dDepth:
             # Check result
             pts.append(pt_in_space[0:3])
             radii.append(stats_depth["radius_3d"][indx])
-
-
-            if rgb_image:
-                pt_back_image = from_box_to_image(pt_in_space)
 
         return ts_pts, pts, radii
 
