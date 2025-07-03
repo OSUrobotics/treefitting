@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from draw_routines.image_draw_geom_utils import draw_cross
-from fit_routines.bspline_fit_params import BSplineFitParams
 # Video annotation data format, built off of FileNames
 # Assumptions (video)
 #   Video has been extracted into a sequence of RGB images (see FileNames naming)
@@ -38,7 +36,8 @@ import numpy as np
 from utils.file_names import FileNames
 from utils.file_names_sub_dirs import FileNamesSubDirs
 from utils.keyframe_data import KeyFrameData
-from os.path import exists
+from draw_routines.image_draw_geom_utils import draw_cross
+from fit_routines.bspline_fit_params import BSplineFitParams
 
 
 class VideoAnnotationData(FileNames):
@@ -590,18 +589,18 @@ if __name__ == '__main__':
     b_propagate_matrix = False
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', default="draw_debug", type=str, help="One of: draw_debug, rename_files, make_edge_images, copy_tree, copy_blueberry, make_pips, add_tracks, redo_fit, copy_matrix")
+    parser.add_argument('--action', default="copy_blueberry", type=str, help="One of: draw_debug, rename_files, make_edge_images, copy_tree, copy_blueberry, make_pips, add_tracks, redo_fit, copy_matrix")
     parser.add_argument('--dest_path', default="PycharmProjects/data/", type=str, help="where tree/bush data is stored")
-    parser.add_argument('--box_path', default="Library/CloudStorage/Box-Box/", type=str, help="where your box folder libes")
-    parser.add_argument('--bush_tree_name', default="bush_1_east", type=str, help="Tree or bush name")
+    parser.add_argument('--box_path', default="Library/CloudStorage/Box-Box/", type=str, help="where your box folder lives")
+    parser.add_argument('--bush_tree_name', default="bush_23_east", type=str, help="Tree or bush name")
     parser.add_argument('--annot', default="video_annot.json", type=str, help="which video annotation to use")
     parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
     parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
     parser.add_argument('--mask_id', default=-1, type=int, help="which curve, set to -1 for all")
     parser.add_argument('--camera', default="azure", type=str, help="Camera, one of azure, intel TODO")
-    parser.add_argument('--start_index', default=0, type=int, help="Start index for copy tree/bush")
+    parser.add_argument('--start_index', default=149, type=int, help="Start index for copy tree/bush")
     parser.add_argument('--end_index', default=-1, type=int, help="End index for copy tree/bush, -1 is all")
-    parser.add_argument('--skip_index', default=1, type=int, help="skip frames for copy tree/bush, 10 for tree, 32 for blueberry")
+    parser.add_argument('--skip_index', default=30, type=int, help="skip frames for copy tree/bush, 10 for tree, 32 for blueberry")
 
     args = parser.parse_args()
 

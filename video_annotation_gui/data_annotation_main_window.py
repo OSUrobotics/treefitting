@@ -74,7 +74,7 @@ class DataAnnotationMainWindow(QMainWindow):
         #path_names_layout.setColumnMinimumWidth(0, 40)
         # path_names_layout.setColumnMinimumWidth(1, 200)
         src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
-        tree_name = "bush_1_east"
+        tree_name = "bush_5_east"
         self.path_name = QLineEdit(src_drive + tree_name + "/")
         self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
@@ -632,7 +632,7 @@ class DataAnnotationMainWindow(QMainWindow):
         self.image_names["rgb"] = self.video_annot.get_image_name(index=indx, b_add_tag=True)
         self.image_names["edge"] = self.video_annot.get_edge_name(index=indx, b_add_tag=True)
         self.image_names["depth"] = self.video_annot.get_depth_image_name(index=indx, b_add_tag=True)
-        if indx[0] + 1 < len(self.video_annot.image_names[0]):
+        if self.image_number.value() < len(self.video_annot.image_names[0]) - 1:
             index_next = (0, self.image_number.value()+1, 0, 0)
             self.image_names["rgb_edge_rgb_next"] = self.video_annot.get_edge_name(index=index_next, b_add_tag=True)
         else:
@@ -643,6 +643,11 @@ class DataAnnotationMainWindow(QMainWindow):
         for k, v in self.image_names.items():
             if exists(v):
                 self.images[k] = cv2.imread(v)
+                if k == "rgb":
+                    alpha = 1.1  # Controls contrast (alpha > 1 increases contrast)
+                    beta = 1.75    # Controls brightness (positive beta increases brightness)
+
+                    self.images[k] = cv2.convertScaleAbs(self.images[k], alpha, beta)
             else:
                 self.images[k] = None
 
@@ -716,7 +721,19 @@ class DataAnnotationMainWindow(QMainWindow):
             kf_indx = self.image_number.value()
             self.video_annot.keyframes[kf_indx].pan_vec = [dx, dy]
 
-    def key_point(self, x, y):
+    def _delete_key_point(self, pts, x, y):
+        """ Delete (in place) the keypoint"""
+        closest_i = -1
+        best_d = 50
+        for indx, pt in enumerate(pts):
+            dist = (pt[0] - x) ** 2 + (pt[1] - y) ** 2
+            if dist < best_d:
+                closest_i = indx
+                best_d = dist
+        if closest_i != -1:
+            pts[closest_i] = None
+
+    def key_point(self, x, y, b_del=True):
         """ User clicks in window - keep click point
         @param x - x
         @param y - y"""
@@ -730,16 +747,28 @@ class DataAnnotationMainWindow(QMainWindow):
         kf = self.video_annot.keyframes[kf_indx]
 
         if self.do_keypoints_end_draw.isChecked():
-            kf.pts_2d_of_end.append(self._convert_pt_to_image_coords([x, y]))
+            if b_del:
+                self._delete_key_point(kf.pts_2d_of_end, x, y)
+            else:
+                kf.pts_2d_of_end.append(self._convert_pt_to_image_coords([x, y]))
 
         if self.do_keypoints_start_draw.isChecked():
-            kf.pts_2d_of_start.append(self._convert_pt_to_image_coords([x, y]))
+            if b_del:
+                self._delete_key_point(kf.pts_2d_of_start, x, y)
+            else:
+                kf.pts_2d_of_start.append(self._convert_pt_to_image_coords([x, y]))
 
         if self.do_keypoints_depth_draw.isChecked():
             if self.show_rgb_button.isChecked():
-                kf.pts_2d_rgb_depth.append(self._convert_pt_to_image_coords([x, y]))
+                if b_del:
+                    self._delete_key_point(kf.pts_2d_rgb_depth, x, y)
+                else:
+                    kf.pts_2d_rgb_depth.append(self._convert_pt_to_image_coords([x, y]))
             else:
-                kf.pts_2d_depth.append(self._convert_pt_to_image_coords([x, y], b_do_depth=True))
+                if b_del:
+                    self._delete_key_point(kf.pts_2d_depth, x, y)
+                else:
+                    kf.pts_2d_depth.append(self._convert_pt_to_image_coords([x, y], b_do_depth=True))
 
     def get_key_points(self):
         if self.video_annot is None:
@@ -788,7 +817,10 @@ class DataAnnotationMainWindow(QMainWindow):
 
     def get_vector(self):
         n_frame = int(self.image_number.value())
-        return self.video_annot.keyframes[n_frame].pan_vec
+        if n_frame < self.video_annot.n_keyframes():
+            return self.video_annot.keyframes[n_frame].pan_vec
+        else:
+            return [0, 0]
 
     def resizeEvent(self, event):
         # Really only need to do this on resize

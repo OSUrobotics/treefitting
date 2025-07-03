@@ -1,48 +1,54 @@
 #!/usr/bin/env python3
+
+# From manually marked sketch curves on several key frames (plus some background points) do the following
+#   Produce a consistant set of 3D points (from the curves) for each cane/branch
+#   Calculate a 3D camera for each key frame
+#
+# Input is VideoAnnotationData file with 2 (or more) keyframes with sketched 2D points for canes/branches, plus
+#   some background points that are the same across all the images
+# Assumptions:
+#  Version 1: Just use clicked points
+#   Each keyframe has the same number of curves/canes with the same labels
+#   Each keyframe has the same background points marked in the same order (can do some cleanup)
+#   Each cane/branch has points clicked in the same order, with the same number of points
+#  Version 2: fit 2D curves and then calculate the transforms
+#   Same as above, but can have more or less number of points clicked on the branch, just need to start/stop end at same place
+# Debug images
+#  Outputs (for all keyframe images) an image with
+#    The original 2D points that were clicked
+#    The 3D points projected into that image
+#    If camera intrinsics exist, use that to project the 3D points to the image
+
+
 import os.path
-
-import rclpy
-from rclpy.time import Time
+from utils.video_annotation_data import VideoAnnotationData
+from utils.camera_projections import CameraProjections
+from utils.keyframe_data import KeyFrameData
+from draw_routines.image_draw_geom_utils import draw_cross
 import numpy as np
-from std_msgs.msg import Header
-from sensor_msgs.msg import Image, PointCloud2
-from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
-from geometry_msgs.msg import Point
-from cv_bridge import CvBridge
-from follow_the_leader.networks.pips_model import PipsTracker
-from follow_the_leader_msgs.msg import (
-    Point2D,
-    TrackedPointGroup,
-    TrackedPointRequest,
-    Tracked3DPointGroup,
-    Tracked3DPointResponse,
-    StateTransition,
-)
-from follow_the_leader_msgs.srv import Query3DPoints
-from collections import defaultdict
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
-from rclpy.parameter import Parameter
-from follow_the_leader.utils.ros_utils import TFNode, SharedData, process_list_as_dict
-from threading import Lock
-
 import cv2
-bridge = CvBridge()
 
 
-class PointTrackerNoRos():
-    def __init__(self):
+class PointTrackerKeyFrames():
+    def __init__(self, va_data: VideoAnnotationData, rgb_camera: CameraProjections):
+
+        # keep the input data
+        self.va_data = va_data
+        self.rgb_camera = rgb_camera
+
         # State variables
-        self.tracker = PipsTracker(
-            model_dir=os.path.join(os.path.expanduser("~"), "follow-the-leader-deps", "pips", "pips", "reference_model")
-        )
-        self.image_size = (512, 896)
+        self.image_size = rgb_camera.image_size
         self.tracked_pts_2d = None
         self.tracked_pts_3d = None
         self.camera_matrices = None
-        self.images = None
 
-        return
+    def collect_background_points(self, b_is_horizontal=False, b_is_vertical=False):
+        """ This is just the background points - fill in any missing points by interpolating locations
+            Also tries to match points if they're in the wrong order
+            Assumes first frame is correct
+            @param b_is_horizontal - set True if you know the motion is left-right
+            @param b_is_vertical - set True if you know the motion is up-down
+            @return tracked_2d points as a numpy array"""
 
     def flatten_groups(self, grouped_pts):
         all_pts = []

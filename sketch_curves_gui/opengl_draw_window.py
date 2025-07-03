@@ -9,7 +9,7 @@ from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
 from PyQt5.QtWidgets import (QOpenGLWidget)
 import OpenGL.GL as GL
 
-from utils.camera_projections import frame_at_z_near
+from utils.camera_projections import CameraProjections
 
 
 class OopenGLDrawWindow(QOpenGLWidget):
@@ -148,9 +148,11 @@ class OopenGLDrawWindow(QOpenGLWidget):
         params = {"z_near": 1.0,
                   "z_far": 100.0,
                   "camera_width_angle": self.gui.horizontal_angle.value(),
+                  "camera_height_angle": (height_rgb_image / width_rgb_image) *  self.gui.horizontal_angle.value(),
                   "image_size": [width_rgb_image, height_rgb_image]}
 
-        frame = frame_at_z_near(params)
+        cam = CameraProjections(params=params)
+        frame = cam.frame_at_z_near(params)
         z_near = 1.0
         ang_width_half = 0.5 * np.pi * self.gui.horizontal_angle.value() / 180.0
         frame_width = z_near * np.tan(ang_width_half)
@@ -300,7 +302,10 @@ class OopenGLDrawWindow(QOpenGLWidget):
                     sc.add_backbone_point(event.x(), event.y())
             else:
                 try:
-                    self.gui.key_point(event.x(), event.y())
+                    if event.modifiers() == Qt.ControlModifier:
+                        self.gui.key_point(event.x(), event.y(), b_del=True)
+                    else:
+                        self.gui.key_point(event.x(), event.y(), b_del=False)
                 except AttributeError:
                     pass
         self.update()
