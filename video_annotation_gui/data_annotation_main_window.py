@@ -74,7 +74,7 @@ class DataAnnotationMainWindow(QMainWindow):
         #path_names_layout.setColumnMinimumWidth(0, 40)
         # path_names_layout.setColumnMinimumWidth(1, 200)
         src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
-        tree_name = "bush_9_east"
+        tree_name = "bush_1_east"
         self.path_name = QLineEdit(src_drive + tree_name + "/")
         self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
