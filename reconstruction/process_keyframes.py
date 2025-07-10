@@ -8,8 +8,9 @@
 #   some background points that are the same across all the images
 # Assumptions:
 #  Version 1: Just use clicked points
-#   Each keyframe has the same number of curves/canes with the same labels
-#   Each keyframe has the same background points marked in the same order (can do some cleanup)
+#   Each marked keyframe has the same number of curves/canes with the same labels
+#   Each marked keyframe has the same background points marked in the same order (can do some cleanup)
+#   If the keyframe has curve points marked then it also has background, and vice-versa
 #   Each cane/branch has points clicked in the same order, with the same number of points
 #  Version 2: fit 2D curves and then calculate the transforms
 #   Same as above, but can have more or less number of points clicked on the branch, just need to start/stop end at same place
@@ -23,6 +24,7 @@
 import os.path
 from utils.video_annotation_data import VideoAnnotationData
 from utils.camera_projections import CameraProjections
+from utils.file_names_sub_dirs import FileNamesSubDirs
 from utils.keyframe_data import KeyFrameData
 from draw_routines.image_draw_geom_utils import draw_cross
 import numpy as np
@@ -37,10 +39,68 @@ class PointTrackerKeyFrames():
         self.rgb_camera = rgb_camera
 
         # State variables
+        #   Using N as the number of camera frames/images, and T as number of points
         self.image_size = rgb_camera.image_size
-        self.tracked_pts_2d = None
-        self.tracked_pts_3d = None
-        self.camera_matrices = None
+        self.pose_matrices = []
+        self.pt_locations_2d = []
+        self.crv_pt_locations_2d = []
+        self.pt_locations_3d = []
+        self.crv_pt_locations_3d = []
+
+    def _check_consistant(self, vec, pts2d_a, pts2d_b):
+        """ Count the number of points where the vec is correct (within a few pixels)
+        @param vec: vector from a to b
+        @param pts2d_a: a list of points
+        @param pts2d_b: a list of points
+        @return: number of correct points, best match for each"""
+        count = 0
+        match = []
+        for pa in pts2d_a:
+            best_d = 10000
+            best_i = -1
+            for indx, pb in enumerate(pts2d_b):
+                vec_check = [pb[0] - pa[0], pb[1] - pa[1]]
+                pixs_wrong = abs(vec_check[0] - vec[0]) + abs(vec_check[1] - vec[1])
+                if pixs_wrong < best_d:
+                    best_d = pixs_wrong
+                    best_i = indx
+            if best_d < 100:
+                match.append(best_i)
+                count += 1
+            else:
+                match.append(-1)
+
+        if count != len(pts2d_a):
+            print(f"Warning, no match found {vec} {count}, {match}")
+        return count, match
+
+    def _consistent_vec(self, pts2d_a, pts2d_b, b_is_horizontal=False, b_is_vertical=False):
+        """ Stupid version of ransac - get a vec between two points in a, b that is correct for most points
+        @param pts2d_a: a list of points
+        @param pts2d_b: a list of points
+        @param b_is_horizontal: Force the vec to be horizontal
+        @param b_is_vertical: Force the vec to be vertical
+        @return: vec between pts2d_a and pts2d_b, best match for each point in pts2d_a"""
+        best_vec = [0, 0]
+        best_match = -1
+        best_count = -1
+        for pa in pts2d_a:
+            for pb in pts2d_b:
+                vec = [pb[0] - pa[0], pb[1] - pa[1]]
+                if b_is_horizontal:
+                    vec[1] = 0
+                if b_is_vertical:
+                    vec[0] = 0
+
+                count, match = self._check_consistant(vec, pts2d_a, pts2d_b)
+                if count > 0.7 * len(pts2d_a):
+                    return vec, match, True
+
+                if count > best_count:
+                    best_vec = vec.copy()
+                    best_match = match.copy()
+                    best_count = count
+        return best_vec, best_match, False
 
     def collect_background_points(self, b_is_horizontal=False, b_is_vertical=False):
         """ This is just the background points - fill in any missing points by interpolating locations
@@ -48,56 +108,103 @@ class PointTrackerKeyFrames():
             Assumes first frame is correct
             @param b_is_horizontal - set True if you know the motion is left-right
             @param b_is_vertical - set True if you know the motion is up-down
-            @return tracked_2d points as a numpy array"""
+            @return pt_locations_2d N x T list of points, vec from frame to frame, valid_keyframes"""
 
-    def flatten_groups(self, grouped_pts):
-        all_pts = []
-        all_names = []
-        for name, points in grouped_pts.items():
-            all_pts.append(points)
-            all_names.extend([name] * len(points))
-        return np.concatenate(all_pts, axis=0), all_names
+        # The 2D points we're collecting; an N-sized list by a T by 2d point
+        self.pt_locations_2d = []
+        # keep track of which key frames had background points
+        valid_keyframes = []
+        # The 2D transform from the first marked frame to each valid keyframe
+        vecs = []
+        # For each keyframe...
+        for kf in self.va_data.keyframes:
+            if len(kf.pts_2d_of_start) == 0:
+                continue
 
-    def run_point_tracking(self, images_in, pts_2d_in, ref_idx=0):
-        """ Run the point tracking, setting 2D points and 3D points and camera poses
-        @param images_in - a list of 8 images, given as numpy cv2 arrays
-        @param pts_2d_in - a list of n 2d points
-        @ref_idx - which image is to be the center image """
+            # If the keyframe has background points marked...
+            self.pt_locations_2d.append([])
+            if len(self.pt_locations_2d) == 0:
+                # First keyframe with background points marked -make this the default ordering
+                for pt in kf.pts_2d_of_start:
+                    self.pt_locations_2d[-1].append(pt)
+                valid_keyframes.append(kf)
+                vecs.append([0, 0])
+            else:
+                # Poor person's ransac
+                vec, match, valid = self._consistent_vec(self.pt_locations_2d[0], kf.pts_2d_of_start)
+                if valid == False:
+                    continue
+                for indx, best_match in enumerate(match):
+                    if best_match == -1:
+                        # No match, so use vec
+                        pt_new = [self.pt_locations_2d[0][indx][0] + vec[0],
+                                   self.pt_locations_2d[0][indx][1] + vec[1]]
+                        self.pt_locations_2d[-1].append(pt_new)
+                    else:
+                        self.pt_locations_2d[-1].append(kf.pts_2d_of_start[best_match])
+                valid_keyframes.append(kf)
+                vecs.append(vec)
+        return self.pt_locations_2d, vecs, valid_keyframes
 
-        # Get images into torch format
-        image_width = images_in[0].shape(1)
-        image_height = images_in[0].shape(0)
-        image_nchannels = images_in[0].shape(2)
-        assert image_nchannels == 3
-        self.images = np.zeros((8, image_height, image_width, image_nchannels)) # S,H,W,3
-        for im_indx, im in enumerate(images_in):
-            im_resize = cv2.resize(im, self.image_size)
-            self.images[im_indx, :, :, :] = im_resize
+    def collect_crv_points(self, vecs, valid_keyframes):
+        """ This is the cane/curve points - fill in any missing points by propagating by vecs
+            Also tries to match points if they're in the wrong order
+            @param vecs - the vector to use if no match is found
+            @param valid_keyframes - The keyframes to use
+            @return pt_locations_2d N x T list of points"""
+        # List that is size N containing one list for each curve, with each curve having some number of points
+        self.crv_pt_locations_2d = []
+        # How many curves to expect
+        n_crvs = len(valid_keyframes[0].sketch_curves)
+        for kf, vec_bkgrnd in zip(valid_keyframes, vecs):
+            # Will be empty if no background curves marked
+            self.crv_pt_locations_2d.append([])
+            if len(kf.sketch_curves) == 0:
+                print(f"Warning: Key frame should have curves but doesn't {kf.image_name}")
+                continue
+            if len(kf.sketch_curves) != n_crvs:
+                print(f"Warning: Key frame should have {n_crvs} curves but doesn't {len(kf.sketch_curves)}")
+                continue
 
-        rgb_seq = torch.from_numpy(self.images).permute(0,3,1,2).to(torch.float32) # S,3,H,W
-        rgb_seq = F.interpolate(rgb_seq, self.image_size, mode='bilinear').unsqueeze(0) # 1,S,3,H,W
+            for indx_crv, crv in enumerate(kf.sketch_curves):
+                self.crv_pt_locations_2d[-1].append([])
+                if len(crv.self.crv_pt_locations_2d) == 1:
+                    # First valid keyframe - just put crv points in
+                    self.crv_pt_locations_2d[-1][-1].append(crv.backbone_pts)
+                else:
+                    # Match as best as possible
+                    vec, match, valid = self._consistent_vec(self.crv_pt_locations_2d[0][indx_crv],
+                                                             crv.backbone_pts)
+                    if valid == False:
+                        print(f"Warning: Key frame {kf.image_name} backbone curves {indx_crv} not valid")
+                    diff = abs(vecs[0] - vec_bkgrnd[0]) + abs(vecs[1] - vec_bkgrnd[1])
+                    if diff > 20:
+                        print(f"Warning: Key frame {kf.image_name} backbone curves have different vec {vec}, {vec_bkgrnd}")
 
-        self.tracked_pts_2d = np.zeros((len(pts_2d_in), 2))
-        for indx, p in pts_2d_in:
-            self.tracked_pts_2d[indx, :] = p[0]
-            self.tracked_pts_2d[indx, :] = p[1]
+                    for indx, best_match in enumerate(match):
+                        if best_match == -1:
+                            # No match, so use vec
+                            pt_new = [self.crv_pt_locations_2d[0][indx_crv][indx][0] + vec[0],
+                                       self.crv_pt_locations_2d[0][indx_crv][indx][1] + vec[1]]
+                            self.crv_pt_locations_2d[-1][indx_crv].append(pt_new)
+                        else:
+                            self.crv_pt_locations_2d[-1][indx_crv].append(crv.backbone_pts[best_match])
 
-        # xy0 = torch.stack([grid_x, grid_y], dim=-1)  # B, N_*N_, 2
+        return self.crv_pt_locations_2d
 
+    def _combine_2d_pts(self):
+        """ Flatten all the backbone and curve points into one list
+        @return an N x (num background + num curves * num points per curves) list of 2d points"""
+        ret_pts_2d = [[] * len(self.crv_pt_locations_2d)]
+        for indx, pt_list in enumerate(self.crv_pt_locations_2d):
+            ret_pts_2d[indx].append(pt_list)
+            for crv_list in self.crv_pt_locations_2d[indx]:
+                ret_pts_2d[indx].append(crv_list)
+        return ret_pts_2d
 
-        rgbs = np.stack(rgbs, axis=0)  # S,H,W,3
-        rgbs = rgbs[:, :, :, ::-1].copy()  # BGR->RGB
-        rgbs = rgbs[::timestride]
-        S_here, H, W, C = rgbs.shape
-        print('rgbs', rgbs.shape)
-
-        self.images = np.stack()
-        images = [info["image"] for info in image_info]
-        targets, groups = self.flatten_groups(grouped_pts)
-        trajs = self.tracker.track_points(targets, images)
-        trajs = np.transpose(trajs, (1, 0, 2))  # Point, frame, coordinate
-
-        pts_3d = None
+    def full_triangulation(self):
+        """"""
+        """pts_3d = None
         if self.do_3d_point_estimation:
             ref_pose = np.linalg.inv(image_info[ref_idx]["pose"])
             camera_frame_tf_matrices = [(ref_pose @ info["pose"]) for info in image_info]
@@ -135,56 +242,14 @@ class PointTrackerKeyFrames():
         response.image.header.stamp = image_info[ref_idx]["stamp"].to_msg()
 
         return response, trajs, groups
+        """
+        pass
 
-    def update_tracker(self):
-        if not self.image_queue.is_full:
-            return
-
-        print("Updating tracker")
-        with self.current_request:
-            response, trajs, groups = self.run_point_tracking(
-                self.image_queue.as_list(), self.current_request, ref_idx=-1
-            )
-            self.tracked_3d_pub.publish(response)
-            self.update_request_from_trajectory(trajs, groups)
-            return response
-
-    def unflatten_tracked_points(self, points, groups):
-        rez = defaultdict(list)
-        for point, group in zip(points, groups):
-            rez[group].append(point)
-
-        return rez
-
-    def update_request_from_trajectory(self, trajs, groups):
-        w = self.camera.width
-        h = self.camera.height
-        final_locs = trajs[-1]
-        is_outside = (final_locs[:, 0] < 0) | (final_locs[:, 0] >= w) | (final_locs[:, 1] < 0) | (final_locs[:, 1] >= h)
-        idx_to_stay = np.where(~is_outside)[0]
-        new_req = {}
-
-        update_locs = trajs[1]
-        for idx in idx_to_stay:
-            group = groups[idx]
-            if group not in new_req:
-                new_req[group] = []
-            new_req[group].append(update_locs[idx])
-
-        self.current_request.clear()
-        for group, points in new_req.items():
-            self.current_request[group] = np.array(points)
-        return
-
-    def reset(self, *_, **__):
-        self.current_request.clear()
-        self.image_queue.empty()
-        return
-
-    def debug_tracking(self, images, trajs, reprojs=None, output=None):
+    def debug_tracking(self, valid_keyframes, pts_3d):
         import cv2
         from PIL import Image
 
+        """
         final_imgs = []
         # trajs is point x frame x dim
         for i, img in enumerate(images):
@@ -200,38 +265,41 @@ class PointTrackerKeyFrames():
                 stamp = self.get_clock().now().seconds_nanoseconds()[0]
                 Image.fromarray(img).save(os.path.join(output, f"{stamp}_{i+1}.png"))
                 print("output image")
-
-        return final_imgs
-
-
-class PointTriangulator:
-    def __init__(self, camera, min_points=2):
-        self.camera = camera
-        self.min_points = min_points
-        return
-
-    @property
-    def k(self):
-        return self.camera.K
+        """
+        pass
 
     def run_triangulation(self, pose_matrices, point_traj):
-        """
+        """ Calculate the 3D location of a point given pose matrices for each camera
+            and the 2D point location for each of the images (and an intrinsic matrix)
+            Basically find x,y,z st proj * pose_n * [u,v]_n minimizes the distance between
+            the projected point and the clicked location in the image
         pose_matrices: List of N 4x4 matrices
-        trajs: N x 2 array of point trajectories in typical image XY format
+        trajs: N x 2 array of point trajectory for a single point in typical image XY format
         """
 
+        world_to_camera = self.rgb_camera.world_to_image
+
         D = np.zeros((len(pose_matrices) * 2, 4))
+        # loops N times, one for each image
         for i, (pose_mat, point) in enumerate(zip(pose_matrices, point_traj)):
-            proj_mat = self.k @ np.linalg.inv(pose_mat)[:3]
+            # Project 3D point to image
+            proj_mat = world_to_camera @ np.linalg.inv(pose_mat)[:3]
+            # Difference in the x value when projected
             D[2 * i] = proj_mat[2] * point[0] - proj_mat[0]
+            # Difference in the y value when projected
             D[2 * i + 1] = proj_mat[2] * point[1] - proj_mat[1]
 
         _, _, v = np.linalg.svd(D, full_matrices=True)
-        pts_3d = v[-1, :3] / v[-1, 3]
-        return pts_3d
+        # 3D point
+        pt_3d = v[-1, :3] / v[-1, 3]
+        return pt_3d
 
     def compute_3d_points(self, pose_matrices, point_trajs):
-        """
+        """ Calculate the 3D locations of the points given pose matrices for each camera
+            and 2D point trajectories (and an intrinsic matrix)
+            Basically find x,y,z st proj * pose_n * [u,v]_n minimizes the distance between
+            the projected point and the clicked location in the image
+            Computes the 3D location for T points
         pose_matrices: List of N 4x4 matrices
         trajs: T x N x 2 array of point trajectories in typical image XY format
         """
@@ -239,15 +307,12 @@ class PointTriangulator:
         for traj in point_trajs:
             interior = (
                 (traj[:, 0] >= 0)
-                & (traj[:, 0] <= self.camera.width)
+                & (traj[:, 0] <= self.rgb_camera.image_size[0])
                 & (traj[:, 1] >= 0)
-                & (traj[:, 1] <= self.camera.height)
+                & (traj[:, 1] <= self.rgb_camera.image_size[1])
             )
             traj = traj[interior]
-            if len(traj) < self.min_points:
-                all_rez.append(np.zeros(3))
-            else:
-                all_rez.append(self.run_triangulation(pose_matrices, traj))
+            all_rez.append(self.run_triangulation(pose_matrices, traj))
 
         return np.array(all_rez)
 
@@ -271,18 +336,53 @@ class PointTriangulator:
                 pt_3d_h[:3] = pt_3d
                 pt_3d_t = (pose_t_base @ pt_3d_h)[:3]
 
-                reproj = self.camera.project3dToPixel(pt_3d_t)
+                reproj = self.rgb_camera @ pt_3d_t
                 rez[i, j] = reproj
 
         return rez
 
 
-def main(args=None):
-    rclpy.init(args=args)
-    executor = MultiThreadedExecutor()
-    node = PointTracker()
-    rclpy.spin(node, executor=executor)
-
-
 if __name__ == "__main__":
-    main()
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--action', default="make_3d", type=str, help="One of: make_3d")
+    parser.add_argument('--dest_path', default="PycharmProjects/data/", type=str, help="where tree/bush data is stored")
+    parser.add_argument('--bush_tree_name', default="bush_3_east", type=str, help="Tree or bush name")
+    parser.add_argument('--annot', default="video_annot.json", type=str, help="which video annotation to use")
+    parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
+    parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
+    parser.add_argument('--mask_id', default=-1, type=int, help="which curve, set to -1 for all")
+    parser.add_argument('--camera', default="azure", type=str, help="Camera, one of azure, intel TODO")
+    parser.add_argument('--start_index', default=149, type=int, help="Start index for copy tree/bush")
+    parser.add_argument('--end_index', default=-1, type=int, help="End index for copy tree/bush, -1 is all")
+    parser.add_argument('--skip_index', default=30, type=int, help="skip frames for copy tree/bush, 10 for tree, 32 for blueberry")
+
+    args = parser.parse_args()
+
+    # Grab the current path
+    path_start = FileNamesSubDirs.get_path()
+    # Where the video_annot.json lives
+    path_full = path_start + args.dest_path + args.bush_tree_name + "/"
+    # The video_annot.json file
+    va_fname = path_full + args.annot
+    with open(va_fname, "r") as f:
+        my_dict = json.load(f)
+        va = VideoAnnotationData.read_json(my_dict)
+
+    cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
+                                camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                params={})
+    cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
+                                  camera_calibration_fname=("azure_camera_calibration.json", "depth"),
+                                  params={})
+    if args.camera == "azure":
+        cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
+                                    camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                    params={})
+        cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
+                                      camera_calibration_fname=("azure_camera_calibration.json", "depth"),
+                                      params={})
+    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb)
+    pts_2d = pt_kf.get
