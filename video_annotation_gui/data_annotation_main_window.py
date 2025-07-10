@@ -74,7 +74,7 @@ class DataAnnotationMainWindow(QMainWindow):
         #path_names_layout.setColumnMinimumWidth(0, 40)
         # path_names_layout.setColumnMinimumWidth(1, 200)
         src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
-        tree_name = "bush_5_east"
+        tree_name = "bush_9_east"
         self.path_name = QLineEdit(src_drive + tree_name + "/")
         self.file_name = QLineEdit("video_annot.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
@@ -645,7 +645,7 @@ class DataAnnotationMainWindow(QMainWindow):
                 self.images[k] = cv2.imread(v)
                 if k == "rgb":
                     alpha = 1.1  # Controls contrast (alpha > 1 increases contrast)
-                    beta = 1.75    # Controls brightness (positive beta increases brightness)
+                    beta = 1.5    # Controls brightness (positive beta increases brightness)
 
                     self.images[k] = cv2.convertScaleAbs(self.images[k], alpha, beta)
             else:

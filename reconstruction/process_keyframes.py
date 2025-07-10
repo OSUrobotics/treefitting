@@ -55,6 +55,7 @@ class PointTrackerKeyFrames():
         @return: number of correct points, best match for each"""
         count = 0
         match = []
+        est_error = 100 + 0.2 * abs(vec[0] + abs(vec[1]))
         for pa in pts2d_a:
             best_d = 10000
             best_i = -1
@@ -64,7 +65,7 @@ class PointTrackerKeyFrames():
                 if pixs_wrong < best_d:
                     best_d = pixs_wrong
                     best_i = indx
-            if best_d < 100:
+            if best_d < est_error:
                 match.append(best_i)
                 count += 1
             else:
@@ -123,16 +124,17 @@ class PointTrackerKeyFrames():
 
             # If the keyframe has background points marked...
             self.pt_locations_2d.append([])
-            if len(self.pt_locations_2d) == 0:
+            if len(self.pt_locations_2d) == 1:
                 # First keyframe with background points marked -make this the default ordering
                 for pt in kf.pts_2d_of_start:
-                    self.pt_locations_2d[-1].append(pt)
+                    self.pt_locations_2d[-1].append([pt[0], pt[1]])
                 valid_keyframes.append(kf)
                 vecs.append([0, 0])
             else:
                 # Poor person's ransac
-                vec, match, valid = self._consistent_vec(self.pt_locations_2d[0], kf.pts_2d_of_start)
-                if valid == False:
+                vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_of_start, b_is_horizontal=b_is_horizontal, b_is_vertical=b_is_vertical)
+                print(f" Match {kf.image_name} {match}")
+                if not valid:
                     continue
                 for indx, best_match in enumerate(match):
                     if best_match == -1:
@@ -141,7 +143,8 @@ class PointTrackerKeyFrames():
                                    self.pt_locations_2d[0][indx][1] + vec[1]]
                         self.pt_locations_2d[-1].append(pt_new)
                     else:
-                        self.pt_locations_2d[-1].append(kf.pts_2d_of_start[best_match])
+                        pt_match = kf.pts_2d_of_start[best_match]
+                        self.pt_locations_2d[-1].append([pt_match[0], pt_match[1]])
                 valid_keyframes.append(kf)
                 vecs.append(vec)
         return self.pt_locations_2d, vecs, valid_keyframes
@@ -154,41 +157,58 @@ class PointTrackerKeyFrames():
             @return pt_locations_2d N x T list of points"""
         # List that is size N containing one list for each curve, with each curve having some number of points
         self.crv_pt_locations_2d = []
-        # How many curves to expect
-        n_crvs = len(valid_keyframes[0].sketch_curves)
-        for kf, vec_bkgrnd in zip(valid_keyframes, vecs):
-            # Will be empty if no background curves marked
+
+        # How many mask ids to loop over
+        n_mask_ids = len(valid_keyframes[0].sketch_curves)
+        n_crvs = []
+        last_valid_kf_with_curves = -1
+        for kf_indx, (kf, vec_bkgrnd) in enumerate(zip(valid_keyframes, vecs)):
+            if len(kf.sketch_curves) is not n_mask_ids:
+                print(f"Warning, key frame {kf.image_name} has wrong number of mask ids")
+                continue
+
             self.crv_pt_locations_2d.append([])
-            if len(kf.sketch_curves) == 0:
-                print(f"Warning: Key frame should have curves but doesn't {kf.image_name}")
-                continue
-            if len(kf.sketch_curves) != n_crvs:
-                print(f"Warning: Key frame should have {n_crvs} curves but doesn't {len(kf.sketch_curves)}")
-                continue
+            kf_crv_pt_list = self.crv_pt_locations_2d[kf_indx]
 
-            for indx_crv, crv in enumerate(kf.sketch_curves):
-                self.crv_pt_locations_2d[-1].append([])
-                if len(crv.self.crv_pt_locations_2d) == 1:
-                    # First valid keyframe - just put crv points in
-                    self.crv_pt_locations_2d[-1][-1].append(crv.backbone_pts)
-                else:
-                    # Match as best as possible
-                    vec, match, valid = self._consistent_vec(self.crv_pt_locations_2d[0][indx_crv],
-                                                             crv.backbone_pts)
-                    if valid == False:
-                        print(f"Warning: Key frame {kf.image_name} backbone curves {indx_crv} not valid")
-                    diff = abs(vecs[0] - vec_bkgrnd[0]) + abs(vecs[1] - vec_bkgrnd[1])
-                    if diff > 20:
-                        print(f"Warning: Key frame {kf.image_name} backbone curves have different vec {vec}, {vec_bkgrnd}")
+            # Flattening out all mask id curve lists
+            count = 0
+            for mask_id_crv_list in kf.sketch_curves:
+                for crv in mask_id_crv_list:
+                    if last_valid_kf_with_curves == -1:
+                        # First valid keyframe - just put crv points in
+                        kf_crv_pt_list.append([])
+                        for pt in crv.backbone_pts:
+                            kf_crv_pt_list[-1].append([pt[0], pt[1]])
+                    else:
+                        # Match as best as possible
+                        last_kf_crv =  self.crv_pt_locations_2d[last_valid_kf_with_curves][count]
+                        vec, match, valid = self._consistent_vec(last_kf_crv, crv.backbone_pts)
+                        print(f" Match {kf.image_name} {match}")
+                        if len(last_kf_crv) != len(crv.backbone_pts):
+                            print(f"Warning: Keyframe {kf.image_name}, number of curve points does not match {len(last_kf_crv)}, {len(crv.backbone_pts)}")
+                        if not valid:
+                            print(f"Warning: Key frame {kf.image_name} backbone curves {mask_id_crv_list} {count} not valid")
+                        diff = abs(vec[0] - vec_bkgrnd[0]) + abs(vec[1] - vec_bkgrnd[1])
+                        if diff > 20:
+                            print(f"Warning: Key frame {kf.image_name} backbone curves have different vec {vec}, {vec_bkgrnd}")
 
-                    for indx, best_match in enumerate(match):
-                        if best_match == -1:
-                            # No match, so use vec
-                            pt_new = [self.crv_pt_locations_2d[0][indx_crv][indx][0] + vec[0],
-                                       self.crv_pt_locations_2d[0][indx_crv][indx][1] + vec[1]]
-                            self.crv_pt_locations_2d[-1][indx_crv].append(pt_new)
-                        else:
-                            self.crv_pt_locations_2d[-1][indx_crv].append(crv.backbone_pts[best_match])
+                        kf_crv_pt_list.append([])
+                        for indx, best_match in enumerate(match):
+                            if best_match == -1:
+                                # No match, so use vec
+                                pt_new = [last_kf_crv[indx][0] + vec[0], last_kf_crv[1] + vec[1]]
+                                kf_crv_pt_list[-1].append(pt_new)
+                            else:
+                                pt_match = crv.backbone_pts[best_match]
+                                kf_crv_pt_list[-1].append([pt_match[0], pt_match[1]])
+                    count += 1
+
+            # Done with all curves for this keyframe
+            if count > 0:
+                if last_valid_kf_with_curves != -1:
+                    if count is not len(self.crv_pt_locations_2d[last_valid_kf_with_curves]):
+                        print(f"Warning, kf {kf.image_name} has wrong number of curves, got {count} expected {len(self.crv_pt_locations_2d[last_valid_kf_with_curves])}")
+                last_valid_kf_with_curves = kf_indx
 
         return self.crv_pt_locations_2d
 
@@ -350,7 +370,7 @@ if __name__ == "__main__":
     parser.add_argument('--action', default="make_3d", type=str, help="One of: make_3d")
     parser.add_argument('--dest_path', default="PycharmProjects/data/", type=str, help="where tree/bush data is stored")
     parser.add_argument('--bush_tree_name', default="bush_3_east", type=str, help="Tree or bush name")
-    parser.add_argument('--annot', default="video_annot.json", type=str, help="which video annotation to use")
+    parser.add_argument('--annot', default="video_annot_final.json", type=str, help="which video annotation to use")
     parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
     parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
     parser.add_argument('--mask_id', default=-1, type=int, help="which curve, set to -1 for all")
@@ -367,6 +387,7 @@ if __name__ == "__main__":
     path_full = path_start + args.dest_path + args.bush_tree_name + "/"
     # The video_annot.json file
     va_fname = path_full + args.annot
+    print(f"Annotation file {va_fname}")
     with open(va_fname, "r") as f:
         my_dict = json.load(f)
         va = VideoAnnotationData.read_json(my_dict)
@@ -385,4 +406,7 @@ if __name__ == "__main__":
                                       camera_calibration_fname=("azure_camera_calibration.json", "depth"),
                                       params={})
     pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb)
-    pts_2d = pt_kf.get
+    pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
+    pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
+
+    print(f"Done {pts_2d}")
