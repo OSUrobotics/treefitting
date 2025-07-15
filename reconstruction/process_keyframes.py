@@ -26,7 +26,6 @@ from utils.video_annotation_data import VideoAnnotationData
 from utils.camera_projections import CameraProjections
 from utils.file_names_sub_dirs import FileNamesSubDirs
 from utils.keyframe_data import KeyFrameData
-from draw_routines.image_draw_geom_utils import draw_cross
 import numpy as np
 import cv2
 
@@ -41,7 +40,13 @@ class PointTrackerKeyFrames():
         # State variables
         #   Using N as the number of camera frames/images, and T as number of points
         self.image_size = rgb_camera.image_size
+        self.kf_indices = []
+        self.valid_keyframes = []
+        self.vecs_pts = []
+        self.vecs_crvs = []
         self.pose_matrices = []
+        self.rot_matrices = []
+        self.trans_vecs = []
         self.pt_locations_2d = []
         self.crv_pt_locations_2d = []
         self.pt_locations_3d = []
@@ -114,11 +119,12 @@ class PointTrackerKeyFrames():
         # The 2D points we're collecting; an N-sized list by a T by 2d point
         self.pt_locations_2d = []
         # keep track of which key frames had background points
-        valid_keyframes = []
+        self.valid_keyframes = []
+        self.kf_indices = []
         # The 2D transform from the first marked frame to each valid keyframe
-        vecs = []
+        self.vecs_pts = []
         # For each keyframe...
-        for kf in self.va_data.keyframes:
+        for kf_index, kf in enumerate(self.va_data.keyframes):
             if len(kf.pts_2d_of_start) == 0:
                 continue
 
@@ -128,8 +134,9 @@ class PointTrackerKeyFrames():
                 # First keyframe with background points marked -make this the default ordering
                 for pt in kf.pts_2d_of_start:
                     self.pt_locations_2d[-1].append([pt[0], pt[1]])
-                valid_keyframes.append(kf)
-                vecs.append([0, 0])
+                self.valid_keyframes.append(kf)
+                self.kf_indices.append(kf_index)
+                self.vecs_pts.append([0, 0])
             else:
                 # Poor person's ransac
                 vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_of_start, b_is_horizontal=b_is_horizontal, b_is_vertical=b_is_vertical)
@@ -145,9 +152,10 @@ class PointTrackerKeyFrames():
                     else:
                         pt_match = kf.pts_2d_of_start[best_match]
                         self.pt_locations_2d[-1].append([pt_match[0], pt_match[1]])
-                valid_keyframes.append(kf)
-                vecs.append(vec)
-        return self.pt_locations_2d, vecs, valid_keyframes
+                self.valid_keyframes.append(kf)
+                self.kf_indices.append(kf_index)
+                self.vecs_pts.append([vec[0], vec[1]])   # From last frame to this one
+        return self.pt_locations_2d, self.vecs_pts, self.valid_keyframes
 
     def collect_crv_points(self, vecs, valid_keyframes):
         """ This is the cane/curve points - fill in any missing points by propagating by vecs
@@ -173,6 +181,7 @@ class PointTrackerKeyFrames():
             # Flattening out all mask id curve lists
             count = 0
             for mask_id_crv_list in kf.sketch_curves:
+                vec_avg = [0, 0]
                 for crv in mask_id_crv_list:
                     if last_valid_kf_with_curves == -1:
                         # First valid keyframe - just put crv points in
@@ -201,15 +210,24 @@ class PointTrackerKeyFrames():
                             else:
                                 pt_match = crv.backbone_pts[best_match]
                                 kf_crv_pt_list[-1].append([pt_match[0], pt_match[1]])
+                        vec_avg[0] += vec[0]
+                        vec_avg[1] += vec[1]
                     count += 1
 
             # Done with all curves for this keyframe
+            n_crvs.append(count)
+
             if count > 0:
+                self.vecs_crvs.append([vec_avg[0] / count, vec_avg[1] / count])
+                vec_avg[0] /= count
                 if last_valid_kf_with_curves != -1:
                     if count is not len(self.crv_pt_locations_2d[last_valid_kf_with_curves]):
                         print(f"Warning, kf {kf.image_name} has wrong number of curves, got {count} expected {len(self.crv_pt_locations_2d[last_valid_kf_with_curves])}")
                 last_valid_kf_with_curves = kf_indx
+            else:
+                self.vecs_crvs.append([0, 0])
 
+        print(f"Curve counts {n_crvs}")
         return self.crv_pt_locations_2d
 
     def _combine_2d_pts(self):
@@ -221,6 +239,102 @@ class PointTrackerKeyFrames():
             for crv_list in self.crv_pt_locations_2d[indx]:
                 ret_pts_2d[indx].append(crv_list)
         return ret_pts_2d
+
+    def solve_3d_pts(self):
+        """ Assumes self.pt_locations_2d has been filled in"""
+        self.pose_matrices = []
+        self.rot_matrices = []
+        self.trans_vecs = []
+        pts = np.array(self.pt_locations_2d, dtype=np.float32)
+
+        # An example of calling undistortPoints, which is called within recover pose
+        pts_test = np.squeeze(pts[0, :])
+        pts_out = cv2.undistortPoints(src=pts_test, cameraMatrix=cam_rgb.world_to_image, distCoeffs=cam_rgb.image_distortion_coefs)
+
+        # Get the (approximate) camera matrices
+        indx_mid_im = pts.shape[0] // 2
+        for indx in range(pts.shape[0]):
+            essential_mat = cv2.findEssentialMat(points1=np.squeeze(pts[indx_mid_im, :]),
+                                                 points2=np.squeeze(pts[indx, :]),
+                                                 cameraMatrix=cam_rgb.world_to_image)
+            cam_recover = cv2.recoverPose(points1=np.squeeze(pts[indx_mid_im, :]),
+                                          points2=np.squeeze(pts[indx, :]),
+                                          cameraMatrix=cam_rgb.world_to_image,
+                                          E = essential_mat[0]
+                                          )
+            cam_pose = np.identity(4)
+            self.rot_matrices.append(cam_recover[1])
+            self.trans_vecs.append(cam_recover[2])
+            cam_pose[0:3, 0:3] = cam_recover[1]
+            cam_pose[0:3, 3] = np.transpose(cam_recover[2])
+            self.pose_matrices.append(cam_pose)
+
+        # Use those matrices to get the 3D points
+        self.pt_locations_3d = self.run_triangulation_all(self.pose_matrices, pts)
+
+    def debug_images(self, va : VideoAnnotationData):
+        """ Produce images with tracks on both rgb and depth (if 3D points given)
+        Assumes pt_locations_2d and/or crv_pt_locations_2d have been created already
+        @param va - video annotation (for where to put the images)
+        @param valid_kf the keyframes for which we have 2d points"""
+        from draw_routines.image_draw_geom_utils import draw_cross, draw_line, draw_box
+
+        count = 0
+        thickness = 4
+        pts_3d = np.array(self.pt_locations_3d, dtype=np.float32)
+        for kf_indx, kf in zip(self.kf_indices, self.valid_keyframes):
+            fname_rgb = va.get_image_name((0, kf_indx, 0, 0))
+            im_rgb = cv2.imread(fname_rgb)
+
+            # Draw the vector in the middle of the screen in yellow
+            pt_mid = [im_rgb.shape[1] // 2, im_rgb.shape[0] // 2]
+            pt_end_mid = pt_mid + self.vecs_pts[count]
+            draw_cross(im_rgb, pt_mid, color=[255, 255, 0], thickness=thickness // 2)
+            draw_line(im_rgb, pt_mid, pt_end_mid, color=[255, 255, 0], thickness=thickness // 2)
+
+            # Draw the original clicked background points in white
+            for bp in kf.pts_2d_of_start:
+                draw_box(im_rgb, bp, color=[200, 200, 200], width=4 * thickness)
+
+            # Draw the original clicked curve points in white
+            for mask in kf.sketch_curves:
+                for crv in mask:
+                    for pt in crv.backbone_pts:
+                        draw_box(im_rgb, pt, color=[200, 200, 200], width=4 * thickness)
+
+            # Draw the 2D points saved in pts_2d, with lines between them
+            for pt_indx, pt in enumerate(self.pt_locations_2d[count]):
+                draw_cross(im_rgb, pt, color=[20, 200, 200], thickness=thickness)
+                if pt_indx == 0:
+                    pt_prev = pt
+                else:
+                    pt_prev = self.pt_locations_2d[count][pt_indx - 1]
+                draw_line(im_rgb, pt, pt_prev, color=[20, 200, 200], thickness=thickness)
+
+            # Draw the curve points saved in crv_pts_2d, with lines between them
+            for crv in self.crv_pt_locations_2d[count]:
+                for pt_indx, pt in enumerate(crv):
+                    draw_cross(im_rgb, pt, color=[250, 20, 200], thickness=2 * thickness)
+                    if pt_indx == 0:
+                        pt_prev = pt
+                    else:
+                        pt_prev = crv[pt_indx - 1]
+                    draw_line(im_rgb, pt, pt_prev, color=[250, 20, 200], thickness=thickness)
+
+            if self.pose_matrices is not [] and self.pt_locations_2d is not []:
+                pts_proj = cv2.projectPoints(pts_3d,
+                                             rvec=self.rot_matrices[count],
+                                             tvec=self.trans_vecs[count],
+                                             cameraMatrix=cam_rgb.world_to_image,
+                                             distCoeffs=cam_rgb.image_distortion_coefs)
+                for pt_indx in range(0, pts_proj[0].shape[0]):
+                    pt_row = pts_proj[0][pt_indx]
+                    draw_box(im_rgb, pt_row, color=[100, 150, 200], width=thickness * 2)
+
+            count = count + 1
+            fname = va.get_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
+            cv2.imwrite(fname, im_rgb)
+
 
     def full_triangulation(self):
         """"""
@@ -288,31 +402,50 @@ class PointTrackerKeyFrames():
         """
         pass
 
-    def run_triangulation(self, pose_matrices, point_traj):
+    def _run_triangulation(self, pose_matrices, point_traj):
         """ Calculate the 3D location of a point given pose matrices for each camera
             and the 2D point location for each of the images (and an intrinsic matrix)
             Basically find x,y,z st proj * pose_n * [u,v]_n minimizes the distance between
             the projected point and the clicked location in the image
+            Multi-view triangulation https://www.overleaf.com/project/643eafda3db3b7748aa902f3
         pose_matrices: List of N 4x4 matrices
         trajs: N x 2 array of point trajectory for a single point in typical image XY format
         """
 
-        world_to_camera = self.rgb_camera.world_to_image
+        # 3x2 matrix
+        world_to_camera = np.identity(4)
+        world_to_camera[0:3, 0:3] = self.rgb_camera.world_to_image
 
         D = np.zeros((len(pose_matrices) * 2, 4))
         # loops N times, one for each image
-        for i, (pose_mat, point) in enumerate(zip(pose_matrices, point_traj)):
+        for indx, (pose_mat, point) in enumerate(zip(pose_matrices, point_traj)):
             # Project 3D point to image
-            proj_mat = world_to_camera @ np.linalg.inv(pose_mat)[:3]
+            proj_mat = world_to_camera @ np.linalg.inv(pose_mat)
+            p = proj_mat[0, :3]
             # Difference in the x value when projected
-            D[2 * i] = proj_mat[2] * point[0] - proj_mat[0]
+
+            D[2 * indx, :] = proj_mat[2, :] * point[0] - proj_mat[0, :]
             # Difference in the y value when projected
-            D[2 * i + 1] = proj_mat[2] * point[1] - proj_mat[1]
+            D[2 * indx + 1, :] = proj_mat[2, :] * point[1] - proj_mat[1, :]
 
         _, _, v = np.linalg.svd(D, full_matrices=True)
         # 3D point
         pt_3d = v[-1, :3] / v[-1, 3]
         return pt_3d
+
+    def run_triangulation_all(self, pose_matrices, pts_2d):
+        """Calculate the 3d locations of all of the points in 2d
+        @param pose_matrices - N long list of 4x4 matrix of camera poses for each image
+        @param pts_2d - Nx2 set of points as numpy array
+        @return 3d locations"""
+
+        pts_3d = []
+        for pt_indx in range(pts_2d.shape[1]):
+            pts_2d_track = []
+            for row_indx in range(pts_2d.shape[0]):
+                pts_2d_track.append([pts_2d[row_indx][pt_indx][0], pts_2d[row_indx][pt_indx][1]])
+            pts_3d.append(self._run_triangulation(pose_matrices, pts_2d_track))
+        return pts_3d
 
     def compute_3d_points(self, pose_matrices, point_trajs):
         """ Calculate the 3D locations of the points given pose matrices for each camera
@@ -408,5 +541,7 @@ if __name__ == "__main__":
     pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb)
     pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
     pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
+    pt_kf.solve_3d_pts()
+    pt_kf.debug_images(va)
 
     print(f"Done {pts_2d}")

@@ -18,8 +18,8 @@ class CameraProjections():
         self.camera_width_angle = 90
         self.camera_height_angle = 90
 
-        self.world_to_image = np.identity(3)
-        self.image_distortion_coefs = np.zeros((5,))
+        self.world_to_image = np.identity(3, dtype=np.float32)
+        self.image_distortion_coefs = np.zeros((5,), dtype=np.float32)
 
         locs = ("./", "treefitting/utils/", "../utils/")
         for loc in locs:
@@ -48,7 +48,7 @@ class CameraProjections():
                         pass
 
                     try:
-                        self.image_distortion_coefs = np.array(cam_params[distortion_name])
+                        self.image_distortion_coefs = np.array(cam_params[distortion_name], dtype=np.float32)
                     except ValueError:
                         pass
 
