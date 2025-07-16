@@ -24,7 +24,6 @@ def draw_line(im, p1, p2, color, thickness=1):
         p1_int = [int(x) for x in np.transpose(p1)]
         p2_int = [int(x) for x in np.transpose(p2)]
         cv2.line(im, (p1_int[0], p1_int[1]), (p2_int[0], p2_int[1]), color, thickness)
-        print(f"p1 {p1} p2 {p2}")
     """
     p0 = p1
     p1 = p2
