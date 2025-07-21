@@ -21,17 +21,15 @@
 #    If camera intrinsics exist, use that to project the 3D points to the image
 
 
-import os.path
 from utils.video_annotation_data import VideoAnnotationData
 from utils.camera_projections import CameraProjections
 from utils.file_names_sub_dirs import FileNamesSubDirs
-from utils.keyframe_data import KeyFrameData
 import numpy as np
 import cv2
 
 
 class PointTrackerKeyFrames():
-    def __init__(self, va_data: VideoAnnotationData, rgb_camera: CameraProjections):
+    def __init__(self, va_data: VideoAnnotationData, rgb_camera: CameraProjections, est_depth=10.0):
 
         # keep the input data
         self.va_data = va_data
@@ -39,6 +37,7 @@ class PointTrackerKeyFrames():
 
         # State variables
         #   Using N as the number of camera frames/images, and T as number of points
+        self.est_depth = est_depth  # Estimated depth in cm
         self.image_size = rgb_camera.image_size
         self.kf_indices = []
         self.valid_keyframes = []
@@ -55,8 +54,11 @@ class PointTrackerKeyFrames():
         self.crv_pt_locations_2d = []
         self.pt_locations_3d = []
         self.crv_pt_locations_3d = []
+        self.b_vertical = False
+        self.b_horizontal = False
 
-    def _check_consistant(self, vec, pts2d_a, pts2d_b):
+    @staticmethod
+    def _check_consistant(vec, pts2d_a, pts2d_b):
         """ Count the number of points where the vec is correct (within a few pixels)
         @param vec: vector from a to b
         @param pts2d_a: a list of points
@@ -84,7 +86,7 @@ class PointTrackerKeyFrames():
             print(f"Warning, no match found {vec} {count}, {match}")
         return count, match
 
-    def _consistent_vec(self, pts2d_a, pts2d_b, b_is_horizontal=False, b_is_vertical=False):
+    def _consistent_vec(self, pts2d_a, pts2d_b):
         """ Stupid version of ransac - get a vec between two points in a, b that is correct for most points
         @param pts2d_a: a list of points
         @param pts2d_b: a list of points
@@ -97,9 +99,9 @@ class PointTrackerKeyFrames():
         for pa in pts2d_a:
             for pb in pts2d_b:
                 vec = [pb[0] - pa[0], pb[1] - pa[1]]
-                if b_is_horizontal:
+                if self.b_horizontal:
                     vec[1] = 0
-                if b_is_vertical:
+                if self.b_vertical:
                     vec[0] = 0
 
                 count, match = self._check_consistant(vec, pts2d_a, pts2d_b)
@@ -119,6 +121,10 @@ class PointTrackerKeyFrames():
             @param b_is_horizontal - set True if you know the motion is left-right
             @param b_is_vertical - set True if you know the motion is up-down
             @return pt_locations_2d N x T list of points, vec from frame to frame, valid_keyframes"""
+
+        # Save for later
+        self.b_vertical = b_is_vertical
+        self.b_horizontal = b_is_horizontal
 
         # The 2D points we're collecting; an N-sized list by a T by 2d point
         self.pt_locations_2d = []
@@ -143,7 +149,7 @@ class PointTrackerKeyFrames():
                 self.vecs_pts.append([0, 0])
             else:
                 # Poor person's ransac
-                vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_of_start, b_is_horizontal=b_is_horizontal, b_is_vertical=b_is_vertical)
+                vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_of_start)
                 print(f" Match {kf.image_name} {match}")
                 if not valid:
                     continue
@@ -247,7 +253,7 @@ class PointTrackerKeyFrames():
         print(f"Curve counts {n_crvs}")
         return self.crv_pt_locations_2d
 
-    def _initial_cam_pose(self):
+    def _initial_cam_pose_from_essential(self):
         """ Get the initial camera poses from the 2d points and the essential matrix"""
 
         self.pose_matrices = []
@@ -256,9 +262,10 @@ class PointTrackerKeyFrames():
         pts = np.array(self.pt_locations_2d, dtype=np.float64)
 
         # An example of calling undistortPoints, which is called within recover pose
-        pts_test = np.squeeze(pts[0, :])
-        pts_out = cv2.undistortPoints(src=pts_test, cameraMatrix=cam_rgb.world_to_image,
-                                      distCoeffs=cam_rgb.image_distortion_coefs)
+        # pts_test = np.squeeze(pts[0, :])
+        # Uncomment to check that undistort (used in finding the essential matrix) works
+        # pts_out = cv2.undistortPoints(src=pts_test, cameraMatrix=cam_rgb.world_to_image,
+        #                               distCoeffs=cam_rgb.image_distortion_coefs)
 
         # Get the (approximate) camera matrices
         indx_mid_im = pts.shape[0] // 2
@@ -282,7 +289,7 @@ class PointTrackerKeyFrames():
             #  From: https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#gab705726dc6b655acf50bc936942824ef
             #
             k_inv = np.linalg.inv(cam_rgb.world_to_image)
-            kt_e_k = cam_rgb.world_to_image.transpose() @ essential_mat[0] @ cam_rgb.world_to_image
+            # kt_e_k = cam_rgb.world_to_image.transpose() @ essential_mat[0] @ cam_rgb.world_to_image
             # Does a ransac, so masks says which points are kept. First argument is the actual matrix, second is the mask
             print(f"E {indx} {essential_mat[0]} \nMasks: {essential_mat[1].transpose()}")
             # Check to see how well the essential matrix worked (should be close to zero)
@@ -306,13 +313,56 @@ class PointTrackerKeyFrames():
             self.rot_matrices.append(cam_recover[1])
             self.trans_vecs.append(cam_recover[2])
 
-            self.rot_matrices[-1] = np.identity(3)
-            self.trans_vecs[-1][1] = 0.0
-            self.trans_vecs[-1][2] = 0.0
+            # Build the matrix - copy the rotation into the 3x3 in the upper left, the translation into the right most column
+            cam_pose = np.identity(4)
+            cam_pose[0:3, 0:3] = self.rot_matrices[-1]
+            cam_pose[0:3, 3] = np.transpose(self.trans_vecs[-1])
+
+            self.pose_matrices.append(cam_pose)
+
+    def _cam_pose_from_vec(self):
+        """ Get the initial camera poses for vertial or horizontal motion
+        Assumes no rotation of the camera, just pan
+        """
+
+        self.pose_matrices = []
+        self.rot_matrices = []
+        self.trans_vecs = []
+
+        # Get the (approximate) camera matrices
+        indx_mid_im = len(self.pt_locations_2d) // 2
+        self.center_frame = indx_mid_im
+        print(f"Mid frame {indx_mid_im}")
+
+        # Assumes the objects of interest are around 1/2 meter away
+        d_est_per_pix_w = self.est_depth * np.sin(2.0 * self.rgb_camera.camera_width_angle) / self.rgb_camera.image_size[0]
+        d_est_per_pix_h = self.est_depth * np.sin(2.0 * self.rgb_camera.camera_height_angle) / self.rgb_camera.image_size[1]
+        if self.b_vertical:
+            d_est_per_pix = d_est_per_pix_h
+        elif self.b_horizontal:
+            d_est_per_pix = d_est_per_pix_w
+        else:
+            d_est_per_pix = 0.5 * (d_est_per_pix_w + d_est_per_pix_h)
+
+        for indx in range(len(self.pt_locations_2d)):
+            vec = [0, 0]
             if indx < indx_mid_im:
-                self.trans_vecs[-1][0] = -1.0
+                for nindx in range(indx, indx_mid_im):
+                    vec[0] += self.vecs_pts[nindx][0]
+                    vec[1] += self.vecs_pts[nindx][1]
             elif indx > indx_mid_im:
-                self.trans_vecs[-1][0] =  1.0
+                for nindx in range(indx_mid_im+1, indx+1):
+                    vec[0] += self.vecs_pts[nindx][0]
+                    vec[1] += self.vecs_pts[nindx][1]
+            else:
+                pass
+
+            # Rotation is identity
+            self.rot_matrices.append(np.identity(3))
+            vec[0] *= d_est_per_pix
+            vec[1] *= d_est_per_pix
+            trans_vec = np.array([vec[0] * d_est_per_pix, vec[1] * d_est_per_pix, 0], dtype=np.float64)
+            self.trans_vecs.append(trans_vec)
 
             # Build the matrix - copy the rotation into the 3x3 in the upper left, the translation into the right most column
             cam_pose = np.identity(4)
@@ -443,12 +493,16 @@ class PointTrackerKeyFrames():
 
         return crv_pts_2d_flattened, np.array(crv_pts_3d_flattened, dtype=np.float64)
 
-    def solve_3d_pts(self, iters=2):
+    def solve_3d_pts(self, b_no_camera_rotation=True, iters=2):
         """ Assumes self.pt_locations_2d has been filled in"""
 
         # Initial guesses at the camera poses
-        self._initial_cam_pose()
+        if b_no_camera_rotation:
+            self._cam_pose_from_vec()
+        else:
+            self._initial_cam_pose_from_essential()
 
+        np.set_printoptions(precision=3, suppress=True)
         # Use those matrices to get the 3D points - OpenCV likes everything in float 32 or float 64
         pts_2d = np.array(self.pt_locations_2d, dtype=np.float64)
         mask = np.ones((len(self.pose_matrices), )) > 0
@@ -628,7 +682,7 @@ if __name__ == "__main__":
     pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb)
     pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
     pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
-    pt_kf.solve_3d_pts(4)
+    pt_kf.solve_3d_pts(iters=6)
     pt_kf.debug_images(va)
 
     print(f"Done")
