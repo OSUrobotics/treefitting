@@ -4,12 +4,24 @@ import numpy as np
 import cv2
 
 class CameraProjections():
-    def __init__(self, camera_fname=("azure_camera.json", "rgb_half_size"), camera_calibration_fname=("azure_camera_calibration.json", "color"), params={}):
-        """ camera_fname has one of the default camera setups in utils/camera_fname[0] - holds image size, field of view
-        camera_calibration is the camera calibration matrix for the camera (if any) also in utils/ directory (or give
-        full path name)
+    def __init__(self,
+                 camera_fname=("azure_camera.json", "rgb_half_size"),
+                 camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                 camera_rgb_to_depth_name="azure_rgb_to_depth.json",
+                 params={}):
+        """
+        camera_calibration information for both rgb and depth
         params is an alternative for overriding image size and field of view (camera_width_angle)
-        @params params - dictionary with values to override width/height/size
+        @param camera_fname - has one of the default camera setups in utils/azure_camera - holds image size, field of view
+           first part of the tuple is the file name to use, second part is which of the camera setups IN that file to use
+           "rgb_half_size" is the azure color camera at half of it's potential resolution
+           "depth_narrow_unbinned" is the depth camera, unbinned (etc
+        @param camera_calibration_fname - is the camera calibration matrix for the camera (if any) also in utils directory (or give
+        full path name)
+            First part of the tuple is the file name to use, second part is which of the camera calibration matrices to use
+            "depth" gets the depth camera parameters
+        @param camera_rgb_to_depth_name - this is the rgb to depth matrix built by clicking points in both, again in utils/ directory
+        @params params - dictionary with values to override width/height/size (or set them, if not using above info
         """
         from os.path import exists
         import json
@@ -20,6 +32,10 @@ class CameraProjections():
 
         self.world_to_image = np.identity(3, dtype=np.float32)
         self.image_distortion_coefs = np.zeros((5,), dtype=np.float32)
+
+        self.pts_2d_in_rgb = []
+        self.pts_2d_in_depth = []
+        self.rgb_to_depth_matrix = np.identity(3)
 
         locs = ("./", "treefitting/utils/", "../utils/")
         for loc in locs:
@@ -49,6 +65,22 @@ class CameraProjections():
 
                     try:
                         self.image_distortion_coefs = np.array(cam_params[distortion_name], dtype=np.float32)
+                    except ValueError:
+                        pass
+
+            if exists(loc + camera_rgb_to_depth_name):
+                with open(loc + camera_rgb_to_depth_name, "r") as f:
+                    rgb_to_depth_params = json.load(f)
+                    try:
+                        self.pts_2d_in_rgb = rgb_to_depth_params["pts_2d_in_rgb"]
+                    except ValueError:
+                        pass
+                    try:
+                        self.pts_2d_in_depth = rgb_to_depth_params["pts_2d_in_depth"]
+                    except ValueError:
+                        pass
+                    try:
+                        self.rgb_to_depth_matrix = np.array(rgb_to_depth_params["rgb_to_depth_matrix"])
                     except ValueError:
                         pass
 
@@ -183,10 +215,52 @@ class CameraProjections():
 
         return pt_uv[0:2], depth
 
+    def depth_pts_in_rgb(self):
+        pt = np.ones((3, 1))
+        pts_ret = []
+
+        mat_depth_to_rgb = np.linalg.inv(self.rgb_to_depth_matrix)
+        for p in self.pts_2d_in_depth:
+            pt[0, 0] = p[0]
+            pt[1, 0] = p[1]
+            pt_map = mat_depth_to_rgb @ pt
+            pts_ret.append([pt_map[0, 0], pt_map[1, 0]])
+        return pts_ret
+
+    def rgb_pts_in_depth(self):
+        pt = np.ones((3, 1))
+        pts_ret = []
+
+        for p in self.pts_2d_in_rgb:
+            pt[0, 0] = p[0]
+            pt[1, 0] = p[1]
+            pt_map = self.rgb_to_depth_matrix @ pt
+            pts_ret.append([pt_map[0, 0], pt_map[1, 0]])
+        return pts_ret
+
+    def write_json(self):
+        """Create a dictionary and return it, with the 2D marked color/depth points """
+        my_dict = {"Name": "KeyFrameData",
+                   "ImageName": self.image_name,
+                   "sketch_curves": [],
+                   "bspline_cyls":  [],
+                   "mask_names": self.mask_names,
+                   "PanVec": self.pan_vec.copy(),
+                   "pts_2d_of_start": self.pts_2d_of_start,
+                   "pts_2d_of_end": self.pts_2d_of_end,
+                   "pts_2d_depth": self.pts_2d_depth,
+                   "pts_2d_rgb_depth": self.pts_2d_rgb_depth,
+                   "ScaleAmt": self.scale_amount,
+                   "RotAmt": self.rot_amount,
+                   "rgb_to_depth_matrix": self.rgb_to_depth_matrix.tolist(),
+                   "camera_matrix": self.camera_matrix.tolist()}
+
+
 
 if __name__ == '__main__':
     cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
                                 camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                camera_rgb_to_depth_name="azure_rgb_to_depth.json",
                                 params={})
     cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
                                   camera_calibration_fname=("azure_camera_calibration.json", "depth"),

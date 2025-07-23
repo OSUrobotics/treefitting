@@ -22,7 +22,7 @@ from fit_routines.bspline_fit_params import BSplineFitParams
 from utils.sketched_curve import SketchedCurve
 from tree_geometry.b_spline_cyl import BSplineCyl
 from fit_routines.fit_bspline_cyl_sketch import FitBSplineCyl2DSketch
-
+from utils.camera_projections import CameraProjections
 
 class KeyFrameData:
     _sketch_fit = FitBSplineCyl2DSketch()
@@ -33,12 +33,7 @@ class KeyFrameData:
         self.sketch_curves = []
         self.bspline_cyls = []
         self.pan_vec = [0, 0]
-        self.scale_amount = 1.0
-        self.rot_amount = 1.0
-        self.pts_2d_of_start = []
-        self.pts_2d_of_end = []
-        self.pts_2d_depth = []
-        self.pts_2d_rgb_depth = []
+        self.pts_2d_background = []
 
         # Should satisfy:
         #  sx * (rgb width / 2) - tx = depth width / 2
@@ -46,7 +41,8 @@ class KeyFrameData:
         #    Note: Y is swapped, so need to add, not subtract
         #          x is a subtract
         # Making sx/sy smaller means more of the rgb image is covered
-        self.rgb_to_depth_matrix = np.identity(3)
+        self.rvec = []
+        self.tvec = []
         self.camera_matrix = np.identity(4)
 
     def add_mask_name(self, name):
@@ -80,34 +76,14 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
-    def depth_pts_in_rgb(self):
-        pt = np.ones((3, 1))
-        pts_ret = []
-
-        mat_depth_to_rgb = np.linalg.inv(self.rgb_to_depth_matrix)
-        for p in self.pts_2d_depth:
-            pt[0, 0] = p[0]
-            pt[1, 0] = p[1]
-            pt_map = mat_depth_to_rgb @ pt
-            pts_ret.append([pt_map[0, 0], pt_map[1, 0]])
-        return pts_ret
-
-    def rgb_pts_in_depth(self):
-        pt = np.ones((3, 1))
-        pts_ret = []
-
-        for p in self.pts_2d_rgb_depth:
-            pt[0, 0] = p[0]
-            pt[1, 0] = p[1]
-            pt_map = self.rgb_to_depth_matrix @ pt
-            pts_ret.append([pt_map[0, 0], pt_map[1, 0]])
-        return pts_ret
-
-    def get_bsplinecyl_in_depth_image(self, mask_index, mask_id_index):
-        """ Get the bspline cyl corresponding to the mask, id, and convert it to the depth image coordinates"""
+    def get_bsplinecyl_in_depth_image(self, cam :CameraProjections, mask_index, mask_id_index):
+        """ Get the bspline cyl corresponding to the mask, id, and convert it to the depth image coordinates
+        @param cam - has the matrix to do the conversion
+        @param mask_index - which mask (eg cane, trunk)
+        @param mask_id_index - which crv in that list (integer) """
 
         crv = self.get_bsplinecyl(mask_index, mask_id_index)
-        return crv.transform(self.rgb_to_depth_matrix)
+        return crv.transform(cam.rgb_to_depth_matrix)
 
     def refit(self, fit_params : BSplineFitParams=None):
         fit_sketch = FitBSplineCyl2DSketch()
@@ -124,13 +100,9 @@ class KeyFrameData:
                    "bspline_cyls":  [],
                    "mask_names": self.mask_names,
                    "PanVec": self.pan_vec.copy(),
-                   "pts_2d_of_start": self.pts_2d_of_start,
-                   "pts_2d_of_end": self.pts_2d_of_end,
-                   "pts_2d_depth": self.pts_2d_depth,
-                   "pts_2d_rgb_depth": self.pts_2d_rgb_depth,
-                   "ScaleAmt": self.scale_amount,
-                   "RotAmt": self.rot_amount,
-                   "rgb_to_depth_matrix": self.rgb_to_depth_matrix.tolist(),
+                   "rvec": self.rvec,
+                   "tvec": self.tvec,
+                   "pts_2d_background": self.pts_2d_background,
                    "camera_matrix": self.camera_matrix.tolist()}
 
         for lst1, lst2 in zip(self.sketch_curves, self.bspline_cyls):
@@ -169,20 +141,24 @@ class KeyFrameData:
         key_frame_instance.image_name = json_dict["ImageName"]
         key_frame_instance.mask_names = json_dict["mask_names"].copy()
         key_frame_instance.pan_vec = json_dict["PanVec"]
-        key_frame_instance.scale_amount = json_dict["ScaleAmt"]
-        key_frame_instance.rgb_to_depth_matrix = np.array(json_dict["rgb_to_depth_matrix"])
         key_frame_instance.camera_matrix = np.array(json_dict["camera_matrix"])
 
         # Other oddball ones
         try:
-            key_frame_instance.pts_2d_of_start = json_dict["pts_2d_of_start"]
-            key_frame_instance.pts_2d_of_end = json_dict["pts_2d_of_end"]
-            key_frame_instance.pts_2d_rgb_depth = json_dict["pts_2d_rgb_depth"]
-            key_frame_instance.pts_2d_depth = json_dict["pts_2d_depth"]
+            # For older keyframes
+            key_frame_instance.pts_2d_background = json_dict["pts_2d_of_start"]
         except KeyError:
             pass
         try:
-            key_frame_instance.rot_amount = json_dict["RotAmt"]
+            key_frame_instance.pts_2d_background = json_dict["pts_2d_background"]
+        except KeyError:
+            pass
+        try:
+            key_frame_instance.rvec = json_dict["rvec"]
+        except KeyError:
+            pass
+        try:
+            key_frame_instance.tvec = json_dict["tvec"]
         except KeyError:
             pass
 

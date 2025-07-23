@@ -29,11 +29,16 @@ import cv2
 
 
 class PointTrackerKeyFrames():
-    def __init__(self, va_data: VideoAnnotationData, rgb_camera: CameraProjections, est_depth=10.0):
+    def __init__(self,
+                 va_data: VideoAnnotationData,
+                 rgb_camera: CameraProjections,
+                 depth_camera: CameraProjections,
+                 est_depth=10.0):
 
         # keep the input data
         self.va_data = va_data
         self.rgb_camera = rgb_camera
+        self.depth_camera = depth_camera
 
         # State variables
         #   Using N as the number of camera frames/images, and T as number of points
@@ -562,6 +567,8 @@ class PointTrackerKeyFrames():
         count = 0
         thickness = 4
         pts_3d = np.array(self.pt_locations_3d, dtype=np.float64)
+        # RGB images - draw sketch curves, projected sketch curves, background points
+        #   Use boxes for user click points
         for kf_indx, kf in zip(self.kf_indices, self.valid_keyframes):
             fname_rgb = va.get_image_name((0, kf_indx, 0, 0))
             im_rgb = cv2.imread(fname_rgb)
@@ -592,14 +599,16 @@ class PointTrackerKeyFrames():
                 draw_line(im_rgb, pt, pt_prev, color=[20, 200, 200], thickness=thickness)
 
             # Draw the curve points saved in crv_pts_2d, with lines between them
-            for crv in self.crv_pt_locations_2d[count]:
+            for icrv, crv in enumerate(self.crv_pt_locations_2d[count]):
+                idiv = 105 // self.n_curves
                 for pt_indx, pt in enumerate(crv):
                     draw_cross(im_rgb, pt, color=[250, 20, 200], thickness=2 * thickness)
                     if pt_indx == 0:
                         pt_prev = pt
                     else:
                         pt_prev = crv[pt_indx - 1]
-                    draw_line(im_rgb, pt, pt_prev, color=[250, 20, 200], thickness=thickness)
+
+                    draw_line(im_rgb, pt, pt_prev, color=[250, 20, 100 + idiv * 30], thickness=thickness)
 
             # Draw the projected 3d curves
             if self.pose_matrices is not [] and self.crv_pt_locations_3d is not []:
@@ -634,6 +643,68 @@ class PointTrackerKeyFrames():
             count = count + 1
             fname = va.get_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
             cv2.imwrite(fname, im_rgb)
+
+        # Now do the depth images
+        count = 0
+        pt3d = np.ones((3, 1))
+        for kf_indx, kf in zip(self.kf_indices, self.valid_keyframes):
+            fname_depth = va.get_depth_image_name((0, kf_indx, 0, 0))
+            im_depth = cv2.imread(fname_depth)
+
+            # Draw the 2D background points mapped via the intrinsic matrix to the depth image
+            k_rgb_inv = np.linalg.inv(self.rgb_camera.world_to_image)
+            k_depth = self.depth_camera.world_to_image
+            for bp in kf.pts_2d_of_start:
+                pt3d[0] = bp[0]
+                pt3d[1] = bp[1]
+                pt_depth = k_depth @ k_rgb_inv @ pt3d
+                draw_box(im_depth, pt_depth[0:2].transpose(), color=[200, 200, 200], width=4 * thickness)
+
+            # Draw the curve points saved in crv_pts_2d, with lines between them
+            pt_prev = np.copy(pt3d)
+            for crv in self.crv_pt_locations_2d[count]:
+                for pt_indx, pt in enumerate(crv):
+                    pt3d[0] = pt[0]
+                    pt3d[1] = pt[1]
+                    pt_depth = k_depth @ k_rgb_inv @ pt3d
+                    draw_cross(im_depth, pt_depth[0:2].transpose(), color=[250, 20, 200], thickness=2 * thickness)
+                    if pt_indx != 0:
+                        draw_line(im_depth, pt_depth[0:2].transpose(), pt_prev, color=[250, 20, 200], thickness=thickness)
+                    pt_prev = np.copy(pt_depth[0:2].transpose())
+
+            # Draw the projected 3d curves
+            if self.pose_matrices is not [] and self.crv_pt_locations_3d is not []:
+                for crv_indx in range(0, len(self.crv_pt_locations_3d)):
+                    crv_pts_3d = np.array(self.crv_pt_locations_3d[crv_indx], dtype=np.float64)
+                    crv_pts_proj = cv2.projectPoints(crv_pts_3d,
+                                                     rvec=self.rot_matrices[count],
+                                                     tvec=self.trans_vecs[count],
+                                                     cameraMatrix=self.depth_camera.world_to_image,
+                                                     distCoeffs=self.depth_camera.image_distortion_coefs)
+                    for pt_indx in range(0, crv_pts_3d.shape[0]):
+                        pt = crv_pts_proj[0][pt_indx, 0, :]
+                        draw_cross(im_depth, pt, color=[20, 220, 200], thickness=thickness)
+                        if pt_indx == 0:
+                            pt_prev = pt
+                        else:
+                            pt_prev = crv_pts_proj[0][pt_indx - 1, 0, :]
+                        draw_line(im_depth, pt, pt_prev, color=[20, 20, 200], thickness=thickness // 2)
+
+
+            # Draw the projected background points
+            if self.pose_matrices is not [] and self.pt_locations_3d is not []:
+                pts_proj = cv2.projectPoints(pts_3d,
+                                             rvec=self.rot_matrices[count],
+                                             tvec=self.trans_vecs[count],
+                                             cameraMatrix=self.depth_camera.world_to_image,
+                                             distCoeffs=self.depth_camera.image_distortion_coefs)
+                for pt_indx in range(0, pts_proj[0].shape[0]):
+                    pt_row = pts_proj[0][pt_indx]
+                    draw_box(im_depth, pt_row, color=[100, 150, 200], width=thickness * 2)
+
+            count = count + 1
+            fname = va.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
+            cv2.imwrite(fname, im_depth)
 
 
 if __name__ == "__main__":
@@ -679,7 +750,7 @@ if __name__ == "__main__":
         cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
                                       camera_calibration_fname=("azure_camera_calibration.json", "depth"),
                                       params={})
-    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb)
+    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth, est_depth=10.0)
     pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
     pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
     pt_kf.solve_3d_pts(iters=6)

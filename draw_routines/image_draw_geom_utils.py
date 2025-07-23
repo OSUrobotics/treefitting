@@ -69,7 +69,7 @@ def draw_box(im, p, color, width=6):
     @param width - size of box
     """
     for r in range(-width, width):
-        draw_line(im, p - np.array([-r, width]), p + np.array([r, width]), color=color, thickness=1)
+        draw_line(im, p[0:2] - np.array([-r, width]), p[0:2] + np.array([r, width]), color=color, thickness=1)
 
 def draw_rect(im, bds, color, width=6):
     """ Draw the line in the image using opencv
