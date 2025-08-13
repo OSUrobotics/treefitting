@@ -156,6 +156,19 @@ class SketchedCurve:
         else:
             self.cross_bars.pop(i_closest_cross)
 
+    def draw_in_image(self, im):
+        """ Draw curve in image
+        @param im - the image"""
+        from draw_routines.image_draw_geom_utils import draw_cross, draw_box, draw_line
+        for p1, p2 in zip(self.backbone_pts[0:-1], self.backbone_pts[1:]):
+            draw_cross(im, p1, color=[255, 255, 255], length=5, thickness=2)
+            draw_cross(im, p2, color=[255, 255, 255], thickness=1)
+
+        for pts in self.cross_bars:
+            if len(pts) == 2:
+                draw_line(im, pts[0], pts[1], color=[255, 255, 0], thickness=1)
+                draw_box(im, pts[0], color=[255, 255, 0], width=2)
+
     def copy(self):
         """ make a copy and return it"""
         copy_curve = SketchedCurve()

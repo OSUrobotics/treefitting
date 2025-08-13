@@ -325,6 +325,19 @@ class BSplineCurve(ControlHull):
         pt_proj = self.eval_crv(t_best)
         return t_best, pt_proj, np.linalg.norm(pt_proj - pt)
 
+    def draw_in_image(self, im):
+        from draw_routines.image_draw_geom_utils import draw_cross, draw_box, draw_line
+        for pt in self.points():
+            draw_cross(pt, color=[100, 255, 100], length=4, thickness=2)
+
+        ts = np.linspace(0, self.max_t(), self.n_points() * 10)
+        pts = self.eval_crv(ts)
+        col = 100.0
+        col_delta = 145.0 / len(pts)
+        for p1, p2 in zip(pts[0:-1], pts[1:]):
+            draw_line(p1, p2, color=[100, int(col), 100], thickness=2)
+            col = col + col_delta
+
     def write_json(self):
         """Create a dictionary and return it"""
         my_dict = {"Name": "BSplineCurve", "degree": self.degree(), "crv_pts": super().write_json()}

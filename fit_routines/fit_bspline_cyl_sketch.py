@@ -19,6 +19,7 @@ from fit_routines.b_spline_curve_fit import BSplineCurveFit
 from utils.sketched_curve import SketchedCurve
 from tree_geometry.point_lists import PointList
 from fit_routines.bspline_fit_params import BSplineFitParams
+from utils.camera_projections import CameraProjections
 
 
 class FitBSplineCyl2DSketch:

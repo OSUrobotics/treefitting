@@ -167,6 +167,20 @@ class BSplineCyl(BSplineCurve):
         ret_crv.radii_crv.set_points(radii_new)
         return ret_crv
 
+    def draw_in_image(self, im):
+        from draw_routines.image_draw_geom_utils import draw_line
+        super().draw_in_image(im)
+
+        ts = np.linspace(0, self.max_t(), self.n_points() * 10)
+        for perc in [1.0, -1.0]:
+            col = 100.0
+            col_delta = 145.0 / len(ts)
+
+            pts = self.edge_pts(ts, perc_in_out=1.0)
+            for p1, p2 in zip(pts[0:-1], pts[1:]):
+                draw_line(p1, p2, color=[int(col), 100, 255], thickness=2)
+                col = col + col_delta
+
     def write_json(self):
         """Create a dictionary and return it"""
         my_dict = {"Name": "BSplineCyl", "radius": self.radii_crv.write_json(), "bsplinecrv": super().write_json()}

@@ -22,7 +22,6 @@ from fit_routines.bspline_fit_params import BSplineFitParams
 from utils.sketched_curve import SketchedCurve
 from tree_geometry.b_spline_cyl import BSplineCyl
 from fit_routines.fit_bspline_cyl_sketch import FitBSplineCyl2DSketch
-from utils.camera_projections import CameraProjections
 
 class KeyFrameData:
     _sketch_fit = FitBSplineCyl2DSketch()
@@ -76,14 +75,15 @@ class KeyFrameData:
         """ Get the bspline cyl corresponding to the mask, id"""
         return self.bspline_cyls[mask_index][mask_id_index]
 
-    def get_bsplinecyl_in_depth_image(self, cam :CameraProjections, mask_index, mask_id_index):
+    def get_bsplinecyl_in_depth_image(self, mat_transform : np.array, mask_index: int, mask_id_index: int):
         """ Get the bspline cyl corresponding to the mask, id, and convert it to the depth image coordinates
-        @param cam - has the matrix to do the conversion
+        @param mat_transform - transform from rgb to depth
         @param mask_index - which mask (eg cane, trunk)
         @param mask_id_index - which crv in that list (integer) """
 
         crv = self.get_bsplinecyl(mask_index, mask_id_index)
-        return crv.transform(cam.rgb_to_depth_matrix)
+
+        return crv.transform(mat_transform)
 
     def refit(self, fit_params : BSplineFitParams=None):
         fit_sketch = FitBSplineCyl2DSketch()
@@ -91,6 +91,25 @@ class KeyFrameData:
         for mask_indx, _ in enumerate(self.mask_names):
             for indx, (sk, bs) in enumerate(zip(self.sketch_curves[mask_indx], self.bspline_cyls[mask_indx])):
                 self.bspline_cyls[mask_indx][indx] = fit_sketch._sketch_curve_to_bspline_cyl(sk, fit_params=fit_params)
+
+    def draw_sketch_in_image(self, im):
+        """ Draw all sketch curves in image
+        @param im - image to draw sketch curves on"""
+        for mask_indx, _ in enumerate(self.mask_names):
+            for sk in self.sketch_curves[mask_indx]:
+                sk.draw_in_image(im)
+
+    def draw_crv_in_image(self, im, b_do_spine=True, b_do_boundary=True):
+        """ Draw all curves in image
+        @param im - image to draw sketch curves on"""
+        from draw_routines.b_spline_image import BSplineCylImage
+        for mask_indx, _ in enumerate(self.mask_names):
+            for crv in self.bspline_cyls[mask_indx]:
+                crv_image = BSplineCylImage(crv.points(), crv.degree_name(), crv.radii_crv.points())
+                if b_do_spine:
+                    crv_image.draw_curve(im)
+                if b_do_boundary:
+                    crv_image.draw_boundary(im)
 
     def write_json(self):
         """Create a dictionary and return it"""

@@ -14,19 +14,27 @@ from utils.file_names import FileNames
 from bezier_cyl_3d import BezierCyl3D
 from Image_based.fit_bezier_cyl_2d_edge import FitBezierCyl2DEdge
 from Image_based.split_masks import convert_jet_to_grey
-from utils.camera_projections import frustrum_matrix, from_image_to_box
+from utils.camera_projections import CameraProjections
 
 
 class FitBezierCyl3dDepth:
-    def __init__(self, fname_depth_image, fname_depth_data, crv_2d, params=None, fname_calculated=None, fname_debug=None, b_recalc=False):
+    def __init__(self,
+                 fname_depth_image,
+                 fname_depth_data,
+                 crv_2d,
+                 params_depth_filter=None,
+                 cam_proj : CameraProjections = None,
+                 fname_calculated=None,
+                 fname_debug=None,
+                 b_recalc=False):
         """ Read in the depth image or data (data preferred), grab the depth data under the 2d curve, then promote to 3d
         @param fname_depth_image: Depth image name (used if no depth data csv file)
         @param fname_depth_data: Depth data as a .csv file (assumes depth image and csv file same size/aspect ratio)
         @param crv_2d: 2d bezier curve
-        @param params: Parameters for filtering the depth image - how finely to sample along the edge and how much to believe edge
+        @param params_depth_filter: Parameters for filtering the depth image - how finely to sample along the edge and how much to believe edge
            perc_width_depth - percent of width to use, should be 0.1 to 0.85
            perc_along_depth - take median of pixels from a perc of curve, should be 0.1 to 0.3
-           camera_width_angle - angle in degrees, 45 for intel d45, etc
+        @param cam_proj: Camera information
         @param fname_calculated: the file name for the saved .json file; should be image name w/o _stats.json
         @param fname_debug: the file name for a debug image showing the bounding box, etc. Set to None if no debug
         @param b_recalc: Force recalculate the result, y/n"""
@@ -69,30 +77,34 @@ class FitBezierCyl3dDepth:
             self.fname_crv_3d = fname_calculated + "_crv_3d.json"
 
         # Copy params used mask and add the new ones
-        self.params = {}
-        if params is not None:
-            for k in params.keys():
-                self.params[k] = params[k]
-        if "perc_width_depth" not in self.params:
-            self.params["perc_width_depth"] = 0.65
-        if "perc_along_depth" not in self.params:
-            self.params["perc_along_depth"] = 0.1
-        if "camera_width_angle" not in self.params:
-            self.params["camera_width_angle"] = 50
+        self.params_depth_filter = {}
+        if params_depth_filter is not None:
+            for k in params_depth_filter.keys():
+                self.params_depth_filter[k] = params_depth_filter[k]
+        if "perc_width_depth" not in self.params_depth_filter:
+            self.params_depth_filter["perc_width_depth"] = 0.65
+        if "perc_along_depth" not in self.params_depth_filter:
+            self.params_depth_filter["perc_along_depth"] = 0.1
+
+        if cam_proj is None:
+            self.cam_proj = CameraProjections(params={"camera_width_angle": 50})
+        else:
+            self.cam_proj = cam_proj
 
         # Get the raw edge data
         if b_recalc or not fname_calculated or not exists(self.fname_depth_stats):
             # Recalculate and write
-            self.depth_stats = FitBezierCyl3dDepth.full_depth_stats(self.depth_data,
-                                                                    self.crv_2d,
-                                                                    self.params)
+            self.depth_stats = FitBezierCyl3dDepth.full_depth_stats(depth_data=self.depth_data,
+                                                                    crv_2d=self.crv_2d,
+                                                                    params_depth_filter=self.params_depth_filter,
+                                                                    cam_proj=self.cam_proj)
 
             # Write out the 3d bezier curve
             if fname_calculated:
                 with open(self.fname_depth_stats, 'w') as f:
                     json.dump(self.depth_stats, f, indent=" ")
                 with open(self.fname_params, 'w') as f:
-                    json.dump(self.params, f, indent=" ")
+                    json.dump(self.params_depth_filter, f, indent=" ")
         else:
             # Read in the stored data
             with open(self.fname_depth_stats, 'r') as f:
@@ -103,7 +115,9 @@ class FitBezierCyl3dDepth:
         # Now use the params to filter the raw edge location data - produces the left, right edge curves
         if b_recalc or not fname_calculated or not exists(self.fname_crv_3d):
             # Recalculate and write
-            self.crv_3d = FitBezierCyl3dDepth.curve_from_stats(self.depth_stats, self.crv_2d, self.params)
+            self.crv_3d = FitBezierCyl3dDepth.curve_from_stats(stats_depth=self.depth_stats,
+                                                               crv_2d=self.crv_2d,
+                                                               cam_proj=self.cam_proj)
             if fname_calculated:
                 with open(self.fname_crv_3d, 'w') as f:
                     self.crv_3d.write_json(self.fname_crv_3d)
@@ -118,16 +132,17 @@ class FitBezierCyl3dDepth:
             print("To do")
 
     @staticmethod
-    def full_depth_stats(depth_data, crv_2d, params):
+    def full_depth_stats(depth_data, crv_2d, params_depth_filter, cam_proj: CameraProjections):
         """ Get the best pixel offset (if any) for each point/pixel along the edge
         @param depth_data - the depth data as a numpy array
         @param crv_2d - the 2d curve
-        @param params - parameters for conversion
+        @param params_depth_filter - parameters for conversion
+        @param cam_proj - the camera information
         @return t, stats for depth, spaced n apart"""
 
         # Fuzzy rectangles along the boundary
-        n_pixs = int(crv_2d.curve_length() * params["perc_along_depth"])
-        rects, _ = crv_2d.interior_rects(step_size=n_pixs, perc_width=params["perc_width_depth"])
+        n_pixs = int(crv_2d.curve_length() * params_depth_filter["perc_along_depth"])
+        rects, _ = crv_2d.interior_rects(step_size=n_pixs, perc_width=params_depth_filter["perc_width_depth"])
 
         ts = np.linspace(0, 1, len(rects) + 1)
 
@@ -154,7 +169,7 @@ class FitBezierCyl3dDepth:
         divs = (0, n_total_pixs // 4, n_total_pixs // 2, 3 * n_total_pixs // 4, n_total_pixs-1)
         ret_stats["divs"] = divs
 
-        rs_seg = np.linspace(-params["perc_width_depth"], params["perc_width_depth"], height)
+        rs_seg = np.linspace(-params_depth_filter["perc_width_depth"], params_depth_filter["perc_width_depth"], height)
         for i_rect, r in enumerate(rects):
             # Cutout the image for the boundary rectangle
             #   Note this will be a height x width numpy array
@@ -180,7 +195,7 @@ class FitBezierCyl3dDepth:
             pix_max = int(n_total_pixs * .95)
             depth_at_center = depth_sort[pix_max]
             rad_2d = crv_2d.radius(ts_seg[width // 2])
-            ang_subtend_degrees = params["camera_width_angle"] * (2 * rad_2d) / depth_data.shape[1]
+            ang_subtend_degrees = cam_proj.camera_width_angle * (2 * rad_2d) / depth_data.shape[1]
             ang_subtend_radians = np.pi * ang_subtend_degrees / 180.0
             radius_3d = 0.5 * depth_at_center * np.tan(ang_subtend_radians)
             z_at_center = depth_at_center - radius_3d
@@ -209,25 +224,25 @@ class FitBezierCyl3dDepth:
         return ret_stats
 
     @staticmethod
-    def curve_from_stats(stats_depth, crv_2d, params):
+    def curve_from_stats(stats_depth, crv_2d, cam_proj : CameraProjections):
         """
         From the raw stats, create a set of evenly-spaced t values
         @param stats_depth: The stats from full_depth_stats
         @param crv_2d - the 2d curve
-        @param params: max edge pixel value, step_size, perc to search, and n pts to reconstruct
+        @param cam_proj: Camera projection matrix
         @return: 3d curve
         """
 
-        params['image_size'] = stats_depth['image_size']
-        mat = frustrum_matrix(params)
+        mat = cam_proj.world_to_image
+        if mat.shape == (3, 3):
         mat_inv = np.linalg.inv(mat)
 
         pts = []
         image_width = stats_depth["image_size"][0]
         image_height = stats_depth["image_size"][1]
 
-        cam_width_ang_half = 0.5 * params['camera_width_angle']
-        cam_height_ang_half = 0.5 * params['camera_width_angle'] * stats_depth['image_size'][1] / stats_depth['image_size'][0]
+        cam_width_ang_half = 0.5 * cam_proj.camera_width_angle
+        cam_height_ang_half = 0.5 * cam_proj.camera_height_angle
         print(f"cam x ang {cam_width_ang_half * 2} cam y ang {cam_height_ang_half * 2} {image_width}, {image_height}")
 
         pt_z_origin = np.ones(shape=(4,))
@@ -252,7 +267,7 @@ class FitBezierCyl3dDepth:
 
             # Convert point in image coordinates to frustum box post project
             pt_crv_2d = crv_2d.pt_axis(t)
-            pt_proj_box = from_image_to_box(params, pt_crv_2d)
+            pt_proj_box = cam_proj.from_image_to_ndc(pt_crv_2d)
 
             # Now use the w to get the point pre-divide
             pt_post_proj[0] = pt_proj_box[0] * pt_z_proj[3]
@@ -307,6 +322,5 @@ if __name__ == '__main__':
 
         crv_3d = FitBezierCyl3dDepth(fname_depth_image=depth_fname, fname_depth_data=depth_data_fname,
                                      crv_2d=edge_crv.bezier_crv_fit_to_edge,
-                                     params=None,
                                      fname_calculated=depth_fname_calculate,
                                      fname_debug=depth_fname_debug, b_recalc=b_do_recalc)

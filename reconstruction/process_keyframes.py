@@ -32,8 +32,7 @@ class PointTrackerKeyFrames():
     def __init__(self,
                  va_data: VideoAnnotationData,
                  rgb_camera: CameraProjections,
-                 depth_camera: CameraProjections,
-                 est_depth=10.0):
+                 depth_camera: CameraProjections):
 
         # keep the input data
         self.va_data = va_data
@@ -42,7 +41,7 @@ class PointTrackerKeyFrames():
 
         # State variables
         #   Using N as the number of camera frames/images, and T as number of points
-        self.est_depth = est_depth  # Estimated depth in cm
+        self.est_depth = 10.0 * (0.3 * self.depth_camera.depth_range[0] + 0.7 * self.depth_camera.depth_range[1])  # Estimated depth in cm
         self.image_size = rgb_camera.image_size
         self.kf_indices = []
         self.valid_keyframes = []
@@ -59,6 +58,8 @@ class PointTrackerKeyFrames():
         self.crv_pt_locations_2d = []
         self.pt_locations_3d = []
         self.crv_pt_locations_3d = []
+        self.crv_depths_from_image = []
+        self.depths_from_image = []
         self.b_vertical = False
         self.b_horizontal = False
 
@@ -140,21 +141,21 @@ class PointTrackerKeyFrames():
         self.vecs_pts = []
         # For each keyframe...
         for kf_index, kf in enumerate(self.va_data.keyframes):
-            if len(kf.pts_2d_of_start) == 0:
+            if len(kf.pts_2d_background) == 0:
                 continue
 
             # If the keyframe has background points marked...
             self.pt_locations_2d.append([])
             if len(self.pt_locations_2d) == 1:
                 # First keyframe with background points marked -make this the default ordering
-                for pt in kf.pts_2d_of_start:
+                for pt in kf.pts_2d_background:
                     self.pt_locations_2d[-1].append([pt[0], pt[1]])
                 self.valid_keyframes.append(kf)
                 self.kf_indices.append(kf_index)
                 self.vecs_pts.append([0, 0])
             else:
                 # Poor person's ransac
-                vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_of_start)
+                vec, match, valid = self._consistent_vec(self.pt_locations_2d[-2], kf.pts_2d_background)
                 print(f" Match {kf.image_name} {match}")
                 if not valid:
                     continue
@@ -165,7 +166,7 @@ class PointTrackerKeyFrames():
                                    self.pt_locations_2d[0][indx][1] + vec[1]]
                         self.pt_locations_2d[-1].append(pt_new)
                     else:
-                        pt_match = kf.pts_2d_of_start[best_match]
+                        pt_match = kf.pts_2d_background[best_match]
                         self.pt_locations_2d[-1].append([pt_match[0], pt_match[1]])
                 self.valid_keyframes.append(kf)
                 self.kf_indices.append(kf_index)
@@ -256,6 +257,26 @@ class PointTrackerKeyFrames():
                 self.vecs_crvs.append([0, 0])
 
         print(f"Curve counts {n_crvs}")
+        for kf_indx in range(0, len(self.va_data.keyframes)):
+            if kf_indx in self.crv_keyframes:
+                continue
+            prev_indx = 0
+            next_indx = len(self.va_data.keyframes) - 1
+            for find_indx in self.crv_keyframes:
+                if kf_indx > find_indx:
+                    prev_indx = find_indx
+                if kf_indx < find_indx:
+                    next_indx = find_indx
+                    break
+            perc = (kf_indx - prev_indx) / (next_indx - prev_indx)
+            for crv_indx in range(0, self.n_curves):
+                self.crv_pt_locations_2d[kf_indx].append([])
+                for pt_indx in range(0, len(self.crv_pt_locations_2d[prev_indx][crv_indx])):
+                    pt_prev = self.crv_pt_locations_2d[prev_indx][crv_indx][pt_indx]
+                    pt_next = self.crv_pt_locations_2d[next_indx][crv_indx][pt_indx]
+                    pt = [(1.0 - perc) * pt_prev[0] + perc * pt_next[0],
+                          (1.0 - perc) * pt_prev[1] + perc * pt_next[1]]
+                    self.crv_pt_locations_2d[kf_indx][crv_indx].append(pt)
         return self.crv_pt_locations_2d
 
     def _initial_cam_pose_from_essential(self):
@@ -557,6 +578,180 @@ class PointTrackerKeyFrames():
                 # Oddly, this doesn't help - so don't do it
                 # mask = np.array(all_err) < 100
 
+    def back_ground_point_rgb(self, kf_indx, pt_indx):
+        """ Get all of the possible locations of the background point
+        @param kf_indx: which key frame
+        @param pt_indx: which point
+        @return all of the possible locations of the background point as a dictionary"""
+
+        ret_dict = {"click": [], "click_interp": [], "proj_3d": []}
+        kf = self.va_data.keyframes[kf_indx]
+
+        if self.pt_locations_2d[kf_indx] is not []:
+            ret_dict["click_interp"] = self.pt_locations_2d[kf_indx][pt_indx]
+        else:
+            pt_prev = None
+            pt_next = None
+            prev_indx = kf_indx - 1
+            post_indx = kf_indx + 1
+            while prev_indx >= 0:
+                if self.pt_locations_2d[prev_indx] is not []:
+                    pt_prev = self.pt_locations_2d[prev_indx][pt_indx]
+                    break
+                prev_indx += 1
+            while post_indx < len(self.va_data.keyframes):
+                if self.pt_locations_2d[post_indx] is not []:
+                    pt_next = self.pt_locations_2d[post_indx][pt_indx]
+                    break
+                post_indx += 1
+
+
+
+    def point_depth_from_image(self):
+        pt_proj_2d = np.ones((3, 1))
+        depth_values = [[] for i in range(len(self.pt_locations_3d))]
+        width = 8
+        n_pixs_box = 2 * width * 2 * width // 4
+
+        d_min_world = self.depth_camera.depth_range[0]
+        d_max_world = self.depth_camera.depth_range[1]
+        for count, pose_matrix in enumerate(self.pose_matrices):
+            pts_proj = cv2.projectPoints(np.array(self.pt_locations_3d, dtype=np.float64),
+                                         rvec=self.rot_matrices[count],
+                                         tvec=self.trans_vecs[count],
+                                         cameraMatrix=cam_depth.world_to_image,
+                                         distCoeffs=cam_depth.image_distortion_coefs)
+            kf_indx = self.kf_indices[count]
+            depth_image_name = self.va_data.get_depth_image_name((0, kf_indx, 0, 0))
+            im_depth_full = cv2.imread(depth_image_name)
+            im_depth_r = im_depth_full[:, :, 2]
+            im_depth_g = im_depth_full[:, :, 1]
+            im_depth_b = im_depth_full[:, :, 0]
+
+            for pt_index in range(0, pts_proj[0].shape[0]):
+                #  pt_proj_2d[0] = pts_proj[0][pt_index][0][0]
+                #  pt_proj_2d[1] = pts_proj[0][pt_index][0][1]
+                #  pt_proj_depth = self.va_data.matrix_rgb_to_depth @ pt_proj_2d
+                pt_proj_depth = pts_proj[0][pt_index, 0, 0:2]
+
+                if pt_proj_depth[0] <= width or pt_proj_depth[0] >= self.depth_camera.image_size[1] - width -1:
+                    print(f"Pixel out of image {pt_proj_depth} kf {kf_indx} pt {pt_index}")
+                if pt_proj_depth[1] <= width or pt_proj_depth[1] >= self.depth_camera.image_size[0] - width - 1:
+                    print(f"Pixel out of image {pt_proj_depth} kf {kf_indx} pt {pt_index}")
+                x = int(pt_proj_depth[0].flatten())
+                y = int(pt_proj_depth[1].flatten())
+                depth_pixels_r = im_depth_r[y-width:y+width, x-width:x+width].flatten()
+                depth_pixels_g = im_depth_g[y-width:y+width, x-width:x+width].flatten()
+                im_depth_full[y-width:y+width, x-width:x+width, 0] = 200
+                im_depth_full[y-width:y+width, x-width:x+width, 1] = 200
+                depth_pixels_g = depth_pixels_g[depth_pixels_r < 253]
+                depth_pixels_r = depth_pixels_r[depth_pixels_r < 253]
+                if depth_pixels_r.size > n_pixs_box:
+                    depth_pixels = depth_pixels_r + (255.0 - depth_pixels_g)
+                    depth_closest = depth_pixels.min()
+                    d_val = d_min_world + depth_closest / 255.0 * (d_max_world - d_min_world)
+                    depth_values[pt_index].append(d_val)
+                else:
+                    print(f"Not enough pixels kf {kf_indx} pt {pt_index} {depth_pixels_r.size}")
+
+            fname_debug = self.va_data.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_depth_pts.png"
+            cv2.imwrite(fname_debug, im_depth_full)
+
+            fname_debug2 = self.va_data.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_depth_guess.png"
+            im_depth_guess = (im_depth_r + (255.0 - im_depth_g)) / 2.0
+            im_depth_guess = im_depth_guess.astype(np.uint8)
+            cv2.imwrite(fname_debug2, im_depth_guess)
+
+        self.depths_from_image = []
+        for idx, depth_value_list in enumerate(depth_values):
+            depth_from_image = -1.0
+            if len(depth_value_list) > 0:
+                depth_as_np = np.array(depth_value_list)
+                diff = np.max(depth_as_np) - np.min(depth_as_np)
+                count_min = np.count_nonzero(depth_as_np < 1.1 * np.min(depth_as_np))
+                count_max = np.count_nonzero(depth_as_np > 0.9 * np.max(depth_as_np))
+
+                depth_from_image = np.mean(depth_as_np)
+
+            print(f"{self.pt_locations_3d[idx]}, {depth_from_image}")
+            print(f"{depth_value_list}")
+            self.depths_from_image.append(depth_from_image)
+
+    def crv_point_depth_from_image(self):
+        pt_proj_2d = np.ones((3, 1))
+        width = 8
+        n_pixs_box = 2 * width * 2 * width // 4
+
+        d_min_world = self.depth_camera.depth_range[0]
+        d_max_world = self.depth_camera.depth_range[1]
+        crv_lens = []
+
+        depth_values = [[] for i in range(len(self.crv_pt_locations_3d))]
+        for indx, dv in enumerate(depth_values):
+            for _ in range(0, len(self.crv_pt_locations_3d[indx])):
+                dv.append([])
+
+        pt_rgb_2d = np.ones((3, 1))
+        for crv_indx in range(0, len(self.crv_pt_locations_3d)):
+            crv_pts_3d = np.array(self.crv_pt_locations_3d[crv_indx], dtype=np.float64)
+            for pt_index in range(0, len(self.crv_pt_locations_3d[crv_indx]) - 1):
+                seg_dist = np.linalg.norm(crv_pts_3d[pt_index, :] - crv_pts_3d[pt_index + 1, :])
+                crv_lens.append(seg_dist)
+
+        for kf_indx, crv_pt_list in enumerate(self.crv_pt_locations_2d):
+            if len(crv_pt_list) == 0:
+                continue
+
+            depth_image_name = self.va_data.get_depth_image_name((0, kf_indx, 0, 0))
+            im_depth_full = cv2.imread(depth_image_name)
+            im_depth_r = im_depth_full[:, :, 2]
+            im_depth_g = im_depth_full[:, :, 1]
+
+            for crv_indx, pts_all in enumerate(crv_pt_list):
+                for pt_indx, pt in enumerate(pts_all):
+                    pt_rgb_2d[0] = pt[0]
+                    pt_rgb_2d[1] = pt[1]
+                    pt_proj_depth = self.va_data.matrix_rgb_to_depth @ pt_rgb_2d
+
+                    if pt_proj_depth[0] <= width or pt_proj_depth[0] >= self.depth_camera.image_size[1] - width - 1:
+                        print(f"Pixel out of image {pt_proj_depth} kf {kf_indx} crv {crv_indx} pt {pt_indx}")
+                    if pt_proj_depth[1] <= width or pt_proj_depth[1] >= self.depth_camera.image_size[0] - width - 1:
+                        print(f"Pixel out of image {pt_proj_depth} kf {kf_indx} crv {crv_indx} pt {pt_indx}")
+
+                    x = int(pt_proj_depth[0].flatten())
+                    y = int(pt_proj_depth[1].flatten())
+                    depth_pixels_r = im_depth_r[y - width:y + width, x - width:x + width].flatten()
+                    depth_pixels_g = im_depth_g[y - width:y + width, x - width:x + width].flatten()
+                    im_depth_full[y - width:y + width, x - width:x + width, 0] = 200
+                    im_depth_full[y - width:y + width, x - width:x + width, 1] = 200
+                    depth_pixels_g = depth_pixels_g[depth_pixels_r < 253]
+                    depth_pixels_r = depth_pixels_r[depth_pixels_r < 253]
+                    if depth_pixels_r.size > n_pixs_box:
+                        depth_pixels = depth_pixels_r + (255.0 - depth_pixels_g)
+                        depth_closest = depth_pixels.min()
+                        d_val = d_min_world + depth_closest / 255.0 * (d_max_world - d_min_world)
+                        depth_values[crv_indx][pt_indx].append(d_val)
+                    else:
+                        print(f"Not enough pixels kf {kf_indx} crv {crv_indx} pt {pt_indx} {depth_pixels_r.size}")
+
+            fname_debug = self.va_data.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True,
+                                                            b_add_tag=False) + "_depth_crv_pts.png"
+            cv2.imwrite(fname_debug, im_depth_full)
+
+        self.crv_depths_from_image = []
+        for crv_indx, crvs in enumerate(depth_values):
+            self.crv_depths_from_image.append([])
+            for pt_indx, crv_depths in enumerate(crvs):
+                depth_from_image = -1.0
+                if len(crv_depths) > 0:
+                    depth_as_np = np.array(crv_depths)
+                    diff = np.max(depth_as_np) - np.min(depth_as_np)
+                    depth_from_image = np.mean(depth_as_np)
+
+                print(f"{self.crv_pt_locations_3d[crv_indx][pt_indx]}, {depth_from_image}")
+                print(f"{crv_depths}")
+                self.crv_depths_from_image[crv_indx].append(depth_from_image)
+
     def debug_images(self, va : VideoAnnotationData):
         """ Produce images with tracks on both rgb and depth (if 3D points given)
         Assumes pt_locations_2d and/or crv_pt_locations_2d have been created already
@@ -580,7 +775,7 @@ class PointTrackerKeyFrames():
             draw_line(im_rgb, pt_mid, pt_end_mid, color=[255, 255, 0], thickness=thickness // 2)
 
             # Draw the original clicked background points in white
-            for bp in kf.pts_2d_of_start:
+            for bp in kf.pts_2d_background:
                 draw_box(im_rgb, bp, color=[200, 200, 200], width=4 * thickness)
 
             # Draw the original clicked curve points in white
@@ -654,7 +849,7 @@ class PointTrackerKeyFrames():
             # Draw the 2D background points mapped via the intrinsic matrix to the depth image
             k_rgb_inv = np.linalg.inv(self.rgb_camera.world_to_image)
             k_depth = self.depth_camera.world_to_image
-            for bp in kf.pts_2d_of_start:
+            for bp in kf.pts_2d_background:
                 pt3d[0] = bp[0]
                 pt3d[1] = bp[1]
                 pt_depth = k_depth @ k_rgb_inv @ pt3d
@@ -662,8 +857,10 @@ class PointTrackerKeyFrames():
 
             # Draw the curve points saved in crv_pts_2d, with lines between them
             pt_prev = np.copy(pt3d)
+            pt_prev_direct = np.copy(pt3d)
             for crv in self.crv_pt_locations_2d[count]:
                 for pt_indx, pt in enumerate(crv):
+                    # Purple - just use the k matrices to map the 2d image point to the 2d depth point
                     pt3d[0] = pt[0]
                     pt3d[1] = pt[1]
                     pt_depth = k_depth @ k_rgb_inv @ pt3d
@@ -671,6 +868,14 @@ class PointTrackerKeyFrames():
                     if pt_indx != 0:
                         draw_line(im_depth, pt_depth[0:2].transpose(), pt_prev, color=[250, 20, 200], thickness=thickness)
                     pt_prev = np.copy(pt_depth[0:2].transpose())
+
+                    # Blue - Use the hand-fitted matrix to map the rgb point to the depth image
+                    pt_depth_direct = va.matrix_rgb_to_depth @ pt3d
+                    draw_cross(im_depth, pt_depth_direct[0:2].transpose(), color=[250, 120, 100], thickness=2 * thickness)
+                    if pt_indx != 0:
+                        draw_line(im_depth, pt_depth_direct[0:2].transpose(), pt_prev_direct, color=[250, 120, 100], thickness=thickness)
+                    pt_prev_direct = np.copy(pt_depth_direct[0:2].transpose())
+
 
             # Draw the projected 3d curves
             if self.pose_matrices is not [] and self.crv_pt_locations_3d is not []:
@@ -688,6 +893,7 @@ class PointTrackerKeyFrames():
                             pt_prev = pt
                         else:
                             pt_prev = crv_pts_proj[0][pt_indx - 1, 0, :]
+                        # Red - Project the 3D point to the image using the depth camera information
                         draw_line(im_depth, pt, pt_prev, color=[20, 20, 200], thickness=thickness // 2)
 
 
@@ -705,6 +911,7 @@ class PointTrackerKeyFrames():
             count = count + 1
             fname = va.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
             cv2.imwrite(fname, im_depth)
+
 
 
 if __name__ == "__main__":
@@ -750,10 +957,12 @@ if __name__ == "__main__":
         cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
                                       camera_calibration_fname=("azure_camera_calibration.json", "depth"),
                                       params={})
-    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth, est_depth=10.0)
+    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth)
     pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
     pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
     pt_kf.solve_3d_pts(iters=6)
     pt_kf.debug_images(va)
+    pt_kf.point_depth_from_image()
+    pt_kf.crv_point_depth_from_image()
 
     print(f"Done")
