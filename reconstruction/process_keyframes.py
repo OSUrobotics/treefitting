@@ -578,35 +578,60 @@ class PointTrackerKeyFrames():
                 # Oddly, this doesn't help - so don't do it
                 # mask = np.array(all_err) < 100
 
-    def back_ground_point_rgb(self, kf_indx, pt_indx):
+    def proj_point(self, kf_indx, pt_3d, use_depth=False):
+        """ Project the point into the image, either rgb or depth
+        @param kf_indx - which key frame
+        @param pt_3d - 3d point as list or np array
+        @param use_depth - if True, use depth map camera"""
+
+        cam = cam_depth if use_depth else cam_rgb
+        pts_proj = cv2.projectPoints(np.array(pt_3d, dtype=np.float64),
+                                     rvec=self.rot_matrices[kf_indx],
+                                     tvec=self.trans_vecs[kf_indx],
+                                     cameraMatrix=cam.world_to_image,
+                                     distCoeffs=cam.image_distortion_coefs)
+        return pts_proj[0][0, 0, :].flatten()
+
+    def background_point_rgb(self, kf_indx, pt_indx):
         """ Get all of the possible locations of the background point
         @param kf_indx: which key frame
         @param pt_indx: which point
         @return all of the possible locations of the background point as a dictionary"""
 
-        ret_dict = {"click": [], "click_interp": [], "proj_3d": []}
-        kf = self.va_data.keyframes[kf_indx]
-
-        if self.pt_locations_2d[kf_indx] is not []:
-            ret_dict["click_interp"] = self.pt_locations_2d[kf_indx][pt_indx]
-        else:
-            pt_prev = None
-            pt_next = None
-            prev_indx = kf_indx - 1
-            post_indx = kf_indx + 1
-            while prev_indx >= 0:
-                if self.pt_locations_2d[prev_indx] is not []:
-                    pt_prev = self.pt_locations_2d[prev_indx][pt_indx]
-                    break
-                prev_indx += 1
-            while post_indx < len(self.va_data.keyframes):
-                if self.pt_locations_2d[post_indx] is not []:
-                    pt_next = self.pt_locations_2d[post_indx][pt_indx]
-                    break
-                post_indx += 1
+        ret_dict = {"click_interp": self.pt_locations_2d[kf_indx][pt_indx],
+                    "proj_3d": self.proj_point(kf_indx, self.pt_locations_3d[kf_indx][pt_indx], dtype=np.float64)}
 
 
+    def point_depth(self, kf_indx, pt_2d_rgb, pt_3d):
+        """ Two ways to get from 2d rgb to 2d depth; our hand-built matrix OR kInvk
+            Two ways to get 2d point: Either use click point or project from 3d
+        @param kf_indx: which key frame
+        @param pt_2d_rgb - the click point in image
+        @param pt_3d - the 3d point as list or np array"""
 
+        pt_2d_rgb = np.array(pt_2d_rgb, dtype=np.float64)
+        pt_3d = np.array(pt_3d, dtype=np.float64)
+        pt_3d_rgb = self.proj_point(kf_indx, pt_3d)
+        mat_k_inv_k = cam_depth.world_to_image @ np.linalg.inv(cam_rgb.world_to_image)
+        ret_dict = {"click_interp_matrix": self.va_data.matrix_rgb_to_depth @ pt_2d_rgb,
+                    "proj_3d": self.proj_point(kf_indx, pt_3d, use_depth=True),
+                    "proj_rgb_matrix": self.va_data.matrix_rgb_to_depth @ pt_3d_rgb,
+                    "kInvk": mat_k_inv_k @ pt_2d_rgb,
+                    "proj_rgb_kInvk": mat_k_inv_k @ pt_3d_rgb,
+                    }
+
+    def background_point_depth(self, kf_indx, pt_indx):
+        """ Get all of the possible locations of the background point
+        @param kf_indx: which key frame
+        @param pt_indx: which point
+        @return all of the possible locations of the background point as a dictionary"""
+
+        pt_2d_rgb = np.array(self.pt_locations_2d[kf_indx][pt_indx], dtype=np.float64)
+        pt_3d = np.array(self.pt_locations_3d[kf_indx][pt_indx], dtype=np.float64)
+        pt_3d_rgb = self.proj_point(kf_indx, pt_3d)
+        mat_k_inv_k = cam_depth.world_to_image @ np.linalg.inv(cam_rgb.world_to_image)
+
+        " Two ways to get from
     def point_depth_from_image(self):
         pt_proj_2d = np.ones((3, 1))
         depth_values = [[] for i in range(len(self.pt_locations_3d))]
