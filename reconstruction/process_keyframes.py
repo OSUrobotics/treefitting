@@ -257,7 +257,7 @@ class PointTrackerKeyFrames():
                 self.vecs_crvs.append([0, 0])
 
         print(f"Curve counts {n_crvs}")
-        for kf_indx in range(0, len(self.va_data.keyframes)):
+        for kf_indx in range(0, len(self.valid_keyframes)):
             if kf_indx in self.crv_keyframes:
                 continue
             prev_indx = 0
@@ -269,6 +269,7 @@ class PointTrackerKeyFrames():
                     next_indx = find_indx
                     break
             perc = (kf_indx - prev_indx) / (next_indx - prev_indx)
+            print(f"kf {kf_indx}, p {prev_indx}, n {next_indx}")
             for crv_indx in range(0, self.n_curves):
                 self.crv_pt_locations_2d[kf_indx].append([])
                 for pt_indx in range(0, len(self.crv_pt_locations_2d[prev_indx][crv_indx])):
@@ -451,6 +452,57 @@ class PointTrackerKeyFrames():
             pts_3d.append(self._run_triangulation(pts_2d_track, mask))
         return pts_3d
 
+    def _scale_3d_points(self, seg_length):
+        """ Calculate the scale that will make the distances between the sketched curve points be seg_length
+        @param seg_length - whatever you want point i - point i+1 to be a length for
+        @:return flattened list of 3d points"""
+
+        seg_lengths = []
+        scl_quadratic = []
+        for crv_indx in range(0, self.n_curves):
+            print(f"crv {crv_indx}: ", end="")
+            for pt_indx in range(0, self.n_pts_per_curve[crv_indx] - 1):
+                pt1 = np.array(self.crv_pt_locations_3d[crv_indx][pt_indx])
+                pt2 = np.array(self.crv_pt_locations_3d[crv_indx][pt_indx+1])
+                len_seg = np.linalg.norm(pt1 - pt2)
+                seg_lengths.append(len_seg)
+                print(f" {len_seg:0.2}", end="")
+                quad_form_a = np.sum(pt1 ** 2) + np.sum(pt2 ** 2)
+                quad_form_b = -2.0 * (pt1 @ pt2.transpose())
+                quad_form_c = -seg_length ** 2
+
+                det = quad_form_b ** 2 - 4.0 * quad_form_a * quad_form_c
+                if det < 0.0:
+                    continue
+                soln1 = (-quad_form_b + np.sqrt(det)) / (2.0 * quad_form_a)
+                soln2 = (-quad_form_b - np.sqrt(det)) / (2.0 * quad_form_a)
+                if soln1 < 0.0 and soln2 < 0.0:
+                    continue
+                if soln1 > 0.0:
+                    scl_quadratic.append(soln1)
+                else:
+                    scl_quadratic.append(soln1)
+                print("")
+        scl_quad = np.mean(np.array(scl_quadratic))
+        seg_len = np.mean(np.array(seg_lengths))
+        scl = seg_length / seg_len
+
+        for pts in self.pt_locations_3d:
+            for indx in range(0, 3):
+                pts[indx] *= scl
+
+        crv_list = []
+        for crv_indx in range(0, self.n_curves):
+            for pt_indx in range(0, self.n_pts_per_curve[crv_indx]):
+                for indx in range(0, 3):
+                    self.crv_pt_locations_3d[crv_indx][pt_indx][indx] *= scl
+                crv_list.append(self.crv_pt_locations_3d[crv_indx][pt_indx])
+        pt1 = np.array(self.crv_pt_locations_3d[0][1])
+        pt2 = np.array(self.crv_pt_locations_3d[0][0])
+        print(f" end len {np.linalg.norm(pt1 - pt2)}")
+
+        return np.array(crv_list, dtype=np.float64)
+
     def _error_per_frame(self, crv_2d_flattened, crv_3d_flattened):
         """ Returns the error per frame of the reprojection"""
         pts_3d = np.array(self.pt_locations_3d, dtype=np.float64)
@@ -487,7 +539,7 @@ class PointTrackerKeyFrames():
         print(f"All err crv: {all_err_crv}")
         return all_err
 
-    def _triangulate_3d_crv_pts(self, iters = 0):
+    def _triangulate_3d_crv_pts(self):
         """ Use the current pose matrices to project the curve points
         @ returns Nframes X sum(number points per curve) X 2 list of 2d points, sum(number points per curve) X 3 3D pts"""
 
@@ -508,7 +560,7 @@ class PointTrackerKeyFrames():
 
             for pt_indx in range(0, self.n_pts_per_curve[crv_indx]):
                 # Collect all the image points from all the valid key frames
-                for kf_indx in self.crv_keyframes:
+                for kf_indx in range(0, len(self.crv_pt_locations_2d)):
                     pts_2d[kf_indx, 0] = self.crv_pt_locations_2d[kf_indx][crv_indx][pt_indx][0]
                     pts_2d[kf_indx, 1] = self.crv_pt_locations_2d[kf_indx][crv_indx][pt_indx][1]
                     crv_pts_2d_flattened[kf_indx].append(self.crv_pt_locations_2d[kf_indx][crv_indx][pt_indx])
@@ -519,7 +571,7 @@ class PointTrackerKeyFrames():
 
         return crv_pts_2d_flattened, np.array(crv_pts_3d_flattened, dtype=np.float64)
 
-    def solve_3d_pts(self, b_no_camera_rotation=True, iters=2):
+    def solve_3d_pts(self, b_no_camera_rotation=True, seq_length=1.0, iters=2):
         """ Assumes self.pt_locations_2d has been filled in"""
 
         # Initial guesses at the camera poses
@@ -536,6 +588,7 @@ class PointTrackerKeyFrames():
         print(f" {self.pt_locations_3d}")
 
         crv_2d, crv_3d = self._triangulate_3d_crv_pts()
+        crv_3d = self._scale_3d_points(seq_length)
 
         all_err = self._error_per_frame(crv_2d, crv_3d)
         rvec = np.ones((3, 1), dtype=np.float64)
@@ -572,6 +625,7 @@ class PointTrackerKeyFrames():
                 print(f"pts_3d {pts_3d}")
                 print(f"\n")
                 crv_2d, crv_3d = self._triangulate_3d_crv_pts()
+                crv_3d = self._scale_3d_points(seq_length)
                 print(f" {self.pt_locations_3d}")
 
                 all_err = self._error_per_frame(crv_2d, crv_3d)
@@ -592,14 +646,16 @@ class PointTrackerKeyFrames():
                                      distCoeffs=cam.image_distortion_coefs)
         return pts_proj[0][0, 0, :].flatten()
 
-    def background_point_rgb(self, kf_indx, pt_indx):
+    def point_rgb(self, kf_indx, pt_2d_rgb, pt_3d):
         """ Get all of the possible locations of the background point
         @param kf_indx: which key frame
         @param pt_indx: which point
         @return all of the possible locations of the background point as a dictionary"""
 
-        ret_dict = {"click_interp": self.pt_locations_2d[kf_indx][pt_indx],
-                    "proj_3d": self.proj_point(kf_indx, self.pt_locations_3d[kf_indx][pt_indx], dtype=np.float64)}
+        ret_dict = {"click_interp": pt_2d_rgb,
+                    "proj_3d": self.proj_point(kf_indx, pt_3d)}
+
+        return ret_dict
 
 
     def point_depth(self, kf_indx, pt_2d_rgb, pt_3d):
@@ -619,6 +675,7 @@ class PointTrackerKeyFrames():
                     "kInvk": mat_k_inv_k @ pt_2d_rgb,
                     "proj_rgb_kInvk": mat_k_inv_k @ pt_3d_rgb,
                     }
+        return ret_dict
 
     def background_point_depth(self, kf_indx, pt_indx):
         """ Get all of the possible locations of the background point
@@ -628,10 +685,9 @@ class PointTrackerKeyFrames():
 
         pt_2d_rgb = np.array(self.pt_locations_2d[kf_indx][pt_indx], dtype=np.float64)
         pt_3d = np.array(self.pt_locations_3d[kf_indx][pt_indx], dtype=np.float64)
-        pt_3d_rgb = self.proj_point(kf_indx, pt_3d)
-        mat_k_inv_k = cam_depth.world_to_image @ np.linalg.inv(cam_rgb.world_to_image)
 
-        " Two ways to get from
+        return self.point_depth(kf_indx=kf_indx, pt_2d_rgb=pt_2d_rgb, pt_3d=pt_3d)
+
     def point_depth_from_image(self):
         pt_proj_2d = np.ones((3, 1))
         depth_values = [[] for i in range(len(self.pt_locations_3d))]
@@ -985,7 +1041,11 @@ if __name__ == "__main__":
     pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth)
     pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
     pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
-    pt_kf.solve_3d_pts(iters=6)
+    # 10.16cm is 4 inches
+    pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
+    pt_kf.debug_images(va)
+    pt_kf.est_depth = -pt_kf.crv_pt_locations_3d[0][1][2]
+    pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
     pt_kf.debug_images(va)
     pt_kf.point_depth_from_image()
     pt_kf.crv_point_depth_from_image()
