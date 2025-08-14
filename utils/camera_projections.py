@@ -215,6 +215,15 @@ class CameraProjections():
 
         return pt_uv[0:2], depth
 
+    def x_pix_width_to_dist(self, delta_x_in_pix : float, depth_val_at_pix : float):
+        """ What is the world distance given the pixel distance and depth?
+        @param delta_x_in_pix - width in pixels
+        @param depth_val_at_pix - what depth value to use?
+        @return distance in world space"""
+        per_pix_ang = delta_x_in_pix * self.camera_width_angle / self.image_size[0]
+        ang_subtend_radians = np.pi * per_pix_ang / 180.0
+        return 0.5 * np.abs(depth_val_at_pix) * np.tan(ang_subtend_radians)
+
     def depth_pts_in_rgb(self):
         pt = np.ones((3, 1))
         pts_ret = []

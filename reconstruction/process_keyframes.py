@@ -24,6 +24,9 @@
 from utils.video_annotation_data import VideoAnnotationData
 from utils.camera_projections import CameraProjections
 from utils.file_names_sub_dirs import FileNamesSubDirs
+from fit_routines.bspline_fit_params import BSplineFitParams
+from tree_geometry.b_spline_cyl import BSplineCyl
+from tree_geometry.b_spline_cyl_3d import BSplineCyl3d
 import numpy as np
 import cv2
 
@@ -59,6 +62,7 @@ class PointTrackerKeyFrames():
         self.pt_locations_3d = []
         self.crv_pt_locations_3d = []
         self.crv_depths_from_image = []
+        self.crv_radii_from_2d_crv = []
         self.depths_from_image = []
         self.b_vertical = False
         self.b_horizontal = False
@@ -833,6 +837,44 @@ class PointTrackerKeyFrames():
                 print(f"{crv_depths}")
                 self.crv_depths_from_image[crv_indx].append(depth_from_image)
 
+    def radii_for_curves(self):
+        self.crv_radii_from_2d_crv = []
+
+        mask_id = 0
+        for crv_indx in range(0, self.n_curves):
+            self.crv_radii_from_2d_crv.append([])
+            radii = [0.0, 0.0, 0.0]
+            pts_indx = [0, self.n_pts_per_curve[crv_indx] // 2, self.n_pts_per_curve[crv_indx] - 1]
+            count = 0
+            for kf in self.valid_keyframes:
+                if len(kf.bspline_cyls[mask_id]) == 0:
+                    continue
+
+                crv = kf.bspline_cyls[mask_id][crv_indx]
+                for ri in range(0, len(radii)):
+                    radii[ri] += crv.radii_crv.point(ri)[0]
+                count += 1
+
+            for ri in range(0, len(radii)):
+                radii[ri] /= count
+                radii_3d = self.rgb_camera.x_pix_width_to_dist(radii[ri], self.crv_pt_locations_3d[crv_indx][pts_indx[ri]][2])
+
+                self.crv_radii_from_2d_crv[-1].append(radii_3d)
+
+    def fit_3d_curves(self, fit_params: BSplineFitParams = None):
+        from fit_routines.b_spline_curve_fit import BSplineCurveFit
+        from tree_geometry.point_lists import PointList
+
+        for crv_indx in range(0, self.n_curves):
+            pt_list = PointList(self.crv_pt_locations_3d[crv_indx])
+            crv_fit = BSplineCurveFit(pt_list, fit_params)
+            crv_3d = BSplineCyl3d(ctrl_pts=self.crv_pt_locations_3d[crv_indx], degree="cubic", radii=self.crv_radii_from_2d_crv[crv_indx])
+            curve_fit, _ = crv_fit.initial_fit(crv_3d, pt_list)
+            crv_3d = BSplineCyl3d(ctrl_pts=curve_fit.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx])
+            crv_3d.set_mesh_dimensions(12, 32)
+            crv_3d.make_mesh()
+            crv_3d.write_mesh(f"check_3d_bezier{crv_indx}.obj")
+
     def debug_images(self, va : VideoAnnotationData):
         """ Produce images with tracks on both rgb and depth (if 3D points given)
         Assumes pt_locations_2d and/or crv_pt_locations_2d have been created already
@@ -1046,8 +1088,15 @@ if __name__ == "__main__":
     pt_kf.debug_images(va)
     pt_kf.est_depth = -pt_kf.crv_pt_locations_3d[0][1][2]
     pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
+    pt_kf.radii_for_curves()
+    fit_params = BSplineFitParams()
+    fit_params["inlier threshold"] = 8
+    fit_params["average fit"] = 2.0
+    fit_params["outlier ratio"] = 0.0
+    fit_params["degree"] = "cubic"
+    pt_kf.fit_3d_curves(fit_params)
     pt_kf.debug_images(va)
-    pt_kf.point_depth_from_image()
-    pt_kf.crv_point_depth_from_image()
+    # pt_kf.point_depth_from_image()
+    # pt_kf.crv_point_depth_from_image()
 
     print(f"Done")
