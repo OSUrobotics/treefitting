@@ -874,6 +874,9 @@ class PointTrackerKeyFrames():
             crv_3d.set_mesh_dimensions(12, 32)
             crv_3d.make_mesh()
             crv_3d.write_mesh(f"check_3d_bezier{crv_indx}.obj")
+            fname = f"bush_3_cyl{crv_indx}.json"
+            with open(fname, "w") as f:
+                json.dump(crv_3d.write_json(), f, indent=2)
 
     def debug_images(self, va : VideoAnnotationData):
         """ Produce images with tracks on both rgb and depth (if 3D points given)
