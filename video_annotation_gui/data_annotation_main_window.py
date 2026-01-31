@@ -19,6 +19,7 @@ from sketch_curves_gui.opengl_draw_window import OopenGLDrawWindow
 from tree_geometry.line_segs import LineSeg2D
 from utils.video_annotation_data import VideoAnnotationData
 from utils.file_names_sub_dirs import FileNamesSubDirs
+from utils.camera_projections import CameraProjections
 
 from utils.sketched_curve import SketchedCurve
 
@@ -48,6 +49,13 @@ class DataAnnotationMainWindow(QMainWindow):
         SliderFloatDisplay.gui = self
         SliderIntDisplay.gui = self
 
+        self.cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
+                                    camera_calibration_fname=("azure_camera_calibration.json", "color"),
+                                    params={})
+        self.cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
+                                      camera_calibration_fname=("azure_camera_calibration.json", "depth"),
+                                      params={})
+
         self.glWidget.draw_curve_2d.show_profile_curves = False
         self.glWidget.draw_curve_2d.show_edge_rects = False
         self.glWidget.draw_curve_2d.show_interior_rects = False
@@ -58,6 +66,13 @@ class DataAnnotationMainWindow(QMainWindow):
         self.sketch_curve = SketchedCurve()
         self.x_rgb_to_depth = 1.0
         self.y_rgb_to_depth = 1.0
+        # Pairs of points for calculating the rgb to depth matrix
+        self.pts_rgb_to_depth = {"rgb": [], "depth": []}
+
+        if exists("save_rgb_to_depth_pts.json"):
+            with open ("save_rgb_to_depth_pts.json", "r") as f:
+                self.pts_rgb_to_depth = json.load(f)
+
         if exists("save_crv.json"):
             with open("save_crv.json", "r") as f:
                 my_dict = json.load(f)
@@ -76,7 +91,7 @@ class DataAnnotationMainWindow(QMainWindow):
         src_drive = FileNamesSubDirs.get_path() + "/PycharmProjects/data/"
         tree_name = "bush_1_east"
         self.path_name = QLineEdit(src_drive + tree_name + "/")
-        self.file_name = QLineEdit("video_annot.json")
+        self.file_name = QLineEdit("video_annot_final.json")
         self.image_number = SliderIntDisplay("Image", 0, 10, 0)
         self.mask_number = SliderIntDisplay("Type", 0, 3, 0)
         self.mask_id_number = SliderIntDisplay("Type id", 0, 3, 0)
@@ -183,18 +198,15 @@ class DataAnnotationMainWindow(QMainWindow):
 
         self.do_sketch_curve_draw = QRadioButton('Draw backbone')
         self.do_sketch_curve_draw.clicked.connect(self.on_draw_toggled)
-        self.do_keypoints_start_draw = QRadioButton('Draw start keypoints')
-        self.do_keypoints_start_draw.clicked.connect(self.on_draw_toggled)
-        self.do_keypoints_end_draw = QRadioButton('Draw end keypoints')
-        self.do_keypoints_end_draw.clicked.connect(self.on_draw_toggled)
+        self.do_keypoints_background = QRadioButton('Draw background')
+        self.do_keypoints_background.clicked.connect(self.on_draw_toggled)
         self.do_keypoints_depth_draw = QRadioButton('Draw depth keypoints')
         self.do_keypoints_depth_draw.clicked.connect(self.on_draw_toggled)
         self.do_sketch_curve_draw.setChecked(1)
 
         drawing_states_layout.addWidget(self.do_sketch_curve_draw, 0, 0)
-        drawing_states_layout.addWidget(self.do_keypoints_start_draw, 1, 0)
-        drawing_states_layout.addWidget(self.do_keypoints_end_draw, 2, 0)
-        drawing_states_layout.addWidget(self.do_keypoints_depth_draw, 3, 0)
+        drawing_states_layout.addWidget(self.do_keypoints_background, 1, 0)
+        drawing_states_layout.addWidget(self.do_keypoints_depth_draw, 2, 0)
 
         drawing_states_layout.addWidget(new_sketch_button, 0, 1)
         drawing_states_layout.addWidget(done_kp_button, 1, 1)
@@ -383,10 +395,8 @@ class DataAnnotationMainWindow(QMainWindow):
                 return
 
             kf = self.video_annot.keyframes[kf_indx]
-            if self.do_keypoints_start_draw.isChecked():
-                kf.pts_2d_of_start = []
-            if self.do_keypoints_end_draw.isChecked():
-                kf.pts_2d_of_end = []
+            if self.do_keypoints_background.isChecked():
+                kf.pts_2d_background = []
             if self.do_keypoints_depth_draw.isChecked():
                 if self.show_rgb_button.isChecked():
                     kf.pts_2d_rgb_depth = []
@@ -575,13 +585,13 @@ class DataAnnotationMainWindow(QMainWindow):
             return
 
         kf = self.video_annot.keyframes[kf_indx]
-        if self.do_keypoints_start_draw.isChecked():
+        if self.do_keypoints_background.isChecked():
             if kf_indx < self.video_annot.n_keyframes()-1:
                 print(f"Optical flow keypoints")
                 kf_next = self.video_annot.keyframes[kf_indx + 1]
 
-                kp1 = kf.pts_2d_of_start
-                kp2 = kf_next.pts_2d_of_end
+                kp1 = kf.pts_2d_background
+                kp2 = kf_next.pts_2d_background
                 if len(kp1) != len(kp2) or len(kp1) < 1:
                     print(f"Number of key points differs or no key points {len(kp1)} {len(kp2)}")
                 else:
@@ -676,7 +686,7 @@ class DataAnnotationMainWindow(QMainWindow):
                 self.y_rgb_to_depth = height_depth_image / height_rgb_image
 
         #mat_depth_to_rgb = kf.rgb_to_depth_matrix
-        mat_depth_to_rgb = np.linalg.inv(kf.rgb_to_depth_matrix)
+        mat_depth_to_rgb = np.linalg.inv(self.cam_depth.rgb_to_depth_matrix)
 
         self.glWidget.draw_images.bind_texture(rgb_image=self.images["rgb"],
                                                edge_image=self.images["edge"],
@@ -688,7 +698,23 @@ class DataAnnotationMainWindow(QMainWindow):
         self.in_read_images = False
 
     def sketched_curves(self):
-        return [self.sketch_curve]
+        kf_indx = self.image_number.value()
+        if not self.video_annot or kf_indx < 0 or kf_indx >= self.video_annot.n_keyframes():
+            return [self.sketch_curve]
+
+        kf = self.video_annot.keyframes[kf_indx]
+        sk_crvs = [self.sketch_curve]
+        # Actually convert the curve
+        width_rgb_image = self.glWidget.draw_curve_2d.im_size[0]
+        height_rgb_image = self.glWidget.draw_curve_2d.im_size[1]
+        ll = self.glWidget.draw_curve_2d.lower_left
+        ur = self.glWidget.draw_curve_2d.upper_right
+        for mask_index, _ in enumerate(self.video_annot.mask_names):
+            for mask_id in range(0, len(kf.sketch_curves[mask_index])):
+                crv_screen_coords = kf.get_sketch(mask_index, mask_id).convert_back_to_screen(lower_left=ll, upper_right=ur,
+                                                   width=width_rgb_image, height=height_rgb_image)
+                sk_crvs.append(crv_screen_coords)
+        return sk_crvs
 
     def spline_curves(self):
         if self.video_annot:
@@ -701,7 +727,9 @@ class DataAnnotationMainWindow(QMainWindow):
                         if self.show_rgb_button.isChecked():
                             crv_list.append(crv)
                         else:
-                            depth_crv = kf.get_bsplinecyl_in_depth_image(mask_index, mask_id)
+                            depth_crv = kf.get_bsplinecyl_in_depth_image(mask_index=mask_index,
+                                                                         mask_id_index=mask_id,
+                                                                         mat_transform=self.cam_depth.rgb_to_depth_matrix)
                             new_pts = []
                             for indx in range(0, depth_crv.n_points()):
                                 pt = depth_crv.point(indx)
@@ -752,23 +780,23 @@ class DataAnnotationMainWindow(QMainWindow):
             else:
                 kf.pts_2d_of_end.append(self._convert_pt_to_image_coords([x, y]))
 
-        if self.do_keypoints_start_draw.isChecked():
+        if self.do_keypoints_background.isChecked():
             if b_del:
-                self._delete_key_point(kf.pts_2d_of_start, x, y)
+                self._delete_key_point(kf.pts_2d_background, x, y)
             else:
-                kf.pts_2d_of_start.append(self._convert_pt_to_image_coords([x, y]))
+                kf.pts_2d_background.append(self._convert_pt_to_image_coords([x, y]))
 
         if self.do_keypoints_depth_draw.isChecked():
-            if self.show_rgb_button.isChecked():
-                if b_del:
-                    self._delete_key_point(kf.pts_2d_rgb_depth, x, y)
-                else:
-                    kf.pts_2d_rgb_depth.append(self._convert_pt_to_image_coords([x, y]))
+            pts_list = self.pts_rgb_to_depth["rgb"]
+            b_do_depth = False
+            if not self.show_rgb_button.isChecked():
+                pts_list = self.pts_rgb_to_depth["depth"]
+                b_do_depth = True
+
+            if b_del:
+                self._delete_key_point(pts_list, x, y)
             else:
-                if b_del:
-                    self._delete_key_point(kf.pts_2d_depth, x, y)
-                else:
-                    kf.pts_2d_depth.append(self._convert_pt_to_image_coords([x, y], b_do_depth=True))
+                pts_list.append(self._convert_pt_to_image_coords([x, y], b_do_depth=b_do_depth))
 
     def get_key_points(self):
         if self.video_annot is None:
@@ -781,28 +809,24 @@ class DataAnnotationMainWindow(QMainWindow):
         kf = self.video_annot.keyframes[kf_indx]
 
         pts_and_colors = []
-        if self.do_keypoints_start_draw.isChecked():
-            pts_and_colors.append((kf.pts_2d_of_start, Qt.white))
+        if self.do_keypoints_background.isChecked():
+            pts_and_colors.append((kf.pts_2d_background, Qt.white))
             if kf_indx+1 < self.video_annot.n_keyframes():
                 kf_next = self.video_annot.keyframes[kf_indx + 1]
-                pts_and_colors.append((kf_next.pts_2d_of_end, Qt.yellow))
-        if self.do_keypoints_end_draw.isChecked():
-            pts_and_colors.append((kf.pts_2d_of_end, Qt.yellow))
-            if 0 <= kf_indx-1 < self.video_annot.n_keyframes():
-                kf_prev = self.video_annot.keyframes[kf_indx - 1]
-                pts_and_colors.append((kf_prev.pts_2d_of_start, Qt.white))
+                pts_and_colors.append((kf_next.pts_2d_background, Qt.yellow))
         if self.do_keypoints_depth_draw.isChecked():
             if self.show_rgb_button.isChecked():
                 # These can just go in to list
-                pts_and_colors.append((kf.pts_2d_rgb_depth, Qt.cyan))
-                pts_and_colors.append((kf.depth_pts_in_rgb(), Qt.green))
+                pts_and_colors.append((self.pts_rgb_to_depth["rgb"], Qt.cyan))
+                # TODO Use rgb matrix to convert
+                # pts_and_colors.append((kf.depth_pts_in_rgb(), Qt.green))
             else:
                 # for all of these points, convert to rgb first
                 pts_rgb = []
                 pts_depth = []
-                for pt in kf.rgb_pts_in_depth():
+                for pt in self.pts_rgb_to_depth["depth"]:
                     pts_rgb.append([pt[0] / self.x_rgb_to_depth, pt[1] / self.y_rgb_to_depth])
-                for pt in kf.pts_2d_depth:
+                for pt in self.pts_rgb_to_depth["depth"]:
                     pts_depth.append([pt[0] / self.x_rgb_to_depth, pt[1] / self.y_rgb_to_depth])
                 pts_and_colors.append((pts_rgb, Qt.cyan))
                 pts_and_colors.append((pts_depth, Qt.blue))

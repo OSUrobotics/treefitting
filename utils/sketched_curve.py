@@ -100,6 +100,27 @@ class SketchedCurve:
                     ret_sketch.add_crossbar_point(x, y)
         return ret_sketch
 
+    def convert_back_to_screen(self, lower_left, upper_right, width, height):
+        """ Make a copy of self with points in screen coordinates, not image
+        @param lower_left - lower left point of the image in the window
+        @param upper_right - upper right point of the image in the window
+        @param width - width of image
+        @param height - height of image
+        @returns SketchedCurve in coordinate system
+        """
+        ret_sketch = SketchedCurve()
+        for pt in self.backbone_pts:
+            x, y = SketchedCurve.convert_pt_back(pt, lower_left, upper_right, width, height)
+            ret_sketch.add_backbone_point(x, y)
+
+        for pts in self.cross_bars:
+            # Make sure pts has two elements
+            if len(pts) == 2:
+                for pt in pts:
+                    x, y = SketchedCurve.convert_pt_back(pt, lower_left, upper_right, width, height)
+                    ret_sketch.add_crossbar_point(x, y)
+        return ret_sketch
+
     def clear(self):
         self.backbone_pts = []
         self.cross_bars = []

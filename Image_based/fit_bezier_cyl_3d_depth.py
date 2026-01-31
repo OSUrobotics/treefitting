@@ -235,7 +235,7 @@ class FitBezierCyl3dDepth:
 
         mat = cam_proj.world_to_image
         if mat.shape == (3, 3):
-        mat_inv = np.linalg.inv(mat)
+            mat_inv = np.linalg.inv(mat)
 
         pts = []
         image_width = stats_depth["image_size"][0]

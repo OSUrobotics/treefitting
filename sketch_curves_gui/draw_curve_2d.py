@@ -27,7 +27,7 @@ class DrawCurve2D():
         self.upper_right = [1, 1]
         self.im_size = (0, 0)
 
-    def convert_pts(self, pts):
+    def convert_pts_image_gl(self, pts):
         pts[:, 0] = 2.0 * (pts[:, 0] / self.im_size[0] - 0.5)
         pts[:, 1] = -self.aspect_ratio * 2 * (pts[:, 1] / self.im_size[1] - 0.5)
         return pts
@@ -41,7 +41,7 @@ class DrawCurve2D():
             pts[0, indx] = self.im_size[indx] / 2.0
             pts[1, indx] = pts[0, indx] + vec[indx]
 
-        pts_c = self.convert_pts(pts)
+        pts_c = self.convert_pts_image_gl(pts)
 
         GL.glDisable(GL.GL_LIGHTING)
         GL.glLineWidth(4)
@@ -82,7 +82,7 @@ class DrawCurve2D():
         GL.glBegin(GL.GL_LINE_STRIP)
         col_start = 0.5
         col_div = 0.5 / (len(pts) - 1.0)
-        pts_backbone = self.convert_pts(pts)
+        pts_backbone = self.convert_pts_image_gl(pts)
         for p in pts_backbone:
             GL.glColor3d(col_start, col_start, col_start)
             GL.glVertex2d(p[0], p[1])
@@ -90,8 +90,8 @@ class DrawCurve2D():
         GL.glEnd()
 
         # Do the edges
-        edge_pts_left = self.convert_pts(edge_pts_left)
-        edge_pts_right = self.convert_pts(edge_pts_right)
+        edge_pts_left = self.convert_pts_image_gl(edge_pts_left)
+        edge_pts_right = self.convert_pts_image_gl(edge_pts_right)
 
         GL.glLineWidth(3)
         for pts in (edge_pts_left, edge_pts_right):
@@ -130,7 +130,7 @@ class DrawCurve2D():
             for j, r in enumerate((rl, rr)):
                 GL.glColor3f(0.5 + i * col_incr, 0.3 + j * 0.3, 0.5 + i * col_incr)
                 GL.glBegin(GL.GL_LINE_LOOP)
-                pts = self.convert_pts(r)
+                pts = self.convert_pts_image_gl(r)
                 for p in pts:
                     GL.glVertex2d(p[0], p[1])
                 GL.glEnd()
@@ -157,7 +157,7 @@ class DrawCurve2D():
         for i, r in enumerate(rects):
             GL.glColor3f(0.5 + i * col_incr, 0.6, 0.5 + i * col_incr)
             GL.glBegin(GL.GL_LINE_LOOP)
-            pts = self.convert_pts(r)
+            pts = self.convert_pts_image_gl(r)
             for p in pts:
                 GL.glVertex2d(p[0], p[1])
             GL.glEnd()
@@ -173,7 +173,7 @@ class DrawCurve2D():
         for i, pt_reconstruct in enumerate(crv_pts):
             pts_reconstruct[i, 0] = pt_reconstruct[0]
             pts_reconstruct[i, 1] = pt_reconstruct[1]
-        pts = self.convert_pts(pts_reconstruct)
+        pts = self.convert_pts_image_gl(pts_reconstruct)
 
         GL.glPointSize(4.0)
         GL.glBegin(GL.GL_POINTS)
