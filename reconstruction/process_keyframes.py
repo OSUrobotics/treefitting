@@ -870,14 +870,26 @@ class PointTrackerKeyFrames():
             pt_list = PointList(self.crv_pt_locations_3d[crv_indx])
             crv_fit = BSplineCurveFit(pt_list, fit_params)
             crv_3d = BSplineCyl3d(ctrl_pts=self.crv_pt_locations_3d[crv_indx], degree="cubic", radii=self.crv_radii_from_2d_crv[crv_indx])
-            curve_fit, _ = crv_fit.initial_fit(crv_3d, pt_list)
-            self.va_data.crvs_3d.append(BSplineCyl3d(ctrl_pts=curve_fit.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx]))
+            crv_3d_init, _ = crv_fit.initial_fit(crv_3d, pt_list)
+            crv_3d_final, _, _ = crv_fit.fit_project_fit(crv_3d_init, pt_list, params=fit_params)
+            len_pt_list = 0.0
+            print(f"Crv {crv_indx}", end="")
+            for pt_indx in range(0, pt_list.n_points()-1):
+                pt1 = pt_list.point(pt_indx)
+                pt2 = pt_list.point(pt_indx+1)
+                dpt = np.sqrt((pt1[0] - pt2[0])**2 + (pt1[1] - pt2[1])**2 + (pt1[2] - pt2[2])**2)
+                print(f" {dpt}", end="")
+                len_pt_list += dpt
+            print(f" Total {len_pt_list} {crv_3d_final.curve_length()}")
+            self.va_data.crvs_3d.append(BSplineCyl3d(ctrl_pts=crv_3d_final.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx]))
             crv_3d.set_mesh_dimensions(12, 32)
             crv_3d.make_mesh()
             crv_3d.write_mesh(f"check_3d_bezier{crv_indx}.obj")
-            fname = f"bush_3_cyl{crv_indx}.json"
+            fname = f"bush_1_cyl{crv_indx}.json"
             with open(fname, "w") as f:
                 json.dump(crv_3d.write_json(), f, indent=2)
+            fname = f"bush_1_cyl{crv_indx}_pts.json"
+            self.write_3d_pts(fname)
 
     def debug_images(self, va : VideoAnnotationData):
         """ Produce images with tracks on both rgb and depth (if 3D points given)
