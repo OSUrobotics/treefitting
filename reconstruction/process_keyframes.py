@@ -465,7 +465,7 @@ class PointTrackerKeyFrames():
         scl_quadratic = []
         for crv_indx in range(0, self.n_curves):
             print(f"crv {crv_indx}: ", end="")
-            for pt_indx in range(0, self.n_pts_per_curve[crv_indx] - 1):
+            for pt_indx in range(self.n_pts_per_curve[crv_indx] - 3, self.n_pts_per_curve[crv_indx] - 1):
                 pt1 = np.array(self.crv_pt_locations_3d[crv_indx][pt_indx])
                 pt2 = np.array(self.crv_pt_locations_3d[crv_indx][pt_indx+1])
                 len_seg = np.linalg.norm(pt1 - pt2)
@@ -865,12 +865,13 @@ class PointTrackerKeyFrames():
         from fit_routines.b_spline_curve_fit import BSplineCurveFit
         from tree_geometry.point_lists import PointList
 
+        self.va_data.crvs_3d = []
         for crv_indx in range(0, self.n_curves):
             pt_list = PointList(self.crv_pt_locations_3d[crv_indx])
             crv_fit = BSplineCurveFit(pt_list, fit_params)
             crv_3d = BSplineCyl3d(ctrl_pts=self.crv_pt_locations_3d[crv_indx], degree="cubic", radii=self.crv_radii_from_2d_crv[crv_indx])
             curve_fit, _ = crv_fit.initial_fit(crv_3d, pt_list)
-            crv_3d = BSplineCyl3d(ctrl_pts=curve_fit.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx])
+            self.va_data.crvs_3d.append(BSplineCyl3d(ctrl_pts=curve_fit.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx]))
             crv_3d.set_mesh_dimensions(12, 32)
             crv_3d.make_mesh()
             crv_3d.write_mesh(f"check_3d_bezier{crv_indx}.obj")
@@ -1038,6 +1039,202 @@ class PointTrackerKeyFrames():
             fname = va.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
             cv2.imwrite(fname, im_depth)
 
+    def write_3d_pts(self, fname):
+        dict_pts = {"background_pts": [],
+                    "crv_pts": [],
+                    "cam_trans": [],
+                    "cam_rot": []}
+        for pt in self.pt_locations_3d:
+            dict_pts["background_pts"].append([float(pt[0]), float(pt[1]), float(pt[2])])
+        for crv in self.crv_pt_locations_3d:
+            dict_pts["crv_pts"].append([])
+            for pt in crv:
+                dict_pts["crv_pts"][-1].append([pt[0], pt[1], pt[2]])
+        for trans_vec in self.trans_vecs:
+            dict_pts["cam_trans"].append([float(trans_vec[0]), float(trans_vec[1]), float(trans_vec[2])])
+        for rot_mat in self.rot_matrices:
+            dict_pts["cam_rot"].append([])
+            for r in range(0, 3):
+                dict_pts["cam_rot"][-1].append([])
+                for c in range(0, 3):
+                    dict_pts["cam_rot"][-1][-1].append(float(rot_mat[r, c]))
+
+        with open(fname, 'w') as f:
+            json.dump(dict_pts, f, indent=4)
+
+
+
+#  non methods
+
+def debug_3d_images(self, va: VideoAnnotationData):
+    """ Produce images with tracks on both rgb and depth (if 3D points given)
+    Assumes pt_locations_2d and/or crv_pt_locations_2d have been created already
+    @param va - video annotation (for where to put the images)
+    @param valid_kf the keyframes for which we have 2d points"""
+    from draw_routines.image_draw_geom_utils import draw_cross, draw_line, draw_box
+
+    count = 0
+    thickness = 4
+    """
+    # RGB images - draw projected 3d fitted curves
+    #   Use boxes for user click points
+    for kf_indx, kf in zip(self.kf_indices, self.valid_keyframes):
+        fname_rgb = va.get_image_name((0, kf_indx, 0, 0))
+        im_rgb = cv2.imread(fname_rgb)
+
+        # Draw the original clicked curve points in white
+        for mask in kf.sketch_curves:
+            for crv in mask:
+                for pt in crv.backbone_pts:
+                    draw_box(im_rgb, pt, color=[200, 200, 200], width=4 * thickness)
+
+        # Draw the projected 3d curves
+        if self.pose_matrices is not [] and self.crv_pt_locations_3d is not []:
+            for crv_indx in range(0, len(self.crv_pt_locations_3d)):
+                crv_pts_3d = np.array(self.crv_pt_locations_3d[crv_indx], dtype=np.float64)
+                crv_pts_proj = cv2.projectPoints(crv_pts_3d,
+                                                 rvec=self.rot_matrices[count],
+                                                 tvec=self.trans_vecs[count],
+                                                 cameraMatrix=cam_rgb.world_to_image,
+                                                 distCoeffs=cam_rgb.image_distortion_coefs)
+                for pt_indx in range(0, crv_pts_3d.shape[0]):
+                    pt = crv_pts_proj[0][pt_indx, 0, :]
+                    draw_cross(im_rgb, pt, color=[20, 220, 200], thickness=thickness)
+                    if pt_indx == 0:
+                        pt_prev = pt
+                    else:
+                        pt_prev = crv_pts_proj[0][pt_indx - 1, 0, :]
+                    draw_line(im_rgb, pt, pt_prev, color=[20, 20, 200], thickness=thickness // 2)
+
+        # Draw the projected background points
+        if self.pose_matrices is not [] and self.pt_locations_3d is not []:
+            pts_proj = cv2.projectPoints(pts_3d,
+                                         rvec=self.rot_matrices[count],
+                                         tvec=self.trans_vecs[count],
+                                         cameraMatrix=cam_rgb.world_to_image,
+                                         distCoeffs=cam_rgb.image_distortion_coefs)
+            for pt_indx in range(0, pts_proj[0].shape[0]):
+                pt_row = pts_proj[0][pt_indx]
+                draw_box(im_rgb, pt_row, color=[100, 150, 200], width=thickness * 2)
+
+        count = count + 1
+        fname = va.get_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
+        cv2.imwrite(fname, im_rgb)
+
+    # Now do the depth images
+    count = 0
+    pt3d = np.ones((3, 1))
+    for kf_indx, kf in zip(self.kf_indices, self.valid_keyframes):
+        fname_depth = va.get_depth_image_name((0, kf_indx, 0, 0))
+        im_depth = cv2.imread(fname_depth)
+
+        # Draw the 2D background points mapped via the intrinsic matrix to the depth image
+        k_rgb_inv = np.linalg.inv(self.rgb_camera.world_to_image)
+        k_depth = self.depth_camera.world_to_image
+        for bp in kf.pts_2d_background:
+            pt3d[0] = bp[0]
+            pt3d[1] = bp[1]
+            pt_depth = k_depth @ k_rgb_inv @ pt3d
+            draw_box(im_depth, pt_depth[0:2].transpose(), color=[200, 200, 200], width=4 * thickness)
+
+        # Draw the curve points saved in crv_pts_2d, with lines between them
+        pt_prev = np.copy(pt3d)
+        pt_prev_direct = np.copy(pt3d)
+        for crv in self.crv_pt_locations_2d[count]:
+            for pt_indx, pt in enumerate(crv):
+                # Purple - just use the k matrices to map the 2d image point to the 2d depth point
+                pt3d[0] = pt[0]
+                pt3d[1] = pt[1]
+                pt_depth = k_depth @ k_rgb_inv @ pt3d
+                draw_cross(im_depth, pt_depth[0:2].transpose(), color=[250, 20, 200], thickness=2 * thickness)
+                if pt_indx != 0:
+                    draw_line(im_depth, pt_depth[0:2].transpose(), pt_prev, color=[250, 20, 200], thickness=thickness)
+                pt_prev = np.copy(pt_depth[0:2].transpose())
+
+                # Blue - Use the hand-fitted matrix to map the rgb point to the depth image
+                pt_depth_direct = va.matrix_rgb_to_depth @ pt3d
+                draw_cross(im_depth, pt_depth_direct[0:2].transpose(), color=[250, 120, 100], thickness=2 * thickness)
+                if pt_indx != 0:
+                    draw_line(im_depth, pt_depth_direct[0:2].transpose(), pt_prev_direct, color=[250, 120, 100],
+                              thickness=thickness)
+                pt_prev_direct = np.copy(pt_depth_direct[0:2].transpose())
+
+        # Draw the projected 3d curves
+        if self.pose_matrices is not [] and self.crv_pt_locations_3d is not []:
+            for crv_indx in range(0, len(self.crv_pt_locations_3d)):
+                crv_pts_3d = np.array(self.crv_pt_locations_3d[crv_indx], dtype=np.float64)
+                crv_pts_proj = cv2.projectPoints(crv_pts_3d,
+                                                 rvec=self.rot_matrices[count],
+                                                 tvec=self.trans_vecs[count],
+                                                 cameraMatrix=self.depth_camera.world_to_image,
+                                                 distCoeffs=self.depth_camera.image_distortion_coefs)
+                for pt_indx in range(0, crv_pts_3d.shape[0]):
+                    pt = crv_pts_proj[0][pt_indx, 0, :]
+                    draw_cross(im_depth, pt, color=[20, 220, 200], thickness=thickness)
+                    if pt_indx == 0:
+                        pt_prev = pt
+                    else:
+                        pt_prev = crv_pts_proj[0][pt_indx - 1, 0, :]
+                    # Red - Project the 3D point to the image using the depth camera information
+                    draw_line(im_depth, pt, pt_prev, color=[20, 20, 200], thickness=thickness // 2)
+
+        # Draw the projected background points
+        if self.pose_matrices is not [] and self.pt_locations_3d is not []:
+            pts_proj = cv2.projectPoints(pts_3d,
+                                         rvec=self.rot_matrices[count],
+                                         tvec=self.trans_vecs[count],
+                                         cameraMatrix=self.depth_camera.world_to_image,
+                                         distCoeffs=self.depth_camera.image_distortion_coefs)
+            for pt_indx in range(0, pts_proj[0].shape[0]):
+                pt_row = pts_proj[0][pt_indx]
+                draw_box(im_depth, pt_row, color=[100, 150, 200], width=thickness * 2)
+
+        count = count + 1
+        fname = va.get_depth_image_name((0, kf_indx, 0, 0), b_debug_path=True, b_add_tag=False) + "_pts2d.png"
+        cv2.imwrite(fname, im_depth)"""
+
+def project_pc_on_image(cam : CameraProjections, fn_data: FileNamesSubDirs, fname:str, frame:int):
+    """Read in the vertices of a point cloud and project onto the image of the frame
+    @param cam: camera projections object
+    @param fn_data: video annotation data,
+    @param fname : name of obj etc file
+    @param frame : frame number"""
+
+    from draw_routines.image_draw_geom_utils import draw_cross, draw_line, draw_box
+
+    pts_3d = []
+    with open(fname, "r") as f:
+        for line in f:
+            numbers = line.split()
+            if numbers[0] == 'v':
+                pts_3d.append([float(numbers[1]), float(numbers[2]), float(numbers[3])])
+
+    pts_3d_as_np = np.array(pts_3d).transpose()
+    pts_proj = cv2.projectPoints(pts_3d_as_np,
+                                 rvec=np.identity(3),
+                                 tvec=np.zeros((3, 1)),
+                                 cameraMatrix=cam.world_to_image,
+                                 distCoeffs=cam.image_distortion_coefs)
+    # pts_2d = cam.world_to_image @ pts_3d_as_np
+    pts_2d = pts_proj[0].squeeze()
+    # RGB images - draw sketch curves, projected sketch curves, background points
+    #   Use boxes for user click points
+    str_frame = f"{frame}"
+    for indx_im, im_name in enumerate(va.loop_images()):
+        im_fname = va.get_image_name_no_path((0, indx_im, 0, 0))
+        if str_frame in im_fname:
+            im_rgb = cv2.imread(va.get_image_name((0, indx_im, 0, 0)))
+
+            for indx in range(0, pts_2d.shape[0]):
+                #pt_x = pts_proj[0, indx] / pts_proj[2, indx]
+                #pt_y = pts_proj[1, indx] / pts_proj[2, indx]
+                pt_x = pts_2d[indx, 0]
+                pt_y = pts_2d[indx, 1]
+                pt_uv = [pt_x, pt_y]
+                draw_cross(im_rgb, pt_uv, color=[200, 200, 200])
+
+            fname = va.get_image_name((0, indx_im, 0, 0), b_debug_path=True, b_add_tag=False) + "_pc.png"
+            cv2.imwrite(fname, im_rgb)
 
 
 if __name__ == "__main__":
@@ -1045,17 +1242,21 @@ if __name__ == "__main__":
     import json
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', default="make_3d", type=str, help="One of: make_3d")
+    parser.add_argument('--action', default="make_3d", type=str, help="One of: make_3d project_pc")
+    #parser.add_argument('--action', default="make_3d", type=str, help="One of: make_3d project_pc")
     parser.add_argument('--dest_path', default="PycharmProjects/data/", type=str, help="where tree/bush data is stored")
     parser.add_argument('--bush_tree_name', default="bush_3_east", type=str, help="Tree or bush name")
     parser.add_argument('--annot', default="video_annot_final.json", type=str, help="which video annotation to use")
+    #parser.add_argument('--annot', default="video_annot_final.json", type=str, help="which video annotation to use")
     parser.add_argument('--key_frame', default=-1, type=int, help="which key frame, set to -1 for all")
     parser.add_argument('--mask', default=-1, type=int, help="which mask, set to -1 for all")
     parser.add_argument('--mask_id', default=-1, type=int, help="which curve, set to -1 for all")
     parser.add_argument('--camera', default="azure", type=str, help="Camera, one of azure, intel TODO")
-    parser.add_argument('--start_index', default=149, type=int, help="Start index for copy tree/bush")
+    parser.add_argument('--start_index', default=325, type=int, help="Start index for copy tree/bush")
+    #parser.add_argument('--start_index', default=149, type=int, help="Start index for copy tree/bush")
     parser.add_argument('--end_index', default=-1, type=int, help="End index for copy tree/bush, -1 is all")
     parser.add_argument('--skip_index', default=30, type=int, help="skip frames for copy tree/bush, 10 for tree, 32 for blueberry")
+    parser.add_argument('--pc_fname', default="B3cloud_middle.obj", type=str, help="Filename of vertices")
 
     args = parser.parse_args()
 
@@ -1068,7 +1269,10 @@ if __name__ == "__main__":
     print(f"Annotation file {va_fname}")
     with open(va_fname, "r") as f:
         my_dict = json.load(f)
-        va = VideoAnnotationData.read_json(my_dict)
+        if my_dict["Name"] == "Video_annotation_data":
+            va = VideoAnnotationData.read_json(my_dict)
+        elif my_dict["Name"] == "FileNamesSubDirs":
+            va = FileNamesSubDirs.read_json(my_dict)
 
     cam_rgb = CameraProjections(camera_fname=("azure_camera.json", "rgb_half_size"),
                                 camera_calibration_fname=("azure_camera_calibration.json", "color"),
@@ -1083,23 +1287,29 @@ if __name__ == "__main__":
         cam_depth = CameraProjections(camera_fname=("azure_camera.json", "depth_narrow_unbinned"),
                                       camera_calibration_fname=("azure_camera_calibration.json", "depth"),
                                       params={})
-    pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth)
-    pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
-    pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
-    # 10.16cm is 4 inches
-    pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
-    pt_kf.debug_images(va)
-    pt_kf.est_depth = -pt_kf.crv_pt_locations_3d[0][1][2]
-    pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
-    pt_kf.radii_for_curves()
-    fit_params = BSplineFitParams()
-    fit_params["inlier threshold"] = 8
-    fit_params["average fit"] = 2.0
-    fit_params["outlier ratio"] = 0.0
-    fit_params["degree"] = "cubic"
-    pt_kf.fit_3d_curves(fit_params)
-    pt_kf.debug_images(va)
-    # pt_kf.point_depth_from_image()
-    # pt_kf.crv_point_depth_from_image()
+    if args.action == "project_pc":
+        project_pc_on_image(cam=cam_rgb, fn_data=va, fname=path_full + args.pc_fname, frame=args.start_index)
+
+    if args.action == "make_3d":
+        pt_kf = PointTrackerKeyFrames(va_data=va, rgb_camera=cam_rgb, depth_camera=cam_depth)
+        pts_2d, vecs, valid_kfs = pt_kf.collect_background_points(b_is_horizontal=True)
+        pts_2d_crvs = pt_kf.collect_crv_points(vecs, valid_kfs)
+        # 10.16cm is 4 inches
+        pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
+        pt_kf.write_3d_pts("solve_3d_pts.json")
+        pt_kf.debug_images(va)
+        pt_kf.est_depth = -pt_kf.crv_pt_locations_3d[0][1][2]
+        pt_kf.solve_3d_pts(seq_length=10.16, iters=6)
+        pt_kf.write_3d_pts("solve_3d_pts2.json")
+        pt_kf.radii_for_curves()
+        fit_params = BSplineFitParams()
+        fit_params["inlier threshold"] = 8
+        fit_params["average fit"] = 2.0
+        fit_params["outlier ratio"] = 0.0
+        fit_params["degree"] = "cubic"
+        pt_kf.fit_3d_curves(fit_params)
+        pt_kf.debug_images(va)
+        # pt_kf.point_depth_from_image()
+        # pt_kf.crv_point_depth_from_image()
 
     print(f"Done")

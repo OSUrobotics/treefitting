@@ -55,6 +55,7 @@ class VideoAnnotationData(FileNames):
         self.end_index = -1
 
         self.sketch_points_3d = []
+        self.crvs_3d = []
         self.matrix_rgb_to_depth = np.identity(3)
         self.keyframes = []
 
@@ -232,7 +233,10 @@ class VideoAnnotationData(FileNames):
                    "end_index" : self.end_index,
                    "skip_index" : self.skip_index,
                    "sketch_points_3d" : self.sketch_points_3d,
-                   "matrix_rgb_to_depth" : self.matrix_rgb_to_depth.tolist()}
+                   "matrix_rgb_to_depth" : self.matrix_rgb_to_depth.tolist(),
+                   "crvs_3d" : [] }
+        for crv in self.crvs_3d:
+            my_dict["crvs_3d"].append(crv.write_json())
         return my_dict
 
     @staticmethod
@@ -240,6 +244,8 @@ class VideoAnnotationData(FileNames):
         """ Read back in from json file
         @param json_dict - dictionary read in from file
         @param video_annotation_instance - an existing of this class to put the data in"""
+        from b_spline_cyl_3d import BSplineCyl3d
+
         if json_dict["Name"] != "Video_annotation_data":
             raise ValueError(f"This is not a video_annotation_instance dictionary {json_dict}")
 
@@ -260,6 +266,10 @@ class VideoAnnotationData(FileNames):
             video_annotation_instance.matrix_rgb_to_depth = np.array(json_dict["matrix_rgb_to_depth"])
         if "sketch_points_3d" in json_dict:
             video_annotation_instance.sketch_points_3d = json_dict["sketch_points_3d"]
+        if "crvs_3d" in json_dict:
+            video_annotation_instance.crvs_3d = []
+            for crv_dict in json_dict["crvs_3d"]:
+                video_annotation_instance.crvs_3d.append(BSplineCyl3d.read_json(crv_dict))
 
         return video_annotation_instance
 
