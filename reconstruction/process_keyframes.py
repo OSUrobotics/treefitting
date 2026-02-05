@@ -888,6 +888,7 @@ class PointTrackerKeyFrames():
             fname = f"bush_1_cyl{crv_indx}.json"
             with open(fname, "w") as f:
                 json.dump(crv_3d.write_json(), f, indent=2)
+
             fname = f"bush_1_cyl{crv_indx}_pts.json"
             self.write_3d_pts(fname)
 
