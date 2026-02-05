@@ -31,6 +31,9 @@
 # Image generated data (key frame)
 #   Generate a mask image for each trunk/branch
 #
+# Data set: Digital berries/Datasets/2024/Riverbend Farm_5 April 2024Digital berries/Datasets/2024/Riverbend Farm_5 April 2024
+# https://docs.google.com/spreadsheets/d/153dD9439q4jWMJDFFGjiI4Ez-WNmv3HbYQEq2_FjwtA/edit?usp=sharing
+# https://docs.google.com/presentation/d/1334kmM_dOyAWyDPob_ZQNf7sxLo88_kX1r4042m80sQ/edit
 
 import numpy as np
 from utils.file_names import FileNames
