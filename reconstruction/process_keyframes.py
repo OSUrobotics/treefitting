@@ -882,9 +882,9 @@ class PointTrackerKeyFrames():
                 len_pt_list += dpt
             print(f" Total {len_pt_list} {crv_3d_final.curve_length()}")
             self.va_data.crvs_3d.append(BSplineCyl3d(ctrl_pts=crv_3d_final.points(), degree=fit_params["degree"], radii=self.crv_radii_from_2d_crv[crv_indx]))
-            crv_3d.set_mesh_dimensions(12, 32)
-            crv_3d.make_mesh()
-            crv_3d.write_mesh(f"check_3d_bezier{crv_indx}.obj")
+            self.va_data.crvs_3d[-1].set_mesh_dimensions(12, 32)
+            self.va_data.crvs_3d[-1].make_mesh()
+            self.va_data.crvs_3d[-1].write_mesh(f"bush_1_{crv_indx}.obj")
             fname = f"bush_1_cyl{crv_indx}.json"
             with open(fname, "w") as f:
                 json.dump(crv_3d.write_json(), f, indent=2)

@@ -284,10 +284,11 @@ class FileNamesSubDirs:
 
         return im_name
 
-    def get_image_name(self, index, b_debug_path=False, b_add_tag=True):
+    def get_image_name(self, index, b_debug_path=False, b_calculate_path=False, b_add_tag=True):
         """ Get the image name corresponding to the index given by (subdirectory index, image index, -)
         @param index (tuple, either 2 dim or 3 dim, index into sorted lists)
         @param b_debug_path - use debug path y/n
+        @param b_calculate_path - use calculated path y/n
         @param b_add_tag - add the image tag, y/n
         @return full image name with path"""
 
@@ -295,6 +296,8 @@ class FileNamesSubDirs:
 
         if b_debug_path:
             im_name = self.path_debug
+        elif b_calculate_path:
+            im_name = self.path_calculated
         else:
             im_name = self.path
 
